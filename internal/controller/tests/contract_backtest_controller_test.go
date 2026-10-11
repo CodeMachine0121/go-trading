@@ -1,7 +1,6 @@
 package controller_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,9 +42,8 @@ const contractBacktestBody = `{
 
 type contractBacktestRouterUnderTest struct {
 	engine                          *gin.Engine
-	kCandleContractRepository       *mocks.MockIKCandleContractRepository
+	runs                            routerBacktestRuns
 	contractTradingSymbolRepository *mocks.MockIContractTradingSymbolRepository
-	contractIndicatorScriptProxy    *mocks.MockIContractIndicatorScriptProxy
 	tradingStrategyRepository       *mocks.MockITradingStrategyRepository
 }
 
@@ -89,28 +87,29 @@ func newContractBacktestRouterUnderTest(t *testing.T) contractBacktestRouterUnde
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	backtestService := service.NewBacktestService(
 		mocks.NewMockIKCandleRepository(mockController), mocks.NewMockIIndicatorScriptProxy(mockController),
-		clockProxy, queryMaxResults, time.Minute)
+		clockProxy, queryMaxResults, 0)
 	contractBacktestService := service.NewContractBacktestService(
 		kCandleContractRepository, settlementRepository, statisticRepository,
-		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, clockProxy, queryMaxResults, time.Minute)
+		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0)
 
-	backtestController := controller.NewBacktestController(
-		application.NewBacktestApplication(strategyScriptService, backtestService, contractBacktestService))
+	runs := newRouterBacktestRuns(t, mockController, clockProxy, backtestService, contractBacktestService)
+
+	backtestController := controller.NewBacktestController(application.NewBacktestApplication(
+		strategyScriptService, backtestService, contractBacktestService, runs.backtestRunService))
 	tradingStrategyBacktestController := controller.NewTradingStrategyBacktestController(
 		application.NewTradingStrategyBacktestApplication(
 			service.NewTradingStrategyService(tradingStrategyRepository),
-			strategyScriptService, backtestService, contractBacktestService))
+			strategyScriptService, backtestService, contractBacktestService, runs.backtestRunService, time.Minute))
 
 	engine := gin.New()
-	engine.POST("/contract-backtests", doorOpenFor(t, signedInViewerID), backtestController.RunContractBacktest)
+	engine.POST("/contract-backtests", doorOpenFor(t, signedInViewerID), backtestController.SubmitContractBacktest)
 	engine.POST("/trading-strategies/:id/contract-backtests", doorOpenFor(t, signedInViewerID),
-		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
+		tradingStrategyBacktestController.SubmitContractTradingStrategyBacktest)
 
 	return contractBacktestRouterUnderTest{
 		engine:                          engine,
-		kCandleContractRepository:       kCandleContractRepository,
+		runs:                            runs,
 		contractTradingSymbolRepository: contractTradingSymbolRepository,
-		contractIndicatorScriptProxy:    contractIndicatorScriptProxy,
 		tradingStrategyRepository:       tradingStrategyRepository,
 	}
 }
@@ -125,7 +124,7 @@ func (fixture contractBacktestRouterUnderTest) post(path string, body string) *h
 	return recorder
 }
 
-func (fixture contractBacktestRouterUnderTest) expectASpecifiedSymbolWithTwoBars() {
+func (fixture contractBacktestRouterUnderTest) expectASpecifiedSymbol() {
 	confirmedAt := backtestRouterStart
 	fundingIntervalHours := 8
 	fixture.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
@@ -136,303 +135,203 @@ func (fixture contractBacktestRouterUnderTest) expectASpecifiedSymbolWithTwoBars
 			FundingIntervalHours:   &fundingIntervalHours,
 			SpecificationUpdatedAt: &confirmedAt,
 		}, true, nil).AnyTimes()
+}
 
-	kCandleContracts := make([]entities.KCandleContract, 0, 2)
-	for hour, closePrice := range []string{"100", "110"} {
-		price := decimal.RequireFromString(closePrice)
-		kCandleContracts = append(kCandleContracts, entities.KCandleContract{
-			Symbol: "BTCUSDT", OpenTime: backtestRouterStart.Add(time.Duration(hour) * time.Hour),
-			Open: price, High: price, Low: price, Close: price,
-			MarkOpen: price, MarkHigh: price, MarkLow: price, MarkClose: price,
-		})
+// aContractRouterStrategy is the signed-in viewer's one-source contract strategy under the given trading mode.
+func aContractRouterStrategy(tradingMode string) entities.TradingStrategy {
+	return entities.TradingStrategy{
+		ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
+		MarketDataKind: "contractKCandle", TradingMode: tradingMode,
+		SignalSources: []entities.TradingStrategySignalSource{{
+			Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
+		}},
+		ConditionNodes: []entities.TradingStrategyConditionNode{
+			{ID: 1, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
+			{ID: 2, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
+		},
 	}
-	fixture.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(kCandleContracts, nil).AnyTimes()
 }
 
-func TestRunContractBacktestEndpoint(t *testing.T) {
-	t.Run("a completed contract replay comes back with its contract report card", func(t *testing.T) {
+const contractTradingStrategyBacktestBody = `{
+	"symbol":"BTCUSDT",
+	"startTime":"2026-08-29T00:00:00Z",
+	"endTime":"2026-08-29T04:00:00Z",
+	"initialCapital":"10000",
+	"leverage":"5"
+	%s
+}`
+
+func TestSubmitContractBacktestEndpoint(t *testing.T) {
+	t.Run("a valid contract replay is queued with its leverage and trading mode", func(t *testing.T) {
 		fixture := newContractBacktestRouterUnderTest(t)
-		fixture.expectASpecifiedSymbolWithTwoBars()
-		fixture.contractIndicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
-			}, nil)
+		fixture.expectASpecifiedSymbol()
+		saved := fixture.runs.expectQueued()
 
-		response := fixture.post("/contract-backtests",
-			fmt.Sprintf(contractBacktestBody, 9, `,"tradingMode":"longOnly"`))
+		response := fixture.post("/contract-backtests", fmt.Sprintf(contractBacktestBody, 9,
+			`,"tradingMode":"longOnly","fillTiming":"nextOpen","validationStartTime":"2026-08-29T01:00:00Z"`))
 
-		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-		var body struct {
-			TradingMode string `json:"tradingMode"`
-			Leverage    string `json:"leverage"`
-			Summary     struct {
-				LiquidationExitCount   int    `json:"liquidationExitCount"`
-				TotalFundingFee        string `json:"totalFundingFee"`
-				LongTradeCount         int    `json:"longTradeCount"`
-				MaintenanceMarginBasis struct {
-					Kind string `json:"kind"`
-				} `json:"maintenanceMarginBasis"`
-			} `json:"summary"`
-			ClosedTrades []struct {
-				Direction string `json:"direction"`
-				Profit    string `json:"profit"`
-			} `json:"closedTrades"`
-		}
+		require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+		body := map[string]any{}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "longOnly", body.TradingMode)
-		assert.Equal(t, "5", body.Leverage)
-		assert.Equal(t, 1, body.Summary.LongTradeCount)
-		assert.Equal(t, "smallestTier", body.Summary.MaintenanceMarginBasis.Kind)
-		require.Len(t, body.ClosedTrades, 1)
-		assert.Equal(t, "long", body.ClosedTrades[0].Direction)
-		assert.Equal(t, "5000", body.ClosedTrades[0].Profit)
+		assert.Equal(t, "contractScript", body["kind"])
+		assert.Equal(t, "queued", body["status"])
+		assert.Equal(t, "5", body["leverage"])
+		assert.Equal(t, "longOnly", body["tradingMode"])
+		assert.Equal(t, float64(contractRouterScriptID), body["strategyScriptId"])
+		assert.NotContains(t, body, "result")
+		require.NotNil(t, saved.Request.ContractScript)
+		assert.Equal(t, "nextOpen", saved.Request.ContractScript.FillTiming)
+		assert.True(t, backtestRouterStart.Add(time.Hour).Equal(saved.Request.ContractScript.ValidationStartTime))
 	})
 
-	t.Run("a K candle strategy script is refused as the caller's choice, not a script failure", func(t *testing.T) {
+	t.Run("a written script is queued as written, knobs included", func(t *testing.T) {
 		fixture := newContractBacktestRouterUnderTest(t)
+		fixture.expectASpecifiedSymbol()
+		saved := fixture.runs.expectQueued()
 
-		response := fixture.post("/contract-backtests",
-			fmt.Sprintf(contractBacktestBody, 10, ""))
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), "吃的是 K 線")
-	})
-
-	t.Run("a refused figure names the field it came from", func(t *testing.T) {
-		fixture := newContractBacktestRouterUnderTest(t)
-		fixture.expectASpecifiedSymbolWithTwoBars()
-
-		response := fixture.post("/contract-backtests",
-			fmt.Sprintf(contractBacktestBody, 9, `,"slippagePercentage":"-1"`))
-
-		require.Equal(t, http.StatusBadRequest, response.Code)
-		var body struct {
-			Field string `json:"field"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "slippage", body.Field)
-	})
-}
-
-func TestRunContractTradingStrategyBacktestEndpoint(t *testing.T) {
-	t.Run("a trading mode sent with the replay is refused naming the field", func(t *testing.T) {
-		fixture := newContractBacktestRouterUnderTest(t)
-		fixture.expectASpecifiedSymbolWithTwoBars()
-		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-			Return(entities.TradingStrategy{
-				ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
-				MarketDataKind: "contractKCandle", TradingMode: "longShort",
-				SignalSources: []entities.TradingStrategySignalSource{{
-					Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
-				}},
-				ConditionNodes: []entities.TradingStrategyConditionNode{
-					{ID: 1, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
-					{ID: 2, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
-				},
-			}, nil)
-
-		response := fixture.post("/trading-strategies/11/contract-backtests", `{
+		response := fixture.post("/contract-backtests", `{
 			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
 			"startTime":"2026-08-29T00:00:00Z",
 			"endTime":"2026-08-29T04:00:00Z",
-			"initialCapital":"10000",
-			"tradingMode":"shortOnly"
+			"script":"written here",
+			"parameters":[{"name":"回看根數","kind":"lookbackCount","defaultValue":20}],
+			"parameterValues":[{"name":"回看根數","value":5}],
+			"initialCapital":"10000"
 		}`)
 
-		require.Equal(t, http.StatusBadRequest, response.Code)
-		var body struct {
-			Field string `json:"field"`
-		}
+		require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+		assert.Equal(t, "written here", saved.Request.ContractScript.Script)
+		assert.Equal(t, 5.0, saved.Request.ContractScript.ParameterValues[0].Value)
+		assert.Nil(t, saved.StrategyScriptID)
+	})
+
+	t.Run("a contract trading strategy is queued under its own trading mode and name", func(t *testing.T) {
+		fixture := newContractBacktestRouterUnderTest(t)
+		fixture.expectASpecifiedSymbol()
+		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
+			Return(aContractRouterStrategy("longOnly"), nil)
+		fixture.runs.expectQueued()
+
+		response := fixture.post("/trading-strategies/11/contract-backtests",
+			fmt.Sprintf(contractTradingStrategyBacktestBody, ""))
+
+		require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+		body := map[string]any{}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "tradingMode", body.Field)
+		assert.Equal(t, "contractTradingStrategy", body["kind"])
+		assert.Equal(t, "longOnly", body["tradingMode"])
+		assert.Equal(t, float64(contractRouterStrategyID), body["tradingStrategyId"])
+		assert.Nil(t, body["strategyScriptId"])
+		assert.Equal(t, "合約", body["subjectName"])
 	})
 }
 
-func TestContractBacktestEndpointsRefuseMalformedRequests(t *testing.T) {
+func TestSubmitContractBacktestEndpointRefusesBeforeQueueing(t *testing.T) {
 	testCases := []struct {
-		name string
-		path string
-		body string
+		name            string
+		path            string
+		body            string
+		expectedStatus  int
+		expectedField   string
+		expectedMessage string
 	}{
-		{name: "a contract replay body that is not JSON", path: "/contract-backtests", body: "not json"},
 		{
-			name: "a contract replay naming a script and carrying one",
-			path: "/contract-backtests",
-			body: `{"strategyScriptId":9,"script":"written here","symbol":"BTCUSDT"}`,
+			name: "a K candle strategy script is the caller's choice, not a script failure",
+			path: "/contract-backtests", body: fmt.Sprintf(contractBacktestBody, 10, ""),
+			expectedStatus: http.StatusBadRequest, expectedMessage: "吃的是 K 線",
 		},
-		{name: "a trading strategy replay body that is not JSON", path: "/trading-strategies/11/contract-backtests", body: "not json"},
-		{name: "a trading strategy identifier that is not a number", path: "/trading-strategies/abc/contract-backtests", body: "{}"},
+		{
+			name: "a refused figure names the field it came from",
+			path: "/contract-backtests", body: fmt.Sprintf(contractBacktestBody, 9, `,"slippagePercentage":"-1"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "slippage",
+		},
+		{
+			name: "an unknown fill timing names its field",
+			path: "/contract-backtests", body: fmt.Sprintf(contractBacktestBody, 9, `,"fillTiming":"intraday"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "fillTiming",
+		},
+		{
+			name:           "a trading mode sent with a trading strategy replay names the field",
+			path:           "/trading-strategies/11/contract-backtests",
+			body:           fmt.Sprintf(contractTradingStrategyBacktestBody, `,"tradingMode":"shortOnly"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "tradingMode",
+		},
+		{name: "a contract replay body that is not JSON", path: "/contract-backtests", body: "not json",
+			expectedStatus: http.StatusBadRequest},
+		{
+			name: "a contract replay naming a script and carrying one", path: "/contract-backtests",
+			body:           `{"strategyScriptId":9,"script":"written here","symbol":"BTCUSDT"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{name: "a trading strategy replay body that is not JSON", path: "/trading-strategies/11/contract-backtests",
+			body: "not json", expectedStatus: http.StatusBadRequest},
+		{name: "a trading strategy identifier that is not a number", path: "/trading-strategies/abc/contract-backtests",
+			body: "{}", expectedStatus: http.StatusBadRequest},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newContractBacktestRouterUnderTest(t)
+			fixture.expectASpecifiedSymbol()
+			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
+				Return(aContractRouterStrategy("longShort"), nil).AnyTimes()
+			fixture.runs.ownerHasActive(0)
 
 			response := fixture.post(testCase.path, testCase.body)
 
-			assert.Equal(t, http.StatusBadRequest, response.Code)
+			require.Equal(t, testCase.expectedStatus, response.Code, response.Body.String())
+			body := struct {
+				Message string `json:"message"`
+				Field   string `json:"field"`
+			}{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			assert.Equal(t, testCase.expectedField, body.Field)
+			assert.Contains(t, body.Message, testCase.expectedMessage)
 		})
 	}
 }
 
-func TestRunContractBacktestEndpointCarriesAWrittenScriptAndItsKnobs(t *testing.T) {
+func TestSubmitContractTradingStrategyBacktestEndpointForSomebodyElsesStrategy(t *testing.T) {
 	fixture := newContractBacktestRouterUnderTest(t)
-	fixture.expectASpecifiedSymbolWithTwoBars()
-	fixture.contractIndicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), "written here", gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ string, _ domains.IndicatorResultTypeDomain,
-			_ []vo.ContractKCandleVo, parameters domains.StrategyScriptParametersDomain,
-		) ([]map[string]vo.IndicatorValueVo, error) {
-			return []map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-			}, nil
-		})
-
-	response := fixture.post("/contract-backtests", `{
-		"symbol":"BTCUSDT",
-		"aggregationInterval":"1h",
-		"startTime":"2026-08-29T00:00:00Z",
-		"endTime":"2026-08-29T04:00:00Z",
-		"script":"written here",
-		"parameters":[{"name":"回看根數","kind":"lookbackCount","defaultValue":20}],
-		"parameterValues":[{"name":"回看根數","value":5}],
-		"initialCapital":"10000"
-	}`)
-
-	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
-}
-
-func TestRunContractTradingStrategyBacktestEndpointAnswersWithTheReportCard(t *testing.T) {
-	fixture := newContractBacktestRouterUnderTest(t)
-	fixture.expectASpecifiedSymbolWithTwoBars()
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-		Return(entities.TradingStrategy{
-			ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
-			MarketDataKind: "contractKCandle", TradingMode: "longOnly",
-			SignalSources: []entities.TradingStrategySignalSource{{
-				Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
-			}},
-			ConditionNodes: []entities.TradingStrategyConditionNode{
-				{ID: 1, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
-				{ID: 2, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
-			},
-		}, nil)
-	fixture.contractIndicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]vo.IndicatorValueVo{
-			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-		}, nil)
+		Return(entities.TradingStrategy{}, domains.TradingStrategyNotFound(contractRouterStrategyID))
 
-	response := fixture.post("/trading-strategies/11/contract-backtests", `{
-		"symbol":"BTCUSDT",
-		"startTime":"2026-08-29T00:00:00Z",
-		"endTime":"2026-08-29T04:00:00Z",
-		"initialCapital":"10000"
-	}`)
+	response := fixture.post("/trading-strategies/11/contract-backtests", fmt.Sprintf(contractTradingStrategyBacktestBody, ""))
 
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	var body struct {
-		TradingMode string `json:"tradingMode"`
+	assert.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func TestSubmitContractBacktestEndpointsAtTheOwnerLimit(t *testing.T) {
+	for _, path := range []string{"/contract-backtests", "/trading-strategies/11/contract-backtests"} {
+		t.Run(path, func(t *testing.T) {
+			fixture := newContractBacktestRouterUnderTest(t)
+			fixture.expectASpecifiedSymbol()
+			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
+				Return(aContractRouterStrategy("longShort"), nil).AnyTimes()
+			fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
+
+			body := fmt.Sprintf(contractBacktestBody, 9, "")
+			if path != "/contract-backtests" {
+				body = fmt.Sprintf(contractTradingStrategyBacktestBody, "")
+			}
+			response := fixture.post(path, body)
+
+			require.Equal(t, http.StatusTooManyRequests, response.Code)
+			assert.JSONEq(t, `{"message":"你同時最多 3 筆回測在排隊或進行中，等其中一筆結束再送","ownerActiveLimit":3}`,
+				response.Body.String())
+		})
 	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-	assert.Equal(t, "longOnly", body.TradingMode)
 }
 
 func TestContractBacktestEndpointsNeedASignedInCaller(t *testing.T) {
 	for _, path := range []string{"/contract-backtests", "/trading-strategies/11/contract-backtests"} {
 		t.Run(path, func(t *testing.T) {
 			fixture := newContractBacktestRouterUnderTest(t)
-			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
-			request.Header.Set("Content-Type", "application/json")
-			recorder := httptest.NewRecorder()
 
-			fixture.engine.ServeHTTP(recorder, request)
+			response := requestWithoutProof(fixture.engine, http.MethodPost, path, "{}")
 
-			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
-		})
-	}
-}
-
-func TestContractBacktestEndpointCarriesFillTimingAndValidationStart(t *testing.T) {
-	fixture := newContractBacktestRouterUnderTest(t)
-	fixture.expectASpecifiedSymbolWithTwoBars()
-	fixture.contractIndicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]vo.IndicatorValueVo{
-			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-		}, nil)
-
-	response := fixture.post("/contract-backtests", fmt.Sprintf(contractBacktestBody, 9,
-		`,"fillTiming":"nextOpen","validationStartTime":"2026-08-29T01:00:00Z"`))
-
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	var body struct {
-		FillTiming string `json:"fillTiming"`
-		InSample   struct {
-			UsedCandleCount int `json:"usedCandleCount"`
-		} `json:"inSample"`
-		Validation struct {
-			UsedCandleCount int `json:"usedCandleCount"`
-		} `json:"validation"`
-		Summary struct {
-			MaximumConsecutiveLossCount int      `json:"maximumConsecutiveLossCount"`
-			ProfitFactor                *float64 `json:"profitFactor"`
-		} `json:"summary"`
-	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-	assert.Equal(t, "nextOpen", body.FillTiming)
-	assert.Equal(t, 1, body.InSample.UsedCandleCount)
-	assert.Equal(t, 1, body.Validation.UsedCandleCount)
-	assert.Nil(t, body.Summary.ProfitFactor)
-}
-
-func TestContractBacktestEndpointRefusesAnUnknownFillTiming(t *testing.T) {
-	fixture := newContractBacktestRouterUnderTest(t)
-	fixture.expectASpecifiedSymbolWithTwoBars()
-
-	response := fixture.post("/contract-backtests", fmt.Sprintf(contractBacktestBody, 9, `,"fillTiming":"intraday"`))
-
-	require.Equal(t, http.StatusBadRequest, response.Code)
-	var body struct {
-		Field string `json:"field"`
-	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-	assert.Equal(t, "fillTiming", body.Field)
-}
-
-func TestContractBacktestEndpointsAnswerARunOutAllowanceAsUnprocessable(t *testing.T) {
-	for _, path := range []string{"/contract-backtests", "/trading-strategies/11/contract-backtests"} {
-		t.Run(path, func(t *testing.T) {
-			fixture := newContractBacktestRouterUnderTest(t)
-			fixture.expectASpecifiedSymbolWithTwoBars()
-			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-				Return(entities.TradingStrategy{
-					ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
-					MarketDataKind: "contractKCandle",
-					SignalSources: []entities.TradingStrategySignalSource{{
-						Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
-					}},
-					ConditionNodes: []entities.TradingStrategyConditionNode{
-						{ID: 1, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
-						{ID: 2, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
-					},
-				}, nil).AnyTimes()
-			fixture.contractIndicatorScriptProxy.EXPECT().
-				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(nil, domains.BacktestTimeAllowanceSpent(90*time.Second))
-
-			response := fixture.post(path, fmt.Sprintf(contractBacktestBody, 9, ""))
-
-			assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-			assert.Contains(t, response.Body.String(), "90 秒內沒跑完")
-			assert.Contains(t, response.Body.String(), `"timeAllowanceSpent":true`)
+			assert.Equal(t, http.StatusUnauthorized, response.Code)
 		})
 	}
 }

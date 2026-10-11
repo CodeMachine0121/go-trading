@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -32,11 +33,13 @@ const (
 
 type backtestUnderTest struct {
 	backtestApplication  *application.BacktestApplication
+	backtestService      *service.BacktestService
+	runQueue             backtestRunQueue
 	kCandleRepository    *mocks.MockIKCandleRepository
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 }
 
-// newBacktestUnderTest wires the real domain service and models, mocking only storage and script
+// newBacktestUnderTest wires the real domain services and models, mocking only storage and script
 // execution.
 func newBacktestUnderTest(t *testing.T) backtestUnderTest {
 	controller := gomock.NewController(t)
@@ -48,17 +51,23 @@ func newBacktestUnderTest(t *testing.T) backtestUnderTest {
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), backtestStrategyScriptID).
 		Return(entities.StrategyScript{
-			ID: backtestStrategyScriptID, OwnerID: backtestViewerID, Script: "the script",
+			ID: backtestStrategyScriptID, OwnerID: backtestViewerID, Name: "均線", Script: "the script",
 		}, nil).AnyTimes()
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
+	backtestService := service.NewBacktestService(
+		kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0)
+	runQueue := newBacktestRunQueue(controller)
+
 	return backtestUnderTest{
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
+			backtestService, nil,
+			newQueueingBacktestRunService(t, controller, runQueue, backtestService, nil)),
+		backtestService:      backtestService,
+		runQueue:             runQueue,
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
@@ -73,6 +82,14 @@ func backtestRequestDto() dto.BacktestRequestDto {
 		InitialCapital:      decimal.NewFromInt(10000),
 		PositionSizingMode:  "allIn",
 	}
+}
+
+// replayRequestDto is the request as the queue later hands it to the replay, script already resolved.
+func replayRequestDto() dto.BacktestRequestDto {
+	requestDto := backtestRequestDto()
+	requestDto.Script = "the script"
+
+	return requestDto
 }
 
 // storedHourlyCandle builds a stored candle that many hours into the stretch.
@@ -101,6 +118,127 @@ func signalsSaying(signals ...vo.SignalVo) []map[string]vo.IndicatorValueVo {
 	return perCandleIndicatorValues
 }
 
+func TestSubmitBacktest(t *testing.T) {
+	t.Run("a well formed request is queued at once, named after its script, without reading any candle", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
+
+		runDto, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+
+		require.NoError(t, err)
+		assert.Equal(t, "queued", runDto.Status)
+		assert.Equal(t, "spotScript", runDto.Kind)
+		assert.Equal(t, 0, runDto.ProgressPercent)
+		assert.Equal(t, "BTCUSDT", runDto.Symbol)
+		assert.Equal(t, "1h", runDto.Interval)
+		assert.Equal(t, "均線", runDto.SubjectName)
+		require.NotNil(t, runDto.StrategyScriptID)
+		assert.Equal(t, backtestStrategyScriptID, *runDto.StrategyScriptID)
+		assert.Nil(t, runDto.Leverage)
+		assert.Nil(t, runDto.TotalReturnRate)
+		assert.Equal(t, backtestViewerID, saved.OwnerID)
+		assert.Equal(t, "the script", saved.Request.SpotScript.Script)
+	})
+
+	t.Run("a very short stretch is still queued rather than replayed on the spot", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.acceptsOneRun(0)
+		requestDto := backtestRequestDto()
+		requestDto.EndTime = backtestStart.Add(2 * time.Hour)
+
+		runDto, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
+
+		require.NoError(t, err)
+		assert.Equal(t, "queued", runDto.Status)
+	})
+
+	t.Run("an algorithm written in the request is queued with no script to name", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
+
+		runDto, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, carrying(t, "written here"), backtestRequestDto())
+
+		require.NoError(t, err)
+		assert.Nil(t, runDto.StrategyScriptID)
+		assert.Equal(t, "", runDto.SubjectName)
+		assert.Equal(t, "written here", saved.Request.SpotScript.Script)
+	})
+
+	t.Run("a stretch that ends before it starts is refused and nothing is queued", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
+		requestDto := backtestRequestDto()
+		requestDto.StartTime = backtestStart.Add(10 * time.Hour)
+		requestDto.EndTime = backtestStart
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
+
+		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+	})
+
+	t.Run("starting capital of zero is refused and nothing is queued", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
+		requestDto := backtestRequestDto()
+		requestDto.InitialCapital = decimal.Zero
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
+
+		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+	})
+
+	t.Run("a knob nobody declared is refused by name and nothing is queued", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
+		requestDto := backtestRequestDto()
+		requestDto.ParameterValues = []dto.StrategyScriptParameterValueDto{{Name: "不存在的旋鈕", Value: 3}}
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
+
+		require.ErrorIs(t, err, domains.ErrBacktestValidation)
+		assert.Contains(t, err.Error(), "不存在的旋鈕")
+	})
+
+	t.Run("an owner at the limit is refused with the limit, and the request comes before the limit", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.refusesAtTheLimit()
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+
+		require.ErrorIs(t, err, domains.ErrBacktestRunOwnerLimitReached)
+		limit, limitReached := domains.BacktestRunOwnerLimit(err)
+		assert.True(t, limitReached)
+		assert.Equal(t, backtestRunOwnerActiveLimit, limit)
+		assert.Contains(t, err.Error(), "你同時最多 3 筆回測在排隊或進行中，等其中一筆結束再送")
+
+		invalid := backtestRequestDto()
+		invalid.InitialCapital = decimal.Zero
+		_, invalidError := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), invalid)
+
+		assert.ErrorIs(t, invalidError, domains.ErrBacktestValidation)
+		assert.NotErrorIs(t, invalidError, domains.ErrBacktestRunOwnerLimitReached)
+	})
+
+	t.Run("one below the limit is still queued", func(t *testing.T) {
+		fixture := newBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(backtestRunOwnerActiveLimit - 1)
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+
+		require.NoError(t, err)
+		assert.Equal(t, backtestViewerID, saved.OwnerID)
+	})
+}
+
 func TestRunBacktest(t *testing.T) {
 	t.Run("reads the stretch asked for, stopping at the hour still running", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
@@ -119,10 +257,10 @@ func TestRunBacktest(t *testing.T) {
 				}, nil
 			})
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.NoError(t, err)
 	})
@@ -136,13 +274,14 @@ func TestRunBacktest(t *testing.T) {
 				storedHourlyCandle(2, "120"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				_ context.Context,
 				_ string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
 				_ domains.StrategyScriptParametersDomain,
+				_ domaininterface.IReplayProgressSink,
 			) ([]map[string]vo.IndicatorValueVo, error) {
 				// A replay always runs the script under the signal kind.
 				assert.True(t, resultType.IsSignal())
@@ -153,7 +292,7 @@ func TestRunBacktest(t *testing.T) {
 				return signalsSaying(vo.SignalHold, vo.SignalHold, vo.SignalHold), nil
 			})
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.NoError(t, err)
 	})
@@ -167,10 +306,10 @@ func TestRunBacktest(t *testing.T) {
 				storedHourlyCandle(2, "120"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
-		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		result, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", result.Symbol)
@@ -197,10 +336,10 @@ func TestRunBacktest(t *testing.T) {
 				storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
-		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		result, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, result.ClosedTrades)
@@ -214,7 +353,7 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{storedHourlyCandle(0, "100")}, nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -224,28 +363,7 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
-
-		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
-	})
-
-	t.Run("a stretch that ends before it starts is refused without reading storage", func(t *testing.T) {
-		fixture := newBacktestUnderTest(t)
-		requestDto := backtestRequestDto()
-		requestDto.StartTime = backtestStart.Add(10 * time.Hour)
-		requestDto.EndTime = backtestStart
-
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
-
-		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
-	})
-
-	t.Run("starting capital of zero is refused without reading storage", func(t *testing.T) {
-		fixture := newBacktestUnderTest(t)
-		requestDto := backtestRequestDto()
-		requestDto.InitialCapital = decimal.Zero
-
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -257,25 +375,25 @@ func TestRunBacktest(t *testing.T) {
 				storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	})
 
-	t.Run("a knob nobody declared is reported by name", func(t *testing.T) {
+	t.Run("a knob the script reads but nobody declared is reported by name", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{
 				storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.UndeclaredParameter("period"))
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		parameterName, isUndeclared := domains.UndeclaredParameterName(err)
 		assert.True(t, isUndeclared)
@@ -288,37 +406,31 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, storageError)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+		_, err := fixture.backtestService.RunBacktest(t.Context(), replayRequestDto(), nil)
 
 		assert.ErrorIs(t, err, storageError)
 	})
 }
 
-func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
+func TestSubmitBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 	// Both use cases share the gates through the same service; this proves it on this path.
-	t.Run("somebody else's published strategy script replays", func(t *testing.T) {
+	t.Run("somebody else's published strategy script is queued", func(t *testing.T) {
 		fixture := newBacktestGateUnderTest(t, true)
-		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{
-				storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
-			}, nil)
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
+		saved := fixture.runQueue.acceptsOneRun(0)
 
-		_, err := fixture.backtestApplication.RunBacktest(
+		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
 
 		require.NoError(t, err)
+		assert.Equal(t, backtestStrangerID, saved.OwnerID)
+		assert.Equal(t, "the script", saved.Request.SpotScript.Script)
 	})
 
 	t.Run("somebody else's unpublished strategy script is not there", func(t *testing.T) {
-		// Nothing is stubbed on the market store: the refusal lands before any
-		// candle is read.
 		fixture := newBacktestGateUnderTest(t, false)
+		fixture.runQueue.queuesNothing()
 
-		_, err := fixture.backtestApplication.RunBacktest(
+		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
@@ -352,11 +464,17 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 			Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 	}
 
+	backtestService := service.NewBacktestService(
+		kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0)
+	runQueue := newBacktestRunQueue(controller)
+
 	return backtestUnderTest{
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
+			backtestService, nil,
+			newQueueingBacktestRunService(t, controller, runQueue, backtestService, nil)),
+		backtestService:      backtestService,
+		runQueue:             runQueue,
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}

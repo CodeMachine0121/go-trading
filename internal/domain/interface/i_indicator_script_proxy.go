@@ -25,5 +25,6 @@ type IIndicatorScriptProxy interface {
 		resultType domains.IndicatorResultTypeDomain,
 		kCandles []vo.KCandleVo,
 		parameters domains.StrategyScriptParametersDomain,
+		progress IReplayProgressSink,
 	) ([]map[string]vo.IndicatorValueVo, error)
 }

@@ -2,7 +2,6 @@ package controller_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,10 +13,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -34,8 +31,7 @@ const tradingStrategyBacktestBody = `{
 type tradingStrategyBacktestRouterUnderTest struct {
 	engine                    *gin.Engine
 	tradingStrategyRepository *mocks.MockITradingStrategyRepository
-	kCandleRepository         *mocks.MockIKCandleRepository
-	indicatorScriptProxy      *mocks.MockIIndicatorScriptProxy
+	runs                      routerBacktestRuns
 }
 
 func newTradingStrategyBacktestRouterUnderTest(t *testing.T) tradingStrategyBacktestRouterUnderTest {
@@ -43,8 +39,6 @@ func newTradingStrategyBacktestRouterUnderTest(t *testing.T) tradingStrategyBack
 	mockController := gomock.NewController(t)
 
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
-	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
-	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(mockController)
 
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(backtestRouterNow).AnyTimes()
@@ -58,24 +52,26 @@ func newTradingStrategyBacktestRouterUnderTest(t *testing.T) tradingStrategyBack
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
+	backtestService := service.NewBacktestService(
+		mocks.NewMockIKCandleRepository(mockController), mocks.NewMockIIndicatorScriptProxy(mockController),
+		clockProxy, 1000, 0)
+	runs := newRouterBacktestRuns(t, mockController, clockProxy, backtestService, nil)
 	tradingStrategyBacktestController := controller.NewTradingStrategyBacktestController(
 		application.NewTradingStrategyBacktestApplication(
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, 1000, time.Minute), nil,
+			backtestService, nil, runs.backtestRunService, time.Minute,
 		))
 
 	engine := gin.New()
 	engine.POST("/trading-strategies/:id/backtests", doorOpenFor(t, signedInViewerID),
-		tradingStrategyBacktestController.RunTradingStrategyBacktest)
+		tradingStrategyBacktestController.SubmitTradingStrategyBacktest)
 
 	return tradingStrategyBacktestRouterUnderTest{
 		engine:                    engine,
 		tradingStrategyRepository: tradingStrategyRepository,
-		kCandleRepository:         kCandleRepository,
-		indicatorScriptProxy:      indicatorScriptProxy,
+		runs:                      runs,
 	}
 }
 
@@ -106,42 +102,28 @@ func aRoutedTradingStrategy(interval string) entities.TradingStrategy {
 	}
 }
 
-func aRoutedHourlyCandle(hour int, closePrice string) entities.KCandle {
-	return entities.KCandle{
-		Symbol:   "BTCUSDT",
-		OpenTime: backtestRouterStart.Add(time.Duration(hour) * time.Hour),
-		Open:     decimal.RequireFromString(closePrice),
-		High:     decimal.RequireFromString(closePrice),
-		Low:      decimal.RequireFromString(closePrice),
-		Close:    decimal.RequireFromString(closePrice),
-	}
-}
-
-func TestTradingStrategyBacktestRouterReplaysAndAnswersWithTheReport(t *testing.T) {
+func TestTradingStrategyBacktestRouterQueuesTheStrategyAndAnswersWithTheRun(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
 		Return(aRoutedTradingStrategy("1h"), nil)
-	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{
-			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "110"),
-		}, nil)
-	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]vo.IndicatorValueVo{
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-		}, nil)
+	saved := fixture.runs.expectQueued()
 
 	response := fixture.send("/trading-strategies/11/backtests", tradingStrategyBacktestBody)
 
-	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Equal(t, "spotTradingStrategy", answer["kind"])
+	assert.Equal(t, "queued", answer["status"])
 	// The interval is returned even though none was sent, since it comes from the trading strategy.
 	assert.Equal(t, "1h", answer["interval"])
-	summary, isObject := answer["summary"].(map[string]any)
-	require.True(t, isObject)
-	assert.Equal(t, float64(0), summary["conflictedCandleCount"])
+	assert.Equal(t, float64(11), answer["tradingStrategyId"])
+	assert.Equal(t, "黃金交叉", answer["subjectName"])
+	assert.Nil(t, answer["leverage"])
+	assert.NotContains(t, answer, "summary")
+	require.NotNil(t, saved.Request.SpotTradingStrategy)
+	require.Len(t, saved.Request.SpotTradingStrategy.SignalSources, 1)
+	assert.Equal(t, "the script", saved.Request.SpotTradingStrategy.SignalSources[0].Script)
 }
 
 func TestTradingStrategyBacktestRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
@@ -206,27 +188,14 @@ func TestTradingStrategyBacktestRouterMapsEachRefusalOntoItsOwnStatus(t *testing
 				`"positionSizingMode":"allIn"}`,
 			expectedStatus: http.StatusBadRequest,
 		},
-		{
-			name: "every compartment staying busy is unavailable for now",
-			arrange: func(fixture tradingStrategyBacktestRouterUnderTest) {
-				fixture.tradingStrategyRepository.EXPECT().
-					FindOne(gomock.Any(), uint(11)).Return(aRoutedTradingStrategy("1h"), nil)
-				fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return([]entities.KCandle{aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "110")}, nil)
-				fixture.indicatorScriptProxy.EXPECT().
-					ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy))
-			},
-			target:         "/trading-strategies/11/backtests",
-			body:           tradingStrategyBacktestBody,
-			expectedStatus: http.StatusServiceUnavailable,
-		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newTradingStrategyBacktestRouterUnderTest(t)
 			testCase.arrange(fixture)
+			// The request's own fault is reported even at the owner limit.
+			fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
 
 			response := fixture.send(testCase.target, testCase.body)
 
@@ -256,41 +225,17 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	assert.Contains(t, answer["message"], "5m")
 }
 
-// Only spot replays exist, so a body naming another mode is refused rather than ignored.
-func TestTradingStrategyBacktestRouterTradesSpot(t *testing.T) {
+func TestTradingStrategyBacktestRouterAtTheOwnerLimit(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
-
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
 		Return(aRoutedTradingStrategy("1h"), nil)
-	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{
-			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "120"),
-			aRoutedHourlyCandle(2, "90"),
-		}, nil)
-	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]vo.IndicatorValueVo{
-			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-		}, nil)
+	fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
 
-	response := fixture.send("/trading-strategies/11/backtests", `{
-		"symbol":"BTCUSDT",
-		"startTime":"2026-08-29T00:00:00Z",
-		"endTime":"2026-08-29T04:00:00Z",
-		"initialCapital":"10000",
-		"positionSizingMode":"allIn"
-	}`)
+	response := fixture.send("/trading-strategies/11/backtests", tradingStrategyBacktestBody)
 
-	require.Equal(t, http.StatusOK, response.Code)
-	answer := map[string]any{}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	summary, isObject := answer["summary"].(map[string]any)
-	require.True(t, isObject)
-	// Sold at 120 and stood aside for the fall to 90.
-	assert.Equal(t, "12000", summary["finalEquity"])
-	assert.Equal(t, float64(1), summary["positionOpenCount"])
+	require.Equal(t, http.StatusTooManyRequests, response.Code)
+	assert.JSONEq(t, `{"message":"你同時最多 3 筆回測在排隊或進行中，等其中一筆結束再送","ownerActiveLimit":3}`,
+		response.Body.String())
 }
 
 // Another mode is refused here too, since an undeclared field would otherwise be silently dropped and a spot result returned.

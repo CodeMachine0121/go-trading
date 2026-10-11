@@ -37,7 +37,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		assert.Len(t, perCandleIndicatorValues, 4)
@@ -47,7 +47,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		for candleIndex, indicatorValues := range perCandleIndicatorValues {
@@ -59,7 +59,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), lastClosePriceScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		require.Len(t, perCandleIndicatorValues, 3)
@@ -84,7 +84,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), reachesForTheFutureScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		require.Len(t, perCandleIndicatorValues, 4)
@@ -112,7 +112,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), overwritesItsCandlesScript, resultTypeOf(t, "float"),
-				kCandles, noStrategyScriptParameters(t))
+				kCandles, noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, candlesWithClosePrices(100, 110, 120), kCandles)
@@ -122,7 +122,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
-				nil, noStrategyScriptParameters(t))
+				nil, noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, perCandleIndicatorValues)
@@ -146,7 +146,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), countsItsOwnRunsScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		require.Len(t, perCandleIndicatorValues, 3)
@@ -159,7 +159,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), "this is not go", resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	})
@@ -169,7 +169,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 			ExecuteForEachCandle(
 				t.Context(), "package main\n\nfunc NotCalculate() {}\n",
 				resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	})
@@ -192,7 +192,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), failsOnFirstCandleScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Nil(t, perCandleIndicatorValues)
@@ -212,7 +212,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), readsAnUndeclaredKnobScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t), nil)
 
 		require.ErrorIs(t, err, domains.ErrIndicatorParameterNotDeclared)
 		parameterName, isUndeclared := domains.UndeclaredParameterName(err)
@@ -240,7 +240,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), readsAKnobScript, resultTypeOf(t, "float"),
-				candlesWithClosePrices(100, 110, 120), parameters)
+				candlesWithClosePrices(100, 110, 120), parameters, nil)
 
 		require.NoError(t, err)
 		require.Len(t, perCandleIndicatorValues, 3)
@@ -268,7 +268,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), signalPerCandleScript, resultTypeOf(t, "signal"),
-				candlesWithClosePrices(100, 90, 120), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 90, 120), noStrategyScriptParameters(t), nil)
 
 		require.NoError(t, err)
 		require.Len(t, perCandleIndicatorValues, 3)
@@ -291,7 +291,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), numberScript, resultTypeOf(t, "signal"),
-				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "indicator.Signal")
@@ -316,7 +316,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), unsetsOnceScript, resultTypeOf(t, "signal"),
-				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "沒有設定方向")

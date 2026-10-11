@@ -40,12 +40,6 @@ type contractBacktestServiceFailure struct {
 func newContractBacktestServiceUnderTest(
 	t *testing.T, failure func(contractBacktestServiceMocks),
 ) *service.ContractBacktestService {
-	return newContractBacktestServiceWithin(t, time.Minute, failure)
-}
-
-func newContractBacktestServiceWithin(
-	t *testing.T, replayTimeAllowance time.Duration, failure func(contractBacktestServiceMocks),
-) *service.ContractBacktestService {
 	controller := gomock.NewController(t)
 	boundaries := contractBacktestServiceMocks{
 		kCandleContractRepository:    mocks.NewMockIKCandleContractRepository(controller),
@@ -87,7 +81,7 @@ func newContractBacktestServiceWithin(
 	boundaries.statisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]entities.ContractPositionStatistic{}, nil).AnyTimes()
 	boundaries.contractIndicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]map[string]vo.IndicatorValueVo{
 			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
 			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
@@ -105,7 +99,7 @@ func newContractBacktestServiceWithin(
 		boundaries.contractIndicatorScriptProxy,
 		clockProxy,
 		1000,
-		replayTimeAllowance,
+		0,
 	)
 }
 
@@ -164,7 +158,7 @@ func contractBacktestServiceFailures() []contractBacktestServiceFailure {
 		}},
 		{name: "the script fails", failWith: func(boundaries contractBacktestServiceMocks) {
 			boundaries.contractIndicatorScriptProxy.EXPECT().
-				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, errStorageUnavailable)
 		}},
 	}
@@ -175,7 +169,7 @@ func TestContractBacktestServiceHandsOnEveryFailedRead(t *testing.T) {
 		t.Run("replaying a script when "+failure.name, func(t *testing.T) {
 			contractBacktestService := newContractBacktestServiceUnderTest(t, failure.failWith)
 
-			_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+			_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest(), nil)
 
 			require.ErrorIs(t, err, errStorageUnavailable)
 		})
@@ -184,7 +178,7 @@ func TestContractBacktestServiceHandsOnEveryFailedRead(t *testing.T) {
 			contractBacktestService := newContractBacktestServiceUnderTest(t, failure.failWith)
 
 			_, err := contractBacktestService.RunContractTradingStrategyBacktest(
-				context.Background(), contractTradingStrategyBacktestServiceRequest())
+				context.Background(), contractTradingStrategyBacktestServiceRequest(), nil)
 
 			require.ErrorIs(t, err, errStorageUnavailable)
 		})
@@ -198,7 +192,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 		requestDto := contractBacktestServiceRequest()
 		requestDto.Symbol = ""
 
-		_, err := newContractBacktestServiceUnderTest(t, noFailure).RunContractBacktest(context.Background(), requestDto)
+		_, err := newContractBacktestServiceUnderTest(t, noFailure).RunContractBacktest(context.Background(), requestDto, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -210,7 +204,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 		})
 
 		_, err := contractBacktestService.RunContractTradingStrategyBacktest(
-			context.Background(), contractTradingStrategyBacktestServiceRequest())
+			context.Background(), contractTradingStrategyBacktestServiceRequest(), nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -221,7 +215,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 				Return([]entities.KCandleContract{}, nil)
 		})
 
-		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest(), nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -231,7 +225,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 		requestDto.TradingMode = "shortOnly"
 
 		_, err := newContractBacktestServiceUnderTest(t, noFailure).RunContractTradingStrategyBacktest(
-			context.Background(), requestDto)
+			context.Background(), requestDto, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -245,7 +239,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 				}, true, nil)
 		})
 
-		resultDto, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+		resultDto, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest(), nil)
 
 		require.NoError(t, err)
 		assert.True(t, decimal.Zero.Equal(resultDto.Summary.TotalFundingFee))

@@ -24,3 +24,11 @@ type BacktestResultDto struct {
 	InSample   *BacktestResultDto `json:"inSample,omitempty"`
 	Validation *BacktestResultDto `json:"validation,omitempty"`
 }
+
+func (resultDto BacktestResultDto) ToBacktestRunSummaryDto() BacktestRunSummaryDto {
+	return BacktestRunSummaryDto{
+		TotalReturnRate: resultDto.Summary.TotalReturnRate,
+		MaximumDrawdown: resultDto.Summary.MaximumDrawdown,
+		TradeCount:      resultDto.Summary.PositionOpenCount,
+	}
+}

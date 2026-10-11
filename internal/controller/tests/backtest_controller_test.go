@@ -2,7 +2,6 @@ package controller_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,10 +13,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -38,46 +35,48 @@ const backtestBody = `{
 	"positionSizingMode":"allIn"
 }`
 
-// backtestRouterStrategyScriptID belongs to the signed-in viewer.
-const backtestRouterStrategyScriptID = uint(9)
+const (
+	// backtestRouterStrategyScriptID belongs to the signed-in viewer; the foreign one to somebody else.
+	backtestRouterStrategyScriptID        = uint(9)
+	backtestRouterForeignStrategyScriptID = uint(90)
+)
 
 type backtestRouterUnderTest struct {
-	engine               *gin.Engine
-	kCandleRepository    *mocks.MockIKCandleRepository
-	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
+	engine *gin.Engine
+	runs   routerBacktestRuns
 }
 
 func newBacktestRouterUnderTest(t *testing.T) backtestRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
-	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
-	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(backtestRouterNow).AnyTimes()
 
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
 	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), backtestRouterStrategyScriptID).
 		Return(entities.StrategyScript{
-			ID: backtestRouterStrategyScriptID, OwnerID: signedInViewerID, Script: "the script",
+			ID: backtestRouterStrategyScriptID, OwnerID: signedInViewerID, Name: "均線", Script: "the script",
+		}, nil).AnyTimes()
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), backtestRouterForeignStrategyScriptID).
+		Return(entities.StrategyScript{
+			ID: backtestRouterForeignStrategyScriptID, OwnerID: signedInViewerID + 1, Script: "theirs",
 		}, nil).AnyTimes()
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
-	backtestController := controller.NewBacktestController(
-		application.NewBacktestApplication(
-			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil))
+	backtestService := service.NewBacktestService(
+		mocks.NewMockIKCandleRepository(mockController), mocks.NewMockIIndicatorScriptProxy(mockController),
+		clockProxy, queryMaxResults, 0)
+	runs := newRouterBacktestRuns(t, mockController, clockProxy, backtestService, nil)
+	backtestController := controller.NewBacktestController(application.NewBacktestApplication(
+		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
+		backtestService, nil, runs.backtestRunService))
 
 	engine := gin.New()
-	engine.POST("/backtests", doorOpenFor(t, signedInViewerID), backtestController.RunBacktest)
+	engine.POST("/backtests", doorOpenFor(t, signedInViewerID), backtestController.SubmitBacktest)
 
-	return backtestRouterUnderTest{
-		engine:               engine,
-		kCandleRepository:    kCandleRepository,
-		indicatorScriptProxy: indicatorScriptProxy,
-	}
+	return backtestRouterUnderTest{engine: engine, runs: runs}
 }
 
 func (fixture backtestRouterUnderTest) post(body string) *httptest.ResponseRecorder {
@@ -90,350 +89,174 @@ func (fixture backtestRouterUnderTest) post(body string) *httptest.ResponseRecor
 	return recorder
 }
 
-func backtestRouterCandle(hour int, closePrice string) entities.KCandle {
-	return entities.KCandle{
-		Symbol:   "BTCUSDT",
-		OpenTime: backtestRouterStart.Add(time.Duration(hour) * time.Hour),
-		Open:     decimal.RequireFromString(closePrice),
-		High:     decimal.RequireFromString(closePrice),
-		Low:      decimal.RequireFromString(closePrice),
-		Close:    decimal.RequireFromString(closePrice),
+// backtestBodyWith swaps one line of the well-formed body for another, keeping the rest valid.
+func backtestBodyWith(replaced string, replacement string) string {
+	return strings.Replace(backtestBody, replaced, replacement, 1)
+}
+
+func TestSubmitBacktestEndpoint(t *testing.T) {
+	t.Run("a valid request is answered at once with a queued run and no report", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		saved := fixture.runs.expectQueued()
+
+		response := fixture.post(backtestBody)
+
+		require.Equal(t, http.StatusAccepted, response.Code)
+		body := map[string]any{}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, float64(queuedBacktestRunID), body["id"])
+		assert.Equal(t, "spotScript", body["kind"])
+		assert.Equal(t, "queued", body["status"])
+		assert.Equal(t, float64(0), body["progressPercent"])
+		assert.Equal(t, "BTCUSDT", body["symbol"])
+		assert.Equal(t, "1h", body["interval"])
+		assert.Equal(t, "2026-08-29T00:00:00Z", body["startTime"])
+		assert.Equal(t, "2026-08-29T04:00:00Z", body["endTime"])
+		assert.Equal(t, float64(backtestRouterStrategyScriptID), body["strategyScriptId"])
+		assert.Equal(t, "均線", body["subjectName"])
+		assert.Equal(t, "2026-08-30T00:00:00Z", body["submittedAt"])
+		assert.Equal(t, "", body["failureReason"])
+		for _, emptyUntilLater := range []string{
+			"leverage", "tradingMode", "tradingStrategyId", "startedAt", "finishedAt",
+			"totalReturnRate", "maximumDrawdown", "tradeCount",
+		} {
+			value, isPresent := body[emptyUntilLater]
+			assert.True(t, isPresent, emptyUntilLater)
+			assert.Nil(t, value, emptyUntilLater)
+		}
+		assert.NotContains(t, body, "result")
+		assert.NotContains(t, body, "summary")
+		assert.Equal(t, signedInViewerID, saved.OwnerID)
+	})
+
+	t.Run("saying spot out loud is queued exactly as saying nothing", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.runs.expectQueued()
+
+		response := fixture.post(backtestBodyWith(`"positionSizingMode":"allIn"`,
+			`"positionSizingMode":"allIn", "tradingMode":"spot"`))
+
+		assert.Equal(t, http.StatusAccepted, response.Code)
+	})
+}
+
+func TestSubmitBacktestEndpointRefusesBeforeQueueing(t *testing.T) {
+	testCases := []struct {
+		name            string
+		body            string
+		expectedStatus  int
+		expectedField   string
+		expectedMessage string
+	}{
+		{
+			name:           "a body that is not readable",
+			body:           `{"symbol":`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "a stretch that ends before it starts names the time range",
+			body:           backtestBodyWith(`"endTime":"2026-08-29T04:00:00Z"`, `"endTime":"2026-08-28T00:00:00Z"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "timeRange",
+		},
+		{
+			name:           "starting capital of zero names that field",
+			body:           backtestBodyWith(`"initialCapital":"10000"`, `"initialCapital":"0"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "initialCapital", expectedMessage: "初始資金",
+		},
+		{
+			name: "a sizing figure out of range names that figure",
+			body: backtestBodyWith(`"positionSizingMode":"allIn"`,
+				`"positionSizingMode":"percentage", "positionSizingValue":"0"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "positionSizingValue",
+		},
+		{
+			name: "a knob nobody declared is refused by its name",
+			body: backtestBodyWith(`"positionSizingMode":"allIn"`,
+				`"positionSizingMode":"allIn", "parameterValues":[{"name":"不存在的旋鈕","value":3}]`),
+			expectedStatus: http.StatusBadRequest, expectedMessage: "不存在的旋鈕",
+		},
+		{
+			name: "any set of rules other than spot names the input at fault",
+			body: backtestBodyWith(`"positionSizingMode":"allIn"`,
+				`"positionSizingMode":"allIn", "tradingMode":"longShort"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "tradingMode", expectedMessage: "只重演現貨",
+		},
+		{
+			name: "asking to borrow names its own box",
+			body: backtestBodyWith(`"positionSizingMode":"allIn"`,
+				`"positionSizingMode":"allIn", "leverage":"3"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "leverage", expectedMessage: "沒有人借錢給你",
+		},
+		{
+			name: "a rate for being closed out is answered, not ignored",
+			body: backtestBodyWith(`"positionSizingMode":"allIn"`,
+				`"positionSizingMode":"allIn", "maintenanceMarginRate":"0.5"`),
+			expectedStatus: http.StatusBadRequest, expectedField: "leverage", expectedMessage: "沒有維持保證金率",
+		},
+		{
+			name:           "a script that is somebody else's is not found",
+			body:           backtestBodyWith(`"strategyScriptId":9`, `"strategyScriptId":90`),
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newBacktestRouterUnderTest(t)
+			// Even at the owner limit the request's own fault is what is reported.
+			fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
+
+			response := fixture.post(testCase.body)
+
+			require.Equal(t, testCase.expectedStatus, response.Code, response.Body.String())
+			body := struct {
+				Message string `json:"message"`
+				Field   string `json:"field"`
+			}{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			assert.Equal(t, testCase.expectedField, body.Field)
+			assert.Contains(t, body.Message, testCase.expectedMessage)
+		})
 	}
 }
 
-func (fixture backtestRouterUnderTest) expectTwoCandles() {
-	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{
-			backtestRouterCandle(0, "100"), backtestRouterCandle(1, "110"),
-		}, nil).AnyTimes()
+func TestSubmitBacktestEndpointAtTheOwnerLimit(t *testing.T) {
+	fixture := newBacktestRouterUnderTest(t)
+	fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
+
+	response := fixture.post(backtestBody)
+
+	require.Equal(t, http.StatusTooManyRequests, response.Code)
+	assert.JSONEq(t, `{"message":"你同時最多 3 筆回測在排隊或進行中，等其中一筆結束再送","ownerActiveLimit":3}`,
+		response.Body.String())
 }
 
-func TestRunBacktestEndpoint(t *testing.T) {
-	t.Run("a completed replay comes back with its report card", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-			}, nil)
+func TestSubmitBacktestEndpointWhenTheQueueCannotBeRead(t *testing.T) {
+	fixture := newBacktestRouterUnderTest(t)
+	fixture.runs.runRepository.EXPECT().CountActiveByOwner(gomock.Any(), signedInViewerID).
+		Return(0, assert.AnError)
 
-		response := fixture.post(backtestBody)
+	response := fixture.post(backtestBody)
 
-		require.Equal(t, http.StatusOK, response.Code)
-
-		var body struct {
-			Symbol   string `json:"symbol"`
-			Interval string `json:"interval"`
-			Summary  struct {
-				FinalEquity       string   `json:"finalEquity"`
-				TotalReturnRate   float64  `json:"totalReturnRate"`
-				WinRate           *float64 `json:"winRate"`
-				PositionOpenCount int      `json:"positionOpenCount"`
-			} `json:"summary"`
-			ClosedTrades []map[string]any `json:"closedTrades"`
-			EquityCurve  []map[string]any `json:"equityCurve"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "BTCUSDT", body.Symbol)
-		assert.Equal(t, "1h", body.Interval)
-		assert.Equal(t, "11000", body.Summary.FinalEquity)
-		assert.InDelta(t, 0.1, body.Summary.TotalReturnRate, 1e-9)
-		assert.Equal(t, 1, body.Summary.PositionOpenCount)
-		assert.Empty(t, body.ClosedTrades)
-		assert.Len(t, body.EquityCurve, 2)
-	})
-
-	t.Run("a replay with nothing closed reports no win rate at all", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{{}, {}}, nil)
-
-		response := fixture.post(backtestBody)
-
-		require.Equal(t, http.StatusOK, response.Code)
-		assert.Contains(t, response.Body.String(), `"winRate":null`)
-	})
-
-	t.Run("a body that is not readable is refused", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-
-		response := fixture.post(`{"symbol":`)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-	})
-
-	t.Run("conditions that cannot be replayed are the caller's to fix", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"0",
-			"positionSizingMode":"allIn"
-		}`)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), "初始資金")
-		// The faulty input is returned as a field so the message can be shown beside that input.
-		assert.Contains(t, response.Body.String(), `"field":"initialCapital"`)
-	})
-
-	t.Run("a stretch that cannot be replayed names the time range", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{backtestRouterCandle(0, "100")}, nil)
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), `"field":"timeRange"`)
-	})
-
-	t.Run("a sizing figure out of range names that figure", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"percentage",
-			"positionSizingValue":"0"
-		}`)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), `"field":"positionSizingValue"`)
-	})
-
-	t.Run("a stretch with too few candles is the caller's to fix", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{backtestRouterCandle(0, "100")}, nil)
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-	})
-
-	t.Run("a knob nobody declared names the knob", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(nil, domains.UndeclaredParameter("period"))
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), `"parameterName":"period"`)
-	})
-
-	t.Run("a script that could not run is answered as the script's fault", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(nil, domains.ErrIndicatorScriptFailed)
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-	})
-
-	t.Run("every compartment staying busy is answered as unavailable for now", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy))
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
-		assert.Contains(t, response.Body.String(), `"compartmentsBusy":true`)
-	})
-
-	t.Run("storage refusing to answer is this system's fault", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(nil, assert.AnError)
-
-		response := fixture.post(backtestBody)
-
-		assert.Equal(t, http.StatusBadGateway, response.Code)
-	})
+	assert.Equal(t, http.StatusBadGateway, response.Code)
 }
 
-// Leftover trading-mode fields are refused, naming the input they came from.
-func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
-	t.Run("saying spot out loud replays exactly as saying nothing does", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
-			}, nil)
+func TestSubmitBacktestEndpointNeedsASignedInCaller(t *testing.T) {
+	fixture := newBacktestRouterUnderTest(t)
 
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"allIn",
-			"tradingMode":"spot"
-		}`)
+	response := requestWithoutProof(fixture.engine, http.MethodPost, "/backtests", backtestBody)
 
-		require.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+}
 
-		var body struct {
-			Summary struct {
-				FinalEquity       string `json:"finalEquity"`
-				PositionOpenCount int    `json:"positionOpenCount"`
-			} `json:"summary"`
-			ClosedTrades []map[string]any `json:"closedTrades"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		// Bought at 100, sold at 110, now holding 11,000 in cash.
-		assert.Equal(t, "11000", body.Summary.FinalEquity)
-		assert.Equal(t, 1, body.Summary.PositionOpenCount)
-		assert.Len(t, body.ClosedTrades, 1)
-	})
+func TestSubmitBacktestEndpointWhenTheRunCannotBeRecorded(t *testing.T) {
+	fixture := newBacktestRouterUnderTest(t)
+	fixture.runs.ownerHasActive(0)
+	fixture.runs.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(entities.BacktestRun{}, assert.AnError)
 
-	t.Run("any other set of rules names the input at fault", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
+	response := fixture.post(backtestBody)
 
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"allIn",
-			"tradingMode":"longShort"
-		}`)
-
-		require.Equal(t, http.StatusBadRequest, response.Code)
-
-		var body struct {
-			Message string `json:"message"`
-			Field   string `json:"field"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "tradingMode", body.Field)
-		assert.Contains(t, body.Message, "只重演現貨")
-	})
-
-	t.Run("asking to borrow names its own box", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"allIn",
-			"leverage":"3"
-		}`)
-
-		require.Equal(t, http.StatusBadRequest, response.Code)
-
-		var body struct {
-			Message string `json:"message"`
-			Field   string `json:"field"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "leverage", body.Field)
-		assert.Contains(t, body.Message, "沒有人借錢給你")
-	})
-
-	t.Run("a rate for being closed out is answered, not ignored", func(t *testing.T) {
-		// Only meaningful for margin accounts; ignoring it would return a spot result silent on what was asked.
-		fixture := newBacktestRouterUnderTest(t)
-
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"allIn",
-			"maintenanceMarginRate":"0.5"
-		}`)
-
-		require.Equal(t, http.StatusBadRequest, response.Code)
-
-		var body struct {
-			Message string `json:"message"`
-			Field   string `json:"field"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		// Reported under leverage since the two are entered together; the message says which one is at fault.
-		assert.Equal(t, "leverage", body.Field)
-		assert.Contains(t, body.Message, "沒有維持保證金率")
-	})
-
-	t.Run("the report card has no column for being liquidated", func(t *testing.T) {
-		// Asserted as an absence so the removed column cannot silently come back.
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
-			}, nil)
-
-		response := fixture.post(backtestBody)
-
-		require.Equal(t, http.StatusOK, response.Code)
-
-		var body struct {
-			Summary map[string]any `json:"summary"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.NotContains(t, body.Summary, "liquidationExitCount")
-		// The remaining exit counts are checked so this doesn't pass by losing them all.
-		assert.Contains(t, body.Summary, "stopLossExitCount")
-		assert.Contains(t, body.Summary, "takeProfitExitCount")
-	})
-
-	t.Run("saying nothing answers exactly as it always has", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-			}, nil)
-
-		response := fixture.post(backtestBody)
-
-		require.Equal(t, http.StatusOK, response.Code)
-
-		var body struct {
-			Summary struct {
-				FinalEquity string `json:"finalEquity"`
-			} `json:"summary"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		assert.Equal(t, "11000", body.Summary.FinalEquity)
-	})
+	assert.Equal(t, http.StatusBadGateway, response.Code)
+	assert.NotContains(t, response.Body.String(), `"id"`)
 }

@@ -36,7 +36,9 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	// decides it.
 	MaintenanceMarginRate decimal.Decimal
 	// TradingMode is carried only to be refused, since the trading strategy already fixes it.
-	TradingMode string
+	TradingMode           string
+	TimeAllowance         time.Duration
+	DefaultWarmupBarCount int
 }
 
 func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRequestDto(
@@ -60,5 +62,7 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRe
 		TradingMode:           requestDto.TradingStrategyTradingMode,
 		SlippagePercentage:    requestDto.SlippagePercentage,
 		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
+		TimeAllowance:         requestDto.TimeAllowance,
+		DefaultWarmupBarCount: requestDto.DefaultWarmupBarCount,
 	}
 }

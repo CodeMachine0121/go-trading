@@ -374,6 +374,10 @@
     {
       "key": "spotTradeId",
       "value": ""
+    },
+    {
+      "key": "backtestRunId",
+      "value": ""
     }
   ],
   "event": [
@@ -11846,7 +11850,7 @@
                 "backtests"
               ]
             },
-            "description": "回測一律以「信號」種類執行算式：算式回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，逐根決定進出場。\n\n這一發的算式在第一根說持有、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
+            "description": "回測一律以「信號」種類執行算式：算式回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，逐根決定進出場。\n\n這一發的算式在第一根說持有、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**回測是背景工作**：送出先回一筆回測輪次，算完的成績單留在輪次上，三十天後清掉。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest1}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
@@ -11863,24 +11867,66 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：買進之後一路抱著（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"重演了五根，一根一個資金曲線點\", function () {",
-                  "    pm.expect(pm.response.json().usedCandleCount).to.eql(5);",
-                  "    pm.expect(pm.response.json().equityCurve).to.have.lengthOf(5);",
+                  "    pm.expect(pm.response.json().result.usedCandleCount).to.eql(5);",
+                  "    pm.expect(pm.response.json().result.equityCurve).to.have.lengthOf(5);",
                   "});",
                   "pm.test(\"開了一次倉，而且到最後都還開著\", function () {",
-                  "    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(1);",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(0);",
+                  "    pm.expect(pm.response.json().result.summary.positionOpenCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.have.lengthOf(0);",
                   "});",
                   "pm.test(\"最後剩多少含未平倉，總報酬率 25%\", function () {",
                   "    // 12,000 在收盤 120 那根全押得到 100 單位，收盤 150 時值 15,000。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"15000\");",
-                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(0.25);",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"15000\");",
+                  "    pm.expect(pm.response.json().result.summary.totalReturnRate).to.eql(0.25);",
                   "});",
                   "pm.test(\"一筆都沒平倉時，勝率是不適用而不是 0\", function () {",
-                  "    pm.expect(pm.response.json().summary.winRate).to.eql(null);",
+                  "    pm.expect(pm.response.json().result.summary.winRate).to.eql(null);",
                   "});"
                 ]
               }
@@ -11962,26 +12008,68 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：聽到反向信號就在同一棒反手（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"反手算兩次開倉，留下一筆已平倉交易\", function () {",
-                  "    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(2);",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().result.summary.positionOpenCount).to.eql(2);",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.have.lengthOf(1);",
                   "});",
                   "pm.test(\"那一筆交易交代了方向、兩端價格與賺賠\", function () {",
-                  "    const trade = pm.response.json().closedTrades[0];",
+                  "    const trade = pm.response.json().result.closedTrades[0];",
                   "    pm.expect(trade.direction).to.eql(\"long\");",
                   "    pm.expect(trade.entryPrice).to.eql(\"110\");",
                   "    pm.expect(trade.exitPrice).to.eql(\"140\");",
                   "    pm.expect(trade.profit).to.eql(\"3000\");",
                   "});",
                   "pm.test(\"勝率只看已平倉的那一筆\", function () {",
-                  "    pm.expect(pm.response.json().summary.winRate).to.eql(1);",
+                  "    pm.expect(pm.response.json().result.summary.winRate).to.eql(1);",
                   "});",
                   "pm.test(\"最後剩多少含還開著的空倉\", function () {",
                   "    // 平多倉後有 14,000，全押開空拿 100 單位；收盤由 140 漲到 150 浮虧 1,000。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"13000\");",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"13000\");",
                   "});"
                 ]
               }
@@ -12024,24 +12112,66 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：賣出就平倉回現金（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"賣出只平倉，不反手，所以只算一次開倉\", function () {",
-                  "    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(1);",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().result.summary.positionOpenCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.have.lengthOf(1);",
                   "});",
                   "pm.test(\"現貨永遠不會出現空倉\", function () {",
-                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "    pm.response.json().result.closedTrades.forEach(function (trade) {",
                   "        pm.expect(trade.direction).to.eql(\"long\");",
                   "    });",
                   "});",
                   "pm.test(\"平倉之後手上是現金，最後一根的漲跌與他無關\", function () {",
                   "    // 平掉多倉拿回 14,000；最後一根由 140 漲到 150 時已經空手。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"14000\");",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"14000\");",
                   "});",
                   "pm.test(\"資金曲線最後兩點一樣，因為那一段是現金\", function () {",
-                  "    const curve = pm.response.json().equityCurve;",
+                  "    const curve = pm.response.json().result.equityCurve;",
                   "    pm.expect(curve[curve.length - 1].equity).to.eql(curve[curve.length - 2].equity);",
                   "});"
                 ]
@@ -12226,11 +12356,53 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：每次只押可用資金的一半（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"只有押下去的那一半在動\", function () {",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"13500\");",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"13500\");",
                   "});"
                 ]
               }
@@ -12312,15 +12484,57 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200——跳過開倉不是失敗\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：固定金額押不下去就跳過，不算失敗（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"一次倉都沒開成，錢原封不動\", function () {",
-                  "    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(0);",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"12000\");",
+                  "    pm.expect(pm.response.json().result.summary.positionOpenCount).to.eql(0);",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"12000\");",
                   "});",
                   "pm.test(\"資金曲線仍然一根一個點\", function () {",
-                  "    pm.expect(pm.response.json().equityCurve).to.have.lengthOf(5);",
+                  "    pm.expect(pm.response.json().result.equityCurve).to.have.lengthOf(5);",
                   "});"
                 ]
               }
@@ -12402,11 +12616,52 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 422——算式的問題\", function () {",
-                  "    pm.response.to.have.status(422);",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
                   "});",
-                  "pm.test(\"說出 Calculate 該回傳 indicator.Signal\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"indicator.Signal\");",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式產出數字而不是信號（看輪次）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "重演途中才發現的問題不再當場拒絕，而是讓這筆輪次收成失敗、留下原因。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次收成失敗並留下原因\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"failed\");",
+                  "    pm.expect(pm.response.json().result).to.eql(null);",
+                  "    pm.expect(pm.response.json().failureReason).to.not.be.empty;",
+                  "    pm.expect(pm.response.json().failureReason).to.include(\"indicator.Signal\");",
                   "});"
                 ]
               }
@@ -12660,11 +12915,52 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
                   "});",
-                  "pm.test(\"說明湊不出足夠的 K 線\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"湊不出足夠的 K 線\");",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：這段期間湊不出足夠的 K 線（看輪次）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "重演途中才發現的問題不再當場拒絕，而是讓這筆輪次收成失敗、留下原因。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次收成失敗並留下原因\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"failed\");",
+                  "    pm.expect(pm.response.json().result).to.eql(null);",
+                  "    pm.expect(pm.response.json().failureReason).to.not.be.empty;",
+                  "    pm.expect(pm.response.json().failureReason).to.include(\"湊不出足夠的 K 線\");",
                   "});"
                 ]
               }
@@ -12746,11 +13042,52 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
                   "});",
-                  "pm.test(\"指名是哪一個參數對不上\", function () {",
-                  "    pm.expect(pm.response.json().parameterName).to.eql(\"period\");",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式取用了沒有宣告的參數名稱（看輪次）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "重演途中才發現的問題不再當場拒絕，而是讓這筆輪次收成失敗、留下原因。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次收成失敗並留下原因\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"failed\");",
+                  "    pm.expect(pm.response.json().result).to.eql(null);",
+                  "    pm.expect(pm.response.json().failureReason).to.not.be.empty;",
+                  "    pm.expect(pm.response.json().failureReason).to.include(\"period\");",
                   "});"
                 ]
               }
@@ -12832,8 +13169,51 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 422\", function () {",
-                  "    pm.response.to.have.status(422);",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式無法解讀（看輪次）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "重演途中才發現的問題不再當場拒絕，而是讓這筆輪次收成失敗、留下原因。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次收成失敗並留下原因\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"failed\");",
+                  "    pm.expect(pm.response.json().result).to.eql(null);",
+                  "    pm.expect(pm.response.json().failureReason).to.not.be.empty;",
                   "});"
                 ]
               }
@@ -12915,23 +13295,65 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：止損把那一注掃出場（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"開盤跳過止損價，成交在開盤價\", function () {",
                   "    // 進場 120 下面兩個百分點是 117.6；第三根開盤 100 已經跳過它。",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"100\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().result.closedTrades[0].exitPrice).to.eql(\"100\");",
+                  "    pm.expect(pm.response.json().result.closedTrades[0].exitReason).to.eql(\"stopLoss\");",
                   "});",
                   "pm.test(\"成績單數得出那一筆是止損出場\", function () {",
-                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
-                  "    pm.expect(pm.response.json().summary.takeProfitExitCount).to.eql(0);",
+                  "    pm.expect(pm.response.json().result.summary.stopLossExitCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().result.summary.takeProfitExitCount).to.eql(0);",
                   "});",
                   "pm.test(\"同一支算式不設止損是 +25%，設了約 −16.7%\", function () {",
                   "    // 12,000 − 2,000 = 10,000。不設止損時它抱到最後是 15,000。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"10000\");",
-                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.be.closeTo(-2000 / 12000, 0.000001);",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"10000\");",
+                  "    pm.expect(pm.response.json().result.summary.totalReturnRate).to.be.closeTo(-2000 / 12000, 0.000001);",
                   "});"
                 ]
               }
@@ -13024,22 +13446,64 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：交易成本從可用資金扣，逐筆損益是淨額（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
                   "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
                   "});",
                   "pm.test(\"兩端各收一筆，出場那筆算的是成交金額\", function () {",
                   "    // 成交金額是 100 單位 × 開盤價 100 = 10,000，不是當初押下去的 12,000。",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].entryCost).to.eql(\"120\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"100\");",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().result.closedTrades[0].entryCost).to.eql(\"120\");",
+                  "    pm.expect(pm.response.json().result.closedTrades[0].exitCost).to.eql(\"100\");",
                   "});",
                   "pm.test(\"逐筆損益是扣掉兩筆成本之後的淨額\", function () {",
                   "    // 價差虧 2,000，再扣 120 與 100。",
-                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-2220\");",
+                  "    pm.expect(pm.response.json().result.closedTrades[0].profit).to.eql(\"-2220\");",
                   "});",
                   "pm.test(\"成績單說得出總共付了多少\", function () {",
-                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"220\");",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"9900\");",
+                  "    pm.expect(pm.response.json().result.summary.totalTransactionCost).to.eql(\"220\");",
+                  "    pm.expect(pm.response.json().result.summary.finalEquity).to.eql(\"9900\");",
                   "});"
                 ]
               }
@@ -13090,6 +13554,153 @@
                   "});",
                   "pm.test(\"指向那一組交易成本\", function () {",
                   "    pm.expect(pm.response.json().field).to.eql(\"transactionCosts\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "回測輪次：列出自己的，新到舊",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs?limit=500",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            },
+            "description": "`limit` 超過兩百一律當兩百；不給是二十。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200，最多兩百筆，帶總數\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().runs).to.be.an(\"array\");",
+                  "    pm.expect(pm.response.json().runs.length).to.be.at.most(200);",
+                  "    pm.expect(pm.response.json().totalCount).to.be.a(\"number\");",
+                  "});",
+                  "pm.test(\"列表不帶成績單\", function () {",
+                  "    pm.response.json().runs.forEach(function (run) { pm.expect(run).to.not.have.property(\"result\"); });",
+                  "});",
+                  "pm.test(\"新到舊\", function () {",
+                  "    var ids = pm.response.json().runs.map(function (run) { return run.id; });",
+                  "    pm.expect(ids).to.eql(ids.slice().sort(function (a, b) { return b - a; }));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "回測輪次：只看失敗的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs?status=failed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "failed"
+                }
+              ]
+            },
+            "description": "依狀態篩選。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"每一筆都是失敗\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.response.json().runs.forEach(function (run) { pm.expect(run.status).to.eql(\"failed\"); });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：取消一筆已結束的輪次",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}",
+                "cancel"
+              ]
+            },
+            "description": "排隊中與進行中才取消得了；上一筆已經等到結束。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409，說它已經結束\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    pm.expect(pm.response.json().message).to.include(\"已經結束\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：看一筆不是自己的輪次",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "999999999"
+              ]
+            },
+            "description": "別人的與不存在的一律說找不到。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
                   "});"
                 ]
               }
@@ -13594,14 +14205,59 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演這一份交易策略（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
                   "pm.test(\"彙總刻度是那幾個來源自己說的\", function () {",
-                  "    pm.expect(pm.response.json().interval).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(pm.response.json().result.interval).to.be.a(\"string\").and.not.empty;",
                   "});",
                   "pm.test(\"成績單說得出打架了幾棒\", function () {",
-                  "    pm.expect(pm.response.json().summary.conflictedCandleCount).to.be.a(\"number\");",
+                  "    pm.expect(pm.response.json().result.summary.conflictedCandleCount).to.be.a(\"number\");",
                   "});",
-                  "pm.test(\"沒給交易模式，卻照這一份記著的現貨走：每一筆都是做多\", function () {\n    pm.response.json().closedTrades.forEach(function (trade) {\n        pm.expect(trade.direction).to.eql(\"long\");\n    });\n});"
+                  "pm.test(\"沒給交易模式，卻照這一份記著的現貨走：每一筆都是做多\", function () {\n    pm.response.json().result.closedTrades.forEach(function (trade) {\n        pm.expect(trade.direction).to.eql(\"long\");\n    });\n});"
                 ]
               }
             }
@@ -13645,13 +14301,58 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：賣出就平倉回現金，不可能出現空倉（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
                   "// 這一次沒有交易模式可以給——請求裡根本沒有那個欄位。改的是那一份交易策略，",
                   "// 重演就跟著改，而使用者一次都不必重講。",
                   "pm.test(\"成績單、資金曲線、交易明細照舊交出來\", function () {",
-                  "    pm.expect(pm.response.json().summary).to.be.an(\"object\");",
-                  "    pm.expect(pm.response.json().equityCurve).to.be.an(\"array\");",
-                  "    pm.expect(pm.response.json().closedTrades).to.be.an(\"array\");",
+                  "    pm.expect(pm.response.json().result.summary).to.be.an(\"object\");",
+                  "    pm.expect(pm.response.json().result.equityCurve).to.be.an(\"array\");",
+                  "    pm.expect(pm.response.json().result.closedTrades).to.be.an(\"array\");",
                   "});"
                 ]
               }
@@ -13696,14 +14397,59 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：交易策略也說得出交易成本（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
                   "pm.test(\"成績單說得出總共付了多少\", function () {",
-                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.be.a(\"string\");",
+                  "    pm.expect(pm.response.json().result.summary.totalTransactionCost).to.be.a(\"string\");",
                   "});",
                   "pm.test(\"每一筆交易的損益確實是價差扣掉那兩筆成本\", function () {",
                   "    // 拿價差自己算一遍再比對。「損益不大於損益加上兩筆成本」那種寫法是恆真的——",
                   "    // 後端哪天退回報毛額，它照樣會過，那條斷言等於沒有寫。",
-                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "    pm.response.json().result.closedTrades.forEach(function (trade) {",
                   "        const units = Number(trade.stake) / Number(trade.entryPrice);",
                   "        const priceMove = Number(trade.exitPrice) - Number(trade.entryPrice);",
                   "        const gross = trade.direction === \"short\"",
@@ -13896,8 +14642,53 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：五倍槓桿、多空反手、計入資金費率（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
-                  "const result = pm.response.json();",
+                  "const result = pm.response.json().result;",
                   "pm.test(\"說出交易模式與槓桿\", () => { pm.expect(result.tradingMode).to.eql(\"longShort\"); pm.expect(Number(result.leverage)).to.eql(5); });",
                   "pm.test(\"成績單說得出強平、資金費用與維持保證金依據\", () => { pm.expect(result.summary).to.have.property(\"liquidationExitCount\"); pm.expect(result.summary).to.have.property(\"totalFundingFee\"); pm.expect([\"tiers\", \"smallestTier\"]).to.include(result.summary.maintenanceMarginBasis.kind); });"
                 ]
@@ -13935,8 +14726,53 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：只做空（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"每一筆都是做空\", () => pm.response.json().closedTrades.forEach(trade => pm.expect(trade.direction).to.eql(\"short\")));"
+                  "pm.test(\"每一筆都是做空\", () => pm.response.json().result.closedTrades.forEach(trade => pm.expect(trade.direction).to.eql(\"short\")));"
                 ]
               }
             }
@@ -13972,8 +14808,53 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：下一格開盤成交，切出驗證段（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
-                  "const result = pm.response.json();",
+                  "const result = pm.response.json().result;",
                   "pm.test(\"說出成交時點\", () => pm.expect(result.fillTiming).to.eql(\"nextOpen\"));",
                   "pm.test(\"交出調參段與驗證段\", () => { pm.expect(result.inSample).to.be.an(\"object\"); pm.expect(result.validation).to.be.an(\"object\"); });",
                   "pm.test(\"成績單有短線要看的五格\", () => [\"profitFactor\",\"expectancy\",\"averageHoldingSeconds\",\"maximumConsecutiveLossCount\",\"costToGrossProfitRatio\"].forEach(key => pm.expect(result.summary).to.have.property(key)));"
@@ -14349,8 +15230,53 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"回應 202，先回一筆回測輪次\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect([\"queued\", \"running\"]).to.include(pm.response.json().status);",
+                  "    pm.expect(pm.response.json()).to.not.have.property(\"result\");",
+                  "});",
+                  "pm.collectionVariables.set(\"backtestRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演這一份合約交易策略（看成績單）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backtest-runs/{{backtestRunId}}?waitSeconds=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtest-runs",
+                "{{backtestRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "等到這筆輪次結束（最多 60 秒）再讀它的成績單。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"輪次完成，成績單與當場回測一字不差\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"succeeded\");",
+                  "    pm.expect(pm.response.json().progressPercent).to.eql(100);",
+                  "});",
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"照它自己的交易模式\", () => pm.expect(pm.response.json().tradingMode).to.eql(\"longOnly\"));"
+                  "pm.test(\"照它自己的交易模式\", () => pm.expect(pm.response.json().result.tradingMode).to.eql(\"longOnly\"));"
                 ]
               }
             }

@@ -13,6 +13,7 @@ type InterruptedWorkApplication struct {
 	assistantConversationService    *service.AssistantConversationService
 	kCandleIngestionService         *service.KCandleIngestionService
 	contractKCandleIngestionService *service.ContractKCandleIngestionService
+	backtestRunService              *service.BacktestRunService
 }
 
 func NewInterruptedWorkApplication(
@@ -20,12 +21,14 @@ func NewInterruptedWorkApplication(
 	assistantConversationService *service.AssistantConversationService,
 	kCandleIngestionService *service.KCandleIngestionService,
 	contractKCandleIngestionService *service.ContractKCandleIngestionService,
+	backtestRunService *service.BacktestRunService,
 ) *InterruptedWorkApplication {
 	return &InterruptedWorkApplication{
 		replicaPresenceService:          replicaPresenceService,
 		assistantConversationService:    assistantConversationService,
 		kCandleIngestionService:         kCandleIngestionService,
 		contractKCandleIngestionService: contractKCandleIngestionService,
+		backtestRunService:              backtestRunService,
 	}
 }
 
@@ -84,7 +87,18 @@ func (interruptedWorkApplication *InterruptedWorkApplication) failWorkOutside(
 		return dto.InterruptedWorkDto{Answers: answerCount, HistorySyncs: historySyncCount}, contractHistorySyncError
 	}
 
+	backtestRunCount, backtestRunError := interruptedWorkApplication.backtestRunService.FailInterruptedRuns(
+		executionContext, liveReplicaNames)
+	if backtestRunError != nil {
+		return dto.InterruptedWorkDto{
+			Answers: answerCount, HistorySyncs: historySyncCount, ContractHistorySyncs: contractHistorySyncCount,
+		}, backtestRunError
+	}
+
 	return dto.InterruptedWorkDto{
-		Answers: answerCount, HistorySyncs: historySyncCount, ContractHistorySyncs: contractHistorySyncCount,
+		Answers:              answerCount,
+		HistorySyncs:         historySyncCount,
+		ContractHistorySyncs: contractHistorySyncCount,
+		BacktestRuns:         backtestRunCount,
 	}, nil
 }

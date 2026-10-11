@@ -20,11 +20,16 @@ func NewIndicatorScriptWorker() *IndicatorScriptWorker {
 // Serve returns exit code zero whenever an answer was written, regardless of script outcome; a failure to write exits non-zero.
 func (indicatorScriptWorker *IndicatorScriptWorker) Serve(input io.Reader, output io.Writer) int {
 	decoder := gob.NewDecoder(input)
+	encoder := gob.NewEncoder(output)
 
 	var header indicatorScriptRequestHeader
 	headerError := decoder.Decode(&header)
 
-	if encodeError := gob.NewEncoder(output).Encode(header.answer(headerError, decoder)); encodeError != nil {
+	// Element messages of a replay are written as they are computed; the closing message is the one answer every request ends with.
+	closing := header.answer(headerError, decoder, func(element indicatorScriptResponse) error {
+		return encoder.Encode(element)
+	})
+	if encodeError := encoder.Encode(closing); encodeError != nil {
 		fmt.Fprintf(os.Stderr, "indicator script worker could not reply: %v\n", encodeError)
 		return 1
 	}

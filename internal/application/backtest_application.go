@@ -13,55 +13,79 @@ type BacktestApplication struct {
 	strategyScriptService   *service.StrategyScriptService
 	backtestService         *service.BacktestService
 	contractBacktestService *service.ContractBacktestService
+	backtestRunService      *service.BacktestRunService
 }
 
 func NewBacktestApplication(
 	strategyScriptService *service.StrategyScriptService,
 	backtestService *service.BacktestService,
 	contractBacktestService *service.ContractBacktestService,
+	backtestRunService *service.BacktestRunService,
 ) *BacktestApplication {
 	return &BacktestApplication{
 		strategyScriptService:   strategyScriptService,
 		backtestService:         backtestService,
 		contractBacktestService: contractBacktestService,
+		backtestRunService:      backtestRunService,
 	}
 }
 
-// RunBacktest replays the named strategy script or the caller's own algorithm on a spot account; the value kind is ignored because a replay always reads signals.
-func (backtestApplication *BacktestApplication) RunBacktest(
+// SubmitBacktest queues a spot replay of the named strategy script or the caller's own algorithm; the value kind is ignored because a replay always reads signals.
+func (backtestApplication *BacktestApplication) SubmitBacktest(
 	executionContext context.Context,
 	viewerID uint,
 	runSubjectDomain domains.RunSubjectDomain,
 	requestDto dto.BacktestRequestDto,
-) (dto.BacktestResultDto, error) {
+) (dto.BacktestRunDto, error) {
 	runnableStrategyScriptDto, resolveError := backtestApplication.resolveReplayable(
 		executionContext, viewerID, runSubjectDomain, vo.MarketDataKindKCandle)
 	if resolveError != nil {
-		return dto.BacktestResultDto{}, resolveError
+		return dto.BacktestRunDto{}, resolveError
 	}
 
 	requestDto.Script = runnableStrategyScriptDto.Script
 	requestDto.Parameters = runnableStrategyScriptDto.Parameters
+	if validationError := backtestApplication.backtestService.ValidateBacktest(requestDto); validationError != nil {
+		return dto.BacktestRunDto{}, validationError
+	}
 
-	return backtestApplication.backtestService.RunBacktest(executionContext, requestDto)
+	strategyScriptID, subjectName := backtestApplication.subjectOf(executionContext, viewerID, runSubjectDomain)
+
+	return backtestApplication.backtestRunService.Submit(executionContext, viewerID, dto.BacktestRunSubmissionDto{
+		Kind:             string(vo.BacktestRunSpotScript),
+		Request:          dto.BacktestRunRequestDto{SpotScript: &requestDto},
+		StrategyScriptID: strategyScriptID,
+		SubjectName:      subjectName,
+	})
 }
 
-func (backtestApplication *BacktestApplication) RunContractBacktest(
+func (backtestApplication *BacktestApplication) SubmitContractBacktest(
 	executionContext context.Context,
 	viewerID uint,
 	runSubjectDomain domains.RunSubjectDomain,
 	requestDto dto.ContractBacktestRequestDto,
-) (dto.ContractBacktestResultDto, error) {
+) (dto.BacktestRunDto, error) {
 	runnableStrategyScriptDto, resolveError := backtestApplication.resolveReplayable(
 		executionContext, viewerID, runSubjectDomain, vo.MarketDataKindContractKCandle)
 	if resolveError != nil {
-		return dto.ContractBacktestResultDto{}, resolveError
+		return dto.BacktestRunDto{}, resolveError
 	}
 
 	requestDto.Script = runnableStrategyScriptDto.Script
 	requestDto.Parameters = runnableStrategyScriptDto.Parameters
+	if validationError := backtestApplication.contractBacktestService.ValidateContractBacktest(
+		executionContext, requestDto); validationError != nil {
+		return dto.BacktestRunDto{}, validationError
+	}
 
-	return backtestApplication.contractBacktestService.RunContractBacktest(executionContext, requestDto)
+	strategyScriptID, subjectName := backtestApplication.subjectOf(executionContext, viewerID, runSubjectDomain)
+
+	return backtestApplication.backtestRunService.Submit(executionContext, viewerID, dto.BacktestRunSubmissionDto{
+		Kind:             string(vo.BacktestRunContractScript),
+		Request:          dto.BacktestRunRequestDto{ContractScript: &requestDto},
+		StrategyScriptID: strategyScriptID,
+		SubjectName:      subjectName,
+	})
 }
 
 // resolveReplayable returns the written script or the visible named one, refusing a named script built for the other market kind rather than reporting it as malformed.
@@ -91,4 +115,22 @@ func (backtestApplication *BacktestApplication) resolveReplayable(
 	}
 
 	return resolved, nil
+}
+
+// subjectOf names the run after the script it replays; an unsaved algorithm or a script the viewer cannot read by name has no name to give.
+func (backtestApplication *BacktestApplication) subjectOf(
+	executionContext context.Context, viewerID uint, runSubjectDomain domains.RunSubjectDomain,
+) (*uint, string) {
+	strategyScriptID, namesAStrategyScript := runSubjectDomain.NamedStrategyScriptID()
+	if !namesAStrategyScript {
+		return nil, ""
+	}
+
+	strategyScriptDto, readError := backtestApplication.strategyScriptService.GetStrategyScript(
+		executionContext, viewerID, strategyScriptID)
+	if readError != nil {
+		return &strategyScriptID, ""
+	}
+
+	return &strategyScriptID, strategyScriptDto.Name
 }

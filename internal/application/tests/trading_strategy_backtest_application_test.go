@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -55,7 +56,7 @@ func newTradingStrategyBacktestUnderTest(t *testing.T) tradingStrategyBacktestUn
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), nil, nil, time.Minute),
 		kCandleRepository:         kCandleRepository,
 		indicatorScriptProxy:      indicatorScriptProxy,
 		tradingStrategyRepository: tradingStrategyRepository,
@@ -138,7 +139,7 @@ func (fixture tradingStrategyBacktestUnderTest) expectSourceSignals(
 ) {
 	for _, signals := range signalsBySource {
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(signals...), nil)
 	}
 }
@@ -294,12 +295,11 @@ func TestTradingStrategyBacktestOfOneSourceMatchesReplayingThatScript(t *testing
 	scriptFixture.kCandleRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(candles, nil)
 	scriptFixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(signalsSaying(signals...), nil)
 
-	scriptResult, scriptError := scriptFixture.backtestApplication.RunBacktest(
-		t.Context(), backtestViewerID,
-		namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+	scriptResult, scriptError := scriptFixture.backtestService.RunBacktest(
+		t.Context(), replayRequestDto(), nil)
 	require.NoError(t, scriptError)
 
 	tradingStrategy := aReplayedTradingStrategy("1h")
@@ -364,7 +364,7 @@ func TestTradingStrategyBacktestRefusesWhenASourcesScriptCannotBeRead(t *testing
 		service.NewStrategyScriptService(
 			strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil)
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), nil, nil, time.Minute)
 
 	_, err := backtestApplication.RunTradingStrategyBacktest(
 		t.Context(), backtestViewerID, replayedTradingStrategyID,
@@ -385,4 +385,29 @@ func TestTradingStrategyBacktestRefusesAStretchWithTooFewCandles(t *testing.T) {
 	_, err := fixture.run()
 
 	require.ErrorIs(t, err, domains.ErrBacktestValidation)
+}
+
+// The assistant waits on this replay, so it runs under the on-demand allowance and nobody listens for progress.
+func TestTradingStrategyBacktestForTheAssistantRunsUnderTheOnDemandAllowance(t *testing.T) {
+	fixture := newTradingStrategyBacktestUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), replayedTradingStrategyID).
+		Return(aReplayedTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110")}, nil)
+	calledAt := time.Now()
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), nil).
+		DoAndReturn(func(
+			executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
+			_ []vo.KCandleVo, _ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+		) ([]map[string]vo.IndicatorValueVo, error) {
+			deadline, hasDeadline := executionContext.Deadline()
+			assert.True(t, hasDeadline)
+			assert.WithinDuration(t, calledAt.Add(time.Minute), deadline, 5*time.Second)
+			return signalsSaying(vo.SignalHold, vo.SignalHold), nil
+		})
+
+	_, err := fixture.run()
+
+	require.NoError(t, err)
 }

@@ -43,7 +43,9 @@ func NewTradingStrategyBacktestDomain(
 		return TradingStrategyBacktestDomain{}, backtestError
 	}
 
-	return TradingStrategyBacktestDomain{backtest: backtest, sources: sources}, nil
+	return TradingStrategyBacktestDomain{
+		backtest: backtest.warmedUpFor(sources.MaximumLookbackCount()), sources: sources,
+	}, nil
 }
 
 func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) Symbol() string {

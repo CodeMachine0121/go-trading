@@ -5,4 +5,5 @@ type InterruptedWorkDto struct {
 	Answers              int
 	HistorySyncs         int
 	ContractHistorySyncs int
+	BacktestRuns         int
 }

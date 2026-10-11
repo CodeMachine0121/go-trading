@@ -102,6 +102,15 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SharedInterval() s
 	return replaySourcesDomain.sharedInterval
 }
 
+func (replaySourcesDomain TradingStrategyReplaySourcesDomain) MaximumLookbackCount() int {
+	maximumLookbackCount := 0
+	for _, source := range replaySourcesDomain.sources {
+		maximumLookbackCount = max(maximumLookbackCount, source.parameters.MaximumLookbackCount())
+	}
+
+	return maximumLookbackCount
+}
+
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceCount() int {
 	return len(replaySourcesDomain.sources)
 }

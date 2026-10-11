@@ -27,6 +27,7 @@ type interruptedWorkUnderTest struct {
 	conversationRepository        *mocks.MockIConversationRepository
 	historySyncRunRepository      *mocks.MockIKCandleHistorySyncRunRepository
 	contractHistorySyncRepository *mocks.MockIKCandleContractHistorySyncRunRepository
+	backtestRunRepository         *mocks.MockIBacktestRunRepository
 }
 
 func newInterruptedWorkUnderTest(t *testing.T) interruptedWorkUnderTest {
@@ -35,6 +36,7 @@ func newInterruptedWorkUnderTest(t *testing.T) interruptedWorkUnderTest {
 	conversationRepository := mocks.NewMockIConversationRepository(controller)
 	historySyncRunRepository := mocks.NewMockIKCandleHistorySyncRunRepository(controller)
 	contractHistorySyncRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(controller)
+	backtestRunRepository := mocks.NewMockIBacktestRunRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(sweptAt).AnyTimes()
 	catalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
@@ -50,15 +52,20 @@ func newInterruptedWorkUnderTest(t *testing.T) interruptedWorkUnderTest {
 			service.NewContractKCandleIngestionService(mocks.NewMockIKCandleContractRepository(controller),
 				contractHistorySyncRepository, mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMarketDataProxy(controller), clockProxy, catalog, 5, 24*time.Hour, nil, 2,
-				thisSweepingReplica)),
+				thisSweepingReplica),
+			service.NewBacktestRunService(
+				backtestRunRepository, mocks.NewMockIBacktestRunResultRepository(controller),
+				mocks.NewMockITransactionRepository(controller), clockProxy, nil, nil,
+				domains.NewBacktestRunAdmissionDomain(3), thisSweepingReplica, 30*time.Minute, 100, time.Minute)),
 		replicaHeartbeatRepository:    replicaHeartbeatRepository,
 		conversationRepository:        conversationRepository,
 		historySyncRunRepository:      historySyncRunRepository,
 		contractHistorySyncRepository: contractHistorySyncRepository,
+		backtestRunRepository:         backtestRunRepository,
 	}
 }
 
-// expectSweptOutside expects all three kinds of work swept, sparing exactly liveReplicaNames.
+// expectSweptOutside expects every kind of work swept, sparing exactly liveReplicaNames.
 func (underTest interruptedWorkUnderTest) expectSweptOutside(liveReplicaNames []string) {
 	underTest.conversationRepository.EXPECT().
 		FailRunningTurnsOutside(gomock.Any(), liveReplicaNames, gomock.Any()).Return(1, nil)
@@ -66,6 +73,8 @@ func (underTest interruptedWorkUnderTest) expectSweptOutside(liveReplicaNames []
 		FailRunningOutside(gomock.Any(), liveReplicaNames, gomock.Any(), sweptAt).Return(2, nil)
 	underTest.contractHistorySyncRepository.EXPECT().
 		FailRunningOutside(gomock.Any(), liveReplicaNames, gomock.Any(), sweptAt).Return(3, nil)
+	underTest.backtestRunRepository.EXPECT().
+		FailRunningOutside(gomock.Any(), liveReplicaNames, "被重新啟動打斷", sweptAt).Return(4, nil)
 }
 
 func TestInterruptedWorkApplicationAtStartupSparesOnlyOtherLiveReplicas(t *testing.T) {
@@ -78,7 +87,7 @@ func TestInterruptedWorkApplicationAtStartupSparesOnlyOtherLiveReplicas(t *testi
 	interrupted, sweepError := underTest.interruptedWorkApplication.FailWorkLeftByLastRun(t.Context())
 
 	require.NoError(t, sweepError)
-	assert.Equal(t, dto.InterruptedWorkDto{Answers: 1, HistorySyncs: 2, ContractHistorySyncs: 3}, interrupted)
+	assert.Equal(t, dto.InterruptedWorkDto{Answers: 1, HistorySyncs: 2, ContractHistorySyncs: 3, BacktestRuns: 4}, interrupted)
 }
 
 func TestInterruptedWorkApplicationWhileServingSparesThisReplicaToo(t *testing.T) {
@@ -142,6 +151,20 @@ func TestInterruptedWorkApplicationStopsAtTheFirstSweepThatFails(t *testing.T) {
 					Return(0, errors.New("storage unavailable"))
 			},
 			expected: dto.InterruptedWorkDto{Answers: 1, HistorySyncs: 2},
+		},
+		{
+			name: "backtest runs could not be swept",
+			arrange: func(underTest interruptedWorkUnderTest) {
+				underTest.conversationRepository.EXPECT().FailRunningTurnsOutside(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(1, nil)
+				underTest.historySyncRunRepository.EXPECT().FailRunningOutside(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(2, nil)
+				underTest.contractHistorySyncRepository.EXPECT().FailRunningOutside(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(3, nil)
+				underTest.backtestRunRepository.EXPECT().FailRunningOutside(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(0, errors.New("storage unavailable"))
+			},
+			expected: dto.InterruptedWorkDto{Answers: 1, HistorySyncs: 2, ContractHistorySyncs: 3},
 		},
 	}
 

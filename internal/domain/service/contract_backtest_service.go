@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -23,8 +21,7 @@ type ContractBacktestService struct {
 	contractIndicatorScriptProxy            domaininterface.IContractIndicatorScriptProxy
 	clockProxy                              domaininterface.IClockProxy
 	maxCandleCount                          int
-	// replayTimeAllowance matches the spot replay's.
-	replayTimeAllowance time.Duration
+	defaultWarmupBarCount                   int
 }
 
 func NewContractBacktestService(
@@ -36,7 +33,7 @@ func NewContractBacktestService(
 	contractIndicatorScriptProxy domaininterface.IContractIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
 	maxCandleCount int,
-	replayTimeAllowance time.Duration,
+	defaultWarmupBarCount int,
 ) *ContractBacktestService {
 	return &ContractBacktestService{
 		kCandleContractRepository:               kCandleContractRepository,
@@ -47,24 +44,55 @@ func NewContractBacktestService(
 		contractIndicatorScriptProxy:            contractIndicatorScriptProxy,
 		clockProxy:                              clockProxy,
 		maxCandleCount:                          maxCandleCount,
-		replayTimeAllowance:                     replayTimeAllowance,
+		defaultWarmupBarCount:                   defaultWarmupBarCount,
 	}
+}
+
+// ValidateContractBacktest judges a request exactly as a replay would, venue rules included, before reading any bar.
+func (contractBacktestService *ContractBacktestService) ValidateContractBacktest(
+	executionContext context.Context, requestDto dto.ContractBacktestRequestDto,
+) error {
+	tradingRules, rulesError := contractBacktestService.readTradingRules(executionContext, requestDto.Symbol)
+	if rulesError != nil {
+		return rulesError
+	}
+	_, validationError := domains.NewContractBacktestDomain(
+		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
+
+	return validationError
+}
+
+func (contractBacktestService *ContractBacktestService) ValidateContractTradingStrategyBacktest(
+	executionContext context.Context, requestDto dto.ContractTradingStrategyBacktestRequestDto,
+) error {
+	tradingRules, rulesError := contractBacktestService.readTradingRules(executionContext, requestDto.Symbol)
+	if rulesError != nil {
+		return rulesError
+	}
+	_, validationError := domains.NewContractTradingStrategyBacktestDomain(
+		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
+
+	return validationError
 }
 
 // RunContractBacktest replays one contract script once per finished bar, each run seeing all bars up to its own; nothing is stored.
 func (contractBacktestService *ContractBacktestService) RunContractBacktest(
-	executionContext context.Context, requestDto dto.ContractBacktestRequestDto,
+	executionContext context.Context,
+	requestDto dto.ContractBacktestRequestDto,
+	progress domaininterface.IReplayProgressSink,
 ) (dto.ContractBacktestResultDto, error) {
-	// The allowance covers reading the market as well as running the scripts.
-	replayContext, stopReplaying := context.WithTimeoutCause(
-		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, rulesError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
+	if requestDto.DefaultWarmupBarCount == 0 {
+		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
+	}
 	contractBacktestDomain, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {
@@ -74,7 +102,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, readError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
 
 	perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
@@ -82,9 +110,10 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		requestDto.Script,
 		contractBacktestDomain.ResultType(),
 		contractKCandles,
-		contractBacktestDomain.Parameters())
+		contractBacktestDomain.Parameters(),
+		progress)
 	if executionError != nil {
-		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, executionError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 	}
 
 	return contractBacktestDomain.ReplayOver(
@@ -93,18 +122,22 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 
 // RunContractTradingStrategyBacktest replays a contract trading strategy by its trading mode; bars are read once so every source sees the identical stretch.
 func (contractBacktestService *ContractBacktestService) RunContractTradingStrategyBacktest(
-	executionContext context.Context, requestDto dto.ContractTradingStrategyBacktestRequestDto,
+	executionContext context.Context,
+	requestDto dto.ContractTradingStrategyBacktestRequestDto,
+	progress domaininterface.IReplayProgressSink,
 ) (dto.ContractBacktestResultDto, error) {
-	// The allowance covers reading the market as well as running the scripts.
-	replayContext, stopReplaying := context.WithTimeoutCause(
-		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, rulesError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
+	if requestDto.DefaultWarmupBarCount == 0 {
+		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
+	}
 	strategyBacktestDomain, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {
@@ -115,41 +148,28 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, readError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
 
-	signalsBySource := make([][]domains.SignalDomain, 0, strategyBacktestDomain.SourceCount())
-	for sourceIndex := range strategyBacktestDomain.SourceCount() {
+	sourceCount := strategyBacktestDomain.SourceCount()
+	signalsBySource := make([][]domains.SignalDomain, 0, sourceCount)
+	for sourceIndex := range sourceCount {
 		perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
 			replayContext,
 			strategyBacktestDomain.SourceScript(sourceIndex),
 			contractBacktestDomain.ResultType(),
 			contractKCandles,
-			strategyBacktestDomain.SourceParameters(sourceIndex))
+			strategyBacktestDomain.SourceParameters(sourceIndex),
+			newSourceReplayProgress(progress, sourceIndex, sourceCount))
 		// One failing source ends the replay; missing signals would silently make conditions false.
 		if executionError != nil {
-			return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, executionError)
+			return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 		}
 
 		signalsBySource = append(signalsBySource, signalsOf(perBarIndicatorValues))
 	}
 
 	return strategyBacktestDomain.ReplayOver(alignment, signalsBySource, settlements), nil
-}
-
-// refusalFor explains an unfinished replay, with an actionable message when the allowance ran out.
-func (contractBacktestService *ContractBacktestService) refusalFor(
-	replayContext context.Context, executionError error,
-) error {
-	// Waiting for a compartment is not cured by asking for less, so it is not blamed on the allowance.
-	if errors.Is(executionError, domains.ErrIndicatorScriptCompartmentsBusy) {
-		return executionError
-	}
-	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
-		return domains.BacktestTimeAllowanceSpent(contractBacktestService.replayTimeAllowance)
-	}
-
-	return executionError
 }
 
 // readTradingRules reads the symbol's specification and margin ladder first, since the allowed leverage depends on them.

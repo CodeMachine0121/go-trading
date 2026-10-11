@@ -3,6 +3,7 @@ package script
 import (
 	"context"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -39,7 +40,8 @@ func (yaegiContractIndicatorScriptProxy *YaegiContractIndicatorScriptProxy) Exec
 	resultType domains.IndicatorResultTypeDomain,
 	contractKCandles []vo.ContractKCandleVo,
 	parameters domains.StrategyScriptParametersDomain,
+	progress domaininterface.IReplayProgressSink,
 ) ([]map[string]vo.IndicatorValueVo, error) {
 	return yaegiContractIndicatorScriptProxy.compartment.executeForEachElement(
-		executionContext, script, resultType, contractKCandles, parameters)
+		executionContext, script, resultType, contractKCandles, parameters, progress)
 }

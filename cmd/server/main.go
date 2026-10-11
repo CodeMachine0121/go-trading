@@ -36,7 +36,7 @@ func main() {
 	engine := gin.Default()
 	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication,
 		strategyBotJobs, interruptedWorkApplication,
-		contractSeries := registerRoutes(engine, database, applicationConfig)
+		contractSeries, backtestRunApplication := registerRoutes(engine, database, applicationConfig)
 
 	// Said alive before sweeping, then whatever is still running without a live replica behind it is marked failed:
 	// a crash never reaches a shutdown hook, and other replicas' work in flight is left alone. A failure is logged, not fatal.
@@ -49,7 +49,8 @@ func main() {
 	}
 	if interrupted != (dto.InterruptedWorkDto{}) {
 		log.Printf("cleared work interrupted by a vanished replica: %d answer(s), %d history sync(s), "+
-			"%d contract history sync(s)", interrupted.Answers, interrupted.HistorySyncs, interrupted.ContractHistorySyncs)
+			"%d contract history sync(s), %d backtest run(s)", interrupted.Answers, interrupted.HistorySyncs,
+			interrupted.ContractHistorySyncs, interrupted.BacktestRuns)
 	}
 
 	// Listened for before anything starts, so an interrupt during the startup backfill takes the
@@ -63,14 +64,19 @@ func main() {
 	dutyHolder := jobLeadershipApplication
 	if !applicationConfig.BackgroundJobsEnabled {
 		dutyHolder = nil
-		// Bot messages are queued by any replica but sent only by one running background jobs.
+		// Bot messages and backtest runs are queued by any replica but handled only by one running background jobs.
 		log.Println("background jobs are off on this replica: it queues bot messages but sends none, " +
 			"so at least one replica must run with background jobs on")
+		log.Println("background jobs are off on this replica: submitted backtest runs stay queued until " +
+			"a replica with background jobs on takes them; this replica will not process any")
 	}
+
+	server := newServer(applicationConfig, engine)
+	server.RegisterOnShutdown(backtestRunApplication.StopWaiting)
 
 	if serveError := serve(
 		shutdownSignalled,
-		newServer(applicationConfig, engine),
+		server,
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,
@@ -80,7 +86,8 @@ func main() {
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
 				strategyBotJobs,
-				contractSeries)),
+				contractSeries,
+				backtestRunApplication)),
 		liveFollows.Stop,
 		dutyHolder,
 	); serveError != nil {

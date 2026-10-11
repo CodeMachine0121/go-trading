@@ -81,7 +81,9 @@ curl localhost:8080/health
 
 部署端需要：
 
-- **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出。
+- **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出；
+  背景回測輪次也一樣——任何一台都收得下送出，但只有開著背景工作的分身會認領來跑。每台都關掉時，送出的輪次會一直排隊，
+  而且照樣佔著送出者「同時最多幾筆」（`BACKTEST_RUN_OWNER_ACTIVE_LIMIT`）的名額。關掉背景工作的分身啟動時會在日誌裡寫明它不跑回測輪次。
 - 每台分身有不同的名字（Kubernetes 預設的 `HOSTNAME` 就是 pod 名稱，不必另外設定）。
 - `terminationGracePeriodSeconds` 至少 35 秒：排空請求 15 秒、等背景那一輪結束最多 10 秒、交還值班最多 5 秒，讓關機順序跑完。
 - **節點時鐘要同步**（Kubernetes 節點預設跑 NTP）。值班租約、輪次認領與分身心跳都用各分身自己的時鐘判斷；誤差要遠小於 5 秒的保守提早量。
@@ -125,7 +127,15 @@ curl localhost:8080/health
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS` | `6` | 整個服務同時最多幾個算式隔間在跑；滿了就排隊（機器人輪次排在最前），在呼叫端時限內等不到空位回 `503`。乘上算式記憶體上限必須留得下服務本身的記憶體 |
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
-| `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
+| `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | **當場算**的重演（交易日誌的實盤 vs 回測、行情助手的回測）的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止，不交出半張成績單 |
+| `BACKTEST_DEFAULT_WARMUP_BAR_COUNT` | `200` | 腳本沒有宣告回看根數時，重演在區間起點之前先讀幾根當暖機；暖機那一段只算指標、不交易、不入成績單。**當場算的重演也會暖機**：實盤 vs 回測與行情助手的回測同樣先讀區間前最多「回看根數」（或這個預設值）根，都算在 `BACKTEST_TIME_ALLOWANCE_SECONDS` 裡，所以回看很長的腳本做比對會比較久、也比較容易碰到上限 |
+| `BACKTEST_RUN_WORKER_COUNT` | `2` | 每台分身同時跑幾筆背景回測輪次；滿了其餘的排隊 |
+| `BACKTEST_RUN_OWNER_ACTIVE_LIMIT` | `3` | 每人同時最多幾筆輪次在排隊或進行中；滿了送出回 `429` |
+| `BACKTEST_RUN_TIME_ALLOWANCE_MINUTES` | `30` | 一筆背景回測輪次的時間上限，從進行中開始算；超過收成失敗「超過時間上限」 |
+| `BACKTEST_RUN_RETENTION_DAYS` | `30` | 結束的輪次（連同成績單）保留幾天，從結束時間起算；未結束的不清 |
+| `BACKTEST_RUN_POLL_INTERVAL_SECONDS` | `2` | 每台分身多久看一次排隊中的輪次 |
+| `BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS` | `100` | 進行中的輪次每處理幾格寫一次進度 |
+| `BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS` | `2` | 進行中的輪次每隔幾秒重讀一次自己的狀態；在別台分身被取消的輪次最晚這麼久停下、讓出位置 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
 | `LIVE_FOLLOW_RELAY_INTERVAL_SECONDS` | `2` | 不在值班的分身多久讀一次值班分身寫下的台股即時 K 線 |
@@ -261,8 +271,13 @@ curl localhost:8080/health
 | `DELETE` | `/contract-watchlist/{symbol}` | 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `POST` | `/contract-indicator-calculations` | 對一個**合約**標的計算指標，body 與 `/indicator-calculations` 相同。算式收下一串 `indicator.ContractKCandle`（合約行情格）：現貨 K 線的每一項同名同義，另帶成交筆數、標記價格／指數價格／溢價指數各一組開高低收、**收盤時現行的資金費率**與**這一格內有沒有結算**、收盤前最近且夠新的**持倉統計**八項；沒有值一律為零。指名一支吃另一種行情的策略腳本回 `400` |
-| `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400` |
-| `POST` | `/trading-strategies/{id}/contract-backtests` | 在合約帳戶上重演一份**合約交易策略**；交易模式由那份交易策略自己說，重演時送 `tradingMode` 回 `400` |
+| `POST` | `/backtests` | 在現貨帳戶上重演一支策略腳本（指名或自帶算式）。**驗證通過即回 `202` 與一筆回測輪次（`BacktestRunDto`），不等算完**；要求本身有錯當場 `400`／`404`、不留輪次；每人同時上限滿了回 `429`（`ownerActiveLimit`） |
+| `POST` | `/trading-strategies/{id}/backtests` | 在現貨帳戶上重演一份交易策略；同樣回 `202` 與一筆輪次 |
+| `GET` | `/backtest-runs?status=&strategyScriptId=&tradingStrategyId=&limit=` | 列出自己的回測輪次，新到舊，回 `{"runs":[...],"totalCount":n}`；`limit` 預設 20、最多 200，讀不懂用預設。列表只帶摘要（報酬率、最大回撤、交易筆數），不帶成績單 |
+| `GET` | `/backtest-runs/{id}?waitSeconds=` | 看一筆輪次；完成的帶 `result`（與當場回測的成績單一字不差），其餘為 `null`。`waitSeconds`（0–60）讓伺服器每秒重讀一次、直到結束或等滿；伺服器關機時正在等的請求會立刻拿到當下的狀態。別人的或不存在的回 `404` |
+| `POST` | `/backtest-runs/{id}/cancel` | 取消排隊中或進行中的輪次（在這台分身上跑的立刻停下，在別台跑的最晚 `BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS` 秒內停下；都不寫成績單）；已結束回 `409`，別人的回 `404` |
+| `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400`。回 `202` 與一筆輪次 |
+| `POST` | `/trading-strategies/{id}/contract-backtests` | 在合約帳戶上重演一份**合約交易策略**；交易模式由那份交易策略自己說，重演時送 `tradingMode` 回 `400`。回 `202` 與一筆輪次 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
 | `GET` | `/contract-k-candles/live?symbol=` | 持續送出**合約**標的的即時更新，形狀與上一條相同；只跟**合約追蹤名單上**的（不認得 `404`、不在名單上 `409`），**走完的那一根不由跟盤存入** |
 | `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的。**回 202，不回答案**——收下問題、回覆對話識別碼與這次回答的識別碼，答案在連線之外寫完 |
@@ -912,7 +927,7 @@ newman run postman/go-trading.postman_collection.json \
        -e postman/go-trading.postman_environment.json
 ```
 
-十八個資料夾、312 個請求、546 條斷言，含成功路徑與每一種被拒絕的情形。
+二十三個資料夾、452 個請求、802 條斷言，含成功路徑與每一種被拒絕的情形。回測送出後先回一筆輪次，緊接著的「看成績單」請求以 `waitSeconds=60` 等它結束再驗成績單，所以整包照順序跑也不會碰到每人同時上限。
 其中**永續合約 K 線**一個資料夾就佔 24 個請求 40 條斷言，可以單獨跑：
 
 ```bash
@@ -1088,6 +1103,15 @@ newman run postman/go-trading.postman_collection.json \
 ### 什麼還沒做
 
 合約機器人的建議部位不含手續費與滑點，預估強平價以最新價為進場價。
+
+### 回測是背景工作，結果是一筆輪次
+
+四個重演入口送出後只回一筆**回測輪次**：`queued` → `running` → `succeeded`｜`failed`｜`cancelled`，終態不再變。
+排隊依送出先後、不分使用者；每台分身同時跑 `BACKTEST_RUN_WORKER_COUNT` 筆，以 `FOR UPDATE SKIP LOCKED`
+認領，一筆只被一台跑。分身倒下時，它手上進行中的輪次由活著的分身清掃成失敗「被重新啟動打斷」，排隊中的不受影響；
+正常關機時手上的輪次也收成同一句。重演在區間起點之前先讀腳本宣告的回看根數（沒宣告用
+`BACKTEST_DEFAULT_WARMUP_BAR_COUNT`）當暖機，第一筆交易可以發生在區間第一天；暖機那一段不交易、不入成績單。
+交易日誌的實盤 vs 回測與行情助手的回測仍當場算、不留輪次。
 
 ### 短線重演的三個選項（現貨與合約都有）
 

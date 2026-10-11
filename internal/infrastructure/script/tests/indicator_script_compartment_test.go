@@ -53,7 +53,7 @@ func TestCompartmentStopsAScriptThatEatsPastTheMemoryCap(t *testing.T) {
 	t.Run("a replay fails as a whole with no partial result", func(t *testing.T) {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(10*time.Second).ExecuteForEachCandle(
 			t.Context(), eatsSixteenGigabytesScript, resultTypeOf(t, "float"),
-			candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+			candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 		require.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "超出記憶體上限")
@@ -162,7 +162,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 func TestCompartmentGivesEveryCandleOfALongReplayItsOwnAllowance(t *testing.T) {
 	perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).ExecuteForEachCandle(
 		t.Context(), candleCountScript, resultTypeOf(t, "float"),
-		candlesWithClosePrices(make([]float64, 1000)...), noStrategyScriptParameters(t))
+		candlesWithClosePrices(make([]float64, 1000)...), noStrategyScriptParameters(t), nil)
 
 	require.NoError(t, err)
 	require.Len(t, perCandleIndicatorValues, 1000)

@@ -25,8 +25,7 @@ func NewTradingStrategyBacktestController(
 	}
 }
 
-// RunTradingStrategyBacktest handles POST /trading-strategies/:id/backtests.
-func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
+func (controller *TradingStrategyBacktestController) SubmitTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {
 	tradingStrategyID, idIsReadable := controller.readID(ginContext)
@@ -41,7 +40,7 @@ func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
 		return
 	}
 
-	resultDto, err := controller.tradingStrategyBacktestApplication.RunTradingStrategyBacktest(
+	runDto, err := controller.tradingStrategyBacktestApplication.SubmitTradingStrategyBacktest(
 		ginContext.Request.Context(),
 		middlewares.CurrentUserID(ginContext),
 		tradingStrategyID,
@@ -51,11 +50,10 @@ func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
 		return
 	}
 
-	ginContext.JSON(http.StatusOK, resultDto)
+	ginContext.JSON(http.StatusAccepted, runDto)
 }
 
-// RunContractTradingStrategyBacktest replays a contract trading strategy using the strategy's own trading mode.
-func (controller *TradingStrategyBacktestController) RunContractTradingStrategyBacktest(
+func (controller *TradingStrategyBacktestController) SubmitContractTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {
 	tradingStrategyID, idIsReadable := controller.readID(ginContext)
@@ -70,7 +68,7 @@ func (controller *TradingStrategyBacktestController) RunContractTradingStrategyB
 		return
 	}
 
-	resultDto, err := controller.tradingStrategyBacktestApplication.RunContractTradingStrategyBacktest(
+	runDto, err := controller.tradingStrategyBacktestApplication.SubmitContractTradingStrategyBacktest(
 		ginContext.Request.Context(),
 		middlewares.CurrentUserID(ginContext),
 		tradingStrategyID,
@@ -80,7 +78,7 @@ func (controller *TradingStrategyBacktestController) RunContractTradingStrategyB
 		return
 	}
 
-	ginContext.JSON(http.StatusOK, resultDto)
+	ginContext.JSON(http.StatusAccepted, runDto)
 }
 
 func (controller *TradingStrategyBacktestController) readID(ginContext *gin.Context) (uint, bool) {
@@ -93,7 +91,7 @@ func (controller *TradingStrategyBacktestController) readID(ginContext *gin.Cont
 	return uint(id), true
 }
 
-// respondWithError answers exactly as a single strategy script replay does, so the same broken script fails the same way on both routes.
+// respondWithError answers exactly as a single strategy script submit does, so the same refusal reads the same on both routes.
 func (controller *TradingStrategyBacktestController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
@@ -101,6 +99,13 @@ func (controller *TradingStrategyBacktestController) respondWithError(
 	if errors.Is(err, domains.ErrTradingStrategyNotFound) ||
 		errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	if ownerActiveLimit, limitReached := domains.BacktestRunOwnerLimit(err); limitReached {
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{
+			"message":          err.Error(),
+			"ownerActiveLimit": ownerActiveLimit,
+		})
 		return
 	}
 	// The field name travels as a value so callers need not parse the message.
@@ -114,32 +119,6 @@ func (controller *TradingStrategyBacktestController) respondWithError(
 	if errors.Is(err, domains.ErrBacktestValidation) ||
 		errors.Is(err, domains.ErrStrategyScriptNotYours) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
-		return
-	}
-	if parameterName, isUndeclared := domains.UndeclaredParameterName(err); isUndeclared {
-		ginContext.JSON(http.StatusBadRequest, gin.H{
-			"message":       err.Error(),
-			"parameterName": parameterName,
-		})
-		return
-	}
-	// Answered apart from a script failure that shares the status: this one is fixed by asking for less.
-	if errors.Is(err, domains.ErrBacktestTimeAllowanceSpent) {
-		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{
-			"message":            err.Error(),
-			"timeAllowanceSpent": true,
-		})
-		return
-	}
-	if errors.Is(err, domains.ErrIndicatorScriptCompartmentsBusy) {
-		ginContext.JSON(http.StatusServiceUnavailable, gin.H{
-			"message":          err.Error(),
-			"compartmentsBusy": true,
-		})
-		return
-	}
-	if errors.Is(err, domains.ErrIndicatorScriptFailed) {
-		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
 		return
 	}
 

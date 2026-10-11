@@ -26,6 +26,7 @@ type User struct {
 	TelegramDelivery            *TelegramDelivery            `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	BinanceTradingKey           *BinanceTradingKey           `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	ConnectorAuthorizationCodes []ConnectorAuthorizationCode `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	BacktestRuns                []BacktestRun                `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 }
 
 func (user User) TableName() string {

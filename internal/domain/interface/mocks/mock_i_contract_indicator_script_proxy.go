@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	_interface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	domains "github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
@@ -58,16 +59,16 @@ func (mr *MockIContractIndicatorScriptProxyMockRecorder) Execute(executionContex
 }
 
 // ExecuteForEachCandle mocks base method.
-func (m *MockIContractIndicatorScriptProxy) ExecuteForEachCandle(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, contractKCandles []vo.ContractKCandleVo, parameters domains.StrategyScriptParametersDomain) ([]map[string]vo.IndicatorValueVo, error) {
+func (m *MockIContractIndicatorScriptProxy) ExecuteForEachCandle(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, contractKCandles []vo.ContractKCandleVo, parameters domains.StrategyScriptParametersDomain, progress _interface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExecuteForEachCandle", executionContext, script, resultType, contractKCandles, parameters)
+	ret := m.ctrl.Call(m, "ExecuteForEachCandle", executionContext, script, resultType, contractKCandles, parameters, progress)
 	ret0, _ := ret[0].([]map[string]vo.IndicatorValueVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ExecuteForEachCandle indicates an expected call of ExecuteForEachCandle.
-func (mr *MockIContractIndicatorScriptProxyMockRecorder) ExecuteForEachCandle(executionContext, script, resultType, contractKCandles, parameters any) *gomock.Call {
+func (mr *MockIContractIndicatorScriptProxyMockRecorder) ExecuteForEachCandle(executionContext, script, resultType, contractKCandles, parameters, progress any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteForEachCandle", reflect.TypeOf((*MockIContractIndicatorScriptProxy)(nil).ExecuteForEachCandle), executionContext, script, resultType, contractKCandles, parameters)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteForEachCandle", reflect.TypeOf((*MockIContractIndicatorScriptProxy)(nil).ExecuteForEachCandle), executionContext, script, resultType, contractKCandles, parameters, progress)
 }
