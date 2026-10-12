@@ -64,7 +64,7 @@ func (messageDomain ContractAutoOrderMessageDomain) Text() string {
 		lines = append(lines, "🛡 "+strings.Join(exits, "｜"))
 	}
 
-	if messageDomain.order.EntryStatus() == vo.ContractEntryPartiallyFilled &&
+	if result.EntryStatus == string(vo.ContractEntryPartiallyFilled) &&
 		result.OpenedQuantity != nil && result.RequestedQuantity != nil {
 		lines = append(lines, fmt.Sprintf("⚠️ 部分成交 %s／%s，其餘已撤單",
 			result.OpenedQuantity.String(), result.RequestedQuantity.String()))

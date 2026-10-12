@@ -311,12 +311,8 @@ func (orderDomain ContractAutoOrderDomain) ShouldWithdrawEntryAt(
 // AwaitingEntry hands a working entry order back to wait, keeping what it has filled so far for the round's history.
 func (orderDomain ContractAutoOrderDomain) AwaitingEntry(state vo.ContractOrderStateVo, now time.Time) ContractAutoOrderDomain {
 	orderDomain.order.EntryExecutedQuantity = decimal.NewNullDecimal(state.ExecutedQuantity)
-	orderDomain.order.Status = string(vo.ContractAutoOrderReady)
-	orderDomain.order.NextAttemptAt = now.UTC().Add(contractAutoOrderEntryCheckWait)
-	orderDomain.order.ClaimedBy = ""
-	orderDomain.order.ClaimedUntil = nil
 
-	return orderDomain
+	return orderDomain.waitingUntil(now.Add(contractAutoOrderEntryCheckWait))
 }
 
 // ResolveEntry closes the book on an entry order that will execute no more: what it filled is the bot's position, guarded as any open is.
@@ -361,11 +357,6 @@ func (orderDomain ContractAutoOrderDomain) EntrySlippagePercentage() (decimal.De
 	}
 
 	return costlier.Div(order.ReferencePrice.Decimal).Mul(decimal.NewFromInt(100)).Round(3), true
-}
-
-// EntryStatus is how the entry order has gone; empty when none was placed.
-func (orderDomain ContractAutoOrderDomain) EntryStatus() vo.ContractEntryStatusVo {
-	return vo.ContractEntryStatusVo(orderDomain.order.EntryStatus)
 }
 
 // OpenLeverage is whole, since the open step is never reached with a fractional one (see NextStep).
@@ -486,9 +477,15 @@ func (orderDomain ContractAutoOrderDomain) AfterProtection(
 
 // Rescheduled hands the order back to wait, so whichever replica takes it next asks the venue before sending anything again.
 func (orderDomain ContractAutoOrderDomain) Rescheduled(now time.Time) ContractAutoOrderDomain {
-	orderDomain.order.Status = string(vo.ContractAutoOrderReady)
 	orderDomain.order.AttemptCount++
-	orderDomain.order.NextAttemptAt = now.UTC().Add(contractAutoOrderRetryWait)
+
+	return orderDomain.waitingUntil(now.Add(contractAutoOrderRetryWait))
+}
+
+// waitingUntil releases the claim and leaves the order ready for whichever replica looks next after nextAttemptAt.
+func (orderDomain ContractAutoOrderDomain) waitingUntil(nextAttemptAt time.Time) ContractAutoOrderDomain {
+	orderDomain.order.Status = string(vo.ContractAutoOrderReady)
+	orderDomain.order.NextAttemptAt = nextAttemptAt.UTC()
 	orderDomain.order.ClaimedBy = ""
 	orderDomain.order.ClaimedUntil = nil
 
