@@ -15,9 +15,9 @@ type ContractAutoOrderResultDto struct {
 	OpenAveragePrice  *decimal.Decimal `json:"openAveragePrice,omitempty"`
 	StopLossPrice     *decimal.Decimal `json:"stopLossPrice,omitempty"`
 	TakeProfitPrice   *decimal.Decimal `json:"takeProfitPrice,omitempty"`
-	// ReferencePrice, EntrySlippageTolerancePercentage and RequestedQuantity are what the entry order was worked out from; EntryLimitPrice is its price.
+	// ReferencePrice, EntrySlippageTolerancePercentage and RequestedQuantity are what the entry order was worked out from, present only when it had a reference to work from; EntryLimitPrice is its price.
 	ReferencePrice                   *decimal.Decimal `json:"referencePrice,omitempty"`
-	EntrySlippageTolerancePercentage decimal.Decimal  `json:"entrySlippageTolerancePercentage"`
+	EntrySlippageTolerancePercentage *decimal.Decimal `json:"entrySlippageTolerancePercentage,omitempty"`
 	RequestedQuantity                *decimal.Decimal `json:"requestedQuantity,omitempty"`
 	EntryLimitPrice                  *decimal.Decimal `json:"entryLimitPrice,omitempty"`
 	// EntryStatus is working, filled, partiallyFilled or unfilled; empty until an entry order is placed. EntryExecutedQuantity is what it has filled so far.

@@ -41,8 +41,8 @@ Path abbreviations: `ctl/` = `internal/controller/`, `app/` = `internal/applicat
 | BR-3 | 約每 5 秒看一次進場單 | 還在等 → now+5s 再看 | dom AwaitingEntry | LE TestAnEntryOrderStillWorkingIsLookedAtAgainShortly / …WithinItsWindowWaits… | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-4 | 撤單結果不確定稍後再試 | 回到等待、不收尾 | svc actOnEntry → fail (uncertain) / Working after cancel | LE TestAnEntryOrderWhoseCancelIsUnclearIsTriedAgain | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-5 | 幣安自己結束而沒成交 | 「沒有成交」 | svc actOnEntry (non-working → resolve) | LE TestAnEntryOrderTheVenueEndedByItselfIsResolved | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-6 | 滑價對擁有者不利為正、小數三位 | 做多 +0.031／-0.012；做空 0.064 | dom EntrySlippagePercentage | LE …SlippageTheReference…、…NegativeSlippage；app TestTheHistoryShowsHowEachEntryOrderWent | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-7 | 下單結果多帶進場欄位與狀態 | 參考價、限價、容忍度、要求數量、進場狀態、已成交量、滑價 | entities ToResultDto；dom ToResultDto | app TestTheHistoryShowsHowEachEntryOrderWent | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-6 | 滑價對擁有者不利為正、小數三位 | 做多 +0.031／-0.012；做空 0.064 | dom EntrySlippagePercentage | LE TestAnEntryOrderFilledAtOnceIsGuardedAndReportedWithItsSlippage、TestAnEntryFilledBetterThanTheReferenceShowsANegativeSlippage；app TestTheHistoryShowsHowEachEntryOrderWent | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-7 | 下單結果多帶進場欄位與狀態 | 參考價、限價、容忍度（有參考價才帶）、要求數量、進場狀態、已成交量、滑價 | entities ToResultDto；dom ToResultDto | app TestTheHistoryShowsHowEachEntryOrderWent | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-8 | 進場單可能還掛著時結束要請擁有者自己撤（金鑰失效等） | 原因補「進場單可能還掛在幣安上，請自己到幣安撤單」 | dom withOpenFailure；svc followEntry (SettledWithoutKey/Unsealable) | LE TestAWorkingEntryOrderWhoseKeyIsGoneIsHandedToTheOwner（三種） | asserts-oracle | produces-oracle | ✅ conforms |
 | NFR-1 | 全部成交後 10 秒內掛上保護 | 下一次看單（≤5 秒）即收尾並掛保護 | dom AwaitingEntry 5s；job 5s 掃描 | 間接：BR-3 + AC-03-2 | shallow | produces-oracle | 🟠 mis-asserted（時間上限僅由設定推得，無端到端計時測試） |
 | NFR-2 | 進場單不在幣安上超過一個觸發間隔加 10 秒 | 時限到的那一次看單就撤 | dom ShouldWithdrawEntryAt；deadline = ranAt + 間隔 | AC-03-3/4 + BR-1 | shallow | produces-oracle | 🟠 mis-asserted（同上） |

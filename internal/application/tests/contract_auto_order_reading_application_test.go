@@ -91,6 +91,9 @@ func TestTheHistoryShowsEachRoundsAutoOrderBesideIt(t *testing.T) {
 	assert.True(t, filled.OpenAveragePrice.Equal(decimal.NewFromInt(85000)))
 	assert.True(t, filled.StopLossPrice.Equal(decimal.NewFromInt(83725)))
 	assert.True(t, filled.TakeProfitPrice.Equal(decimal.NewFromInt(87550)))
+	// Opened at market before entries were limit orders, so it has no entry to describe.
+	assert.Nil(t, filled.EntrySlippageTolerancePercentage)
+	assert.Nil(t, filled.ReferencePrice)
 
 	assert.Nil(t, runRecords[3].AutoOrder)
 }

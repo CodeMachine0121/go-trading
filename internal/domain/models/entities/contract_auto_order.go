@@ -80,22 +80,24 @@ func (contractAutoOrder ContractAutoOrder) TableName() string {
 // ToResultDto shows an unsettled order as pending whatever it has done so far, since its result is not yet final.
 func (contractAutoOrder ContractAutoOrder) ToResultDto(action string) dto.ContractAutoOrderResultDto {
 	resultDto := dto.ContractAutoOrderResultDto{
-		Status:                           "pending",
-		Action:                           action,
-		ReferencePrice:                   figureOrNothing(contractAutoOrder.ReferencePrice),
-		EntrySlippageTolerancePercentage: contractAutoOrder.EntrySlippageTolerancePercentage,
-		RequestedQuantity:                figureOrNothing(contractAutoOrder.OpenQuantity),
-		EntryLimitPrice:                  figureOrNothing(contractAutoOrder.EntryLimitPrice),
-		EntryExecutedQuantity:            figureOrNothing(contractAutoOrder.EntryExecutedQuantity),
-		EntryStatus:                      contractAutoOrder.EntryStatus,
-		ClosedQuantity:                   figureOrNothing(contractAutoOrder.ClosedQuantity),
-		CloseAveragePrice:                figureOrNothing(contractAutoOrder.CloseAveragePrice),
-		OpenedQuantity:                   figureOrNothing(contractAutoOrder.OpenedQuantity),
-		OpenAveragePrice:                 figureOrNothing(contractAutoOrder.OpenAveragePrice),
-		StopLossPrice:                    figureOrNothing(contractAutoOrder.StopLossPrice),
-		TakeProfitPrice:                  figureOrNothing(contractAutoOrder.TakeProfitPrice),
-		ProtectionMissing:                contractAutoOrder.ProtectionMissing,
-		Reason:                           contractAutoOrder.Reason,
+		Status:                "pending",
+		Action:                action,
+		ReferencePrice:        figureOrNothing(contractAutoOrder.ReferencePrice),
+		RequestedQuantity:     figureOrNothing(contractAutoOrder.OpenQuantity),
+		EntryLimitPrice:       figureOrNothing(contractAutoOrder.EntryLimitPrice),
+		EntryExecutedQuantity: figureOrNothing(contractAutoOrder.EntryExecutedQuantity),
+		EntryStatus:           contractAutoOrder.EntryStatus,
+		ClosedQuantity:        figureOrNothing(contractAutoOrder.ClosedQuantity),
+		CloseAveragePrice:     figureOrNothing(contractAutoOrder.CloseAveragePrice),
+		OpenedQuantity:        figureOrNothing(contractAutoOrder.OpenedQuantity),
+		OpenAveragePrice:      figureOrNothing(contractAutoOrder.OpenAveragePrice),
+		StopLossPrice:         figureOrNothing(contractAutoOrder.StopLossPrice),
+		TakeProfitPrice:       figureOrNothing(contractAutoOrder.TakeProfitPrice),
+		ProtectionMissing:     contractAutoOrder.ProtectionMissing,
+		Reason:                contractAutoOrder.Reason,
+	}
+	if contractAutoOrder.ReferencePrice.Valid {
+		resultDto.EntrySlippageTolerancePercentage = &contractAutoOrder.EntrySlippageTolerancePercentage
 	}
 	if contractAutoOrder.OpenDone {
 		resultDto.OpenedDirection = contractAutoOrder.TargetPosition
