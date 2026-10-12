@@ -25,7 +25,7 @@
 | `persistence.StrategyBotRepository.Save` | **Modify** | 改寫的欄位白名單加這一欄 |
 | `service.StrategyBotService` | **Modify** | `UpdateStrategyBot` 沒給就沿用 stored 值；`RecordRound` 排入委託時把鎖住的那一列機器人整個交給 `NewQueuedContractAutoOrderDomain`；`DeleteStrategyBot` 有掛著的進場單就拒絕 |
 | `entities.ContractAutoOrder` | **Modify** | 加 `ReferencePrice`、`EntrySlippageTolerancePercentage`、`EntryFillDeadline`、`EntryLimitPrice`、`EntryExchangeOrderID`、`EntryPlacedAt`、`EntryExecutedQuantity`、`EntryStatus`；`ToResultDto` 帶出 |
-| `dto.ContractAutoOrderIntentDto` / `ContractAutoOrderIntentDomain` | **Modify** | 意圖帶參考價；沒有參考價 → 不開倉原因 |
+| `dto.ContractAutoOrderIntentDto` / `ContractAutoOrderIntentDomain` | **Modify** | 意圖帶參考價（合約輪次沒有參考價時本來就跳過，不會產生意圖；委託上沒有參考價時由 `openRefusal` 擋下） |
 | `domains.ContractAutoOrderDomain` | **Modify** | 新步驟 `followEntry`；`EntryOrder(tickSize)`（限價與取整）、`AfterEntryPlaced`、`ShouldWithdrawEntryAt`、`AwaitingEntry`、`AfterEntryEnded`（全部／部分／沒有成交）、滑價計算；`withOpenFailure` 在進場單可能還掛著時補一句請擁有者自己撤 |
 | `domains.ContractAutoOrderMessageDomain` | **Modify** | 📌 參考價／限價／滑價、部分成交、沒有成交 |
 | `vo.ContractAutoOrderOutcomeVo` | **Modify** | 加 `unfilled` |
@@ -137,7 +137,7 @@ flowchart TD
 | 例 7 既有機器人 0.1 | 欄位 `default:0.1` + AutoMigrate |
 | 例 8–10 限價與取整 | `ContractAutoOrderDomain.EntryOrder` + `PlaceLimitOrder` |
 | 例 11 沒有跳動單位 | `EntryOrder` false → 結束 |
-| 例 12 沒有參考價 | `ContractAutoOrderIntentDomain` 不開倉原因（舊委託：`openRefusal`） |
+| 例 12 沒有參考價 | `ContractAutoOrderDomain.openRefusal` |
 | 例 13–14 全部成交 | `followEntry` filled → `AfterEntryEnded` → protect；`ContractAutoOrderMessageDomain` |
 | 例 15 部分成交 | `ShouldWithdrawEntryAt`（時限）→ `CancelOrder` → `AfterEntryEnded` 部分 |
 | 例 16 沒成交 | 同上 → unfilled |
