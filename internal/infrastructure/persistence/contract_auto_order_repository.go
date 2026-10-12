@@ -119,6 +119,7 @@ func (contractAutoOrderRepository *ContractAutoOrderRepository) SaveProgress(
 		Where(clause.Eq{Column: "claimed_by", Value: claimant}).
 		Select(
 			"status", "attempt_count", "next_attempt_at", "claimed_by", "claimed_until",
+			"entry_placed_at", "entry_limit_price", "entry_exchange_order_id", "entry_executed_quantity", "entry_status",
 			"close_done", "closed_direction", "closed_quantity", "close_average_price", "close_position_vanished",
 			"open_done", "opened_quantity", "open_average_price", "opened_at",
 			"stop_loss_price", "take_profit_price", "stop_loss_placed", "take_profit_placed", "protection_done",
@@ -129,6 +130,41 @@ func (contractAutoOrderRepository *ContractAutoOrderRepository) SaveProgress(
 	}
 
 	return result.RowsAffected == 1, nil
+}
+
+func (contractAutoOrderRepository *ContractAutoOrderRepository) ExistsUnsettledAfter(
+	executionContext context.Context, strategyBotID uint, id uint,
+) (bool, error) {
+	count := int64(0)
+	result := contractAutoOrderRepository.database.within(executionContext).
+		Model(&entities.ContractAutoOrder{}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+		Where(clause.Gt{Column: "id", Value: id}).
+		Where(clause.Neq{Column: "status", Value: string(vo.ContractAutoOrderSettled)}).
+		Count(&count)
+	if result.Error != nil {
+		return false, fmt.Errorf("find later contract auto orders: %w", result.Error)
+	}
+
+	return count > 0, nil
+}
+
+func (contractAutoOrderRepository *ContractAutoOrderRepository) ExistsOutstandingEntry(
+	executionContext context.Context, strategyBotID uint,
+) (bool, error) {
+	count := int64(0)
+	result := contractAutoOrderRepository.database.within(executionContext).
+		Model(&entities.ContractAutoOrder{}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+		Where(clause.Neq{Column: "status", Value: string(vo.ContractAutoOrderSettled)}).
+		Where(clause.Neq{Column: "entry_placed_at", Value: nil}).
+		Where(clause.Eq{Column: "open_done", Value: false}).
+		Count(&count)
+	if result.Error != nil {
+		return false, fmt.Errorf("find outstanding entry orders: %w", result.Error)
+	}
+
+	return count > 0, nil
 }
 
 func (contractAutoOrderRepository *ContractAutoOrderRepository) FindByBotRunNumbers(

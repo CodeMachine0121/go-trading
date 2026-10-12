@@ -19,4 +19,6 @@ type StrategyBotWriteDto struct {
 	// DeclaredLeverage is validated only on input, not in the per-round plan, so bots saved
 	// before the rule existed keep running; spot bots carry it only to be refused.
 	DeclaredLeverage decimal.Decimal
+	// AutoOrderEntrySlippageTolerancePercentage left out means the default on create and the stored value on rewrite.
+	AutoOrderEntrySlippageTolerancePercentage decimal.NullDecimal
 }

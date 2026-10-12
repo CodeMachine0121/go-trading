@@ -11,6 +11,8 @@ type ContractAutoOrderIntentDto struct {
 	HasOpenQuantity bool
 	NoOpenReason    string
 	Leverage        decimal.Decimal
+	// ReferencePrice is the round's reference price, which the entry order's limit is worked out from.
+	ReferencePrice decimal.Decimal
 	// StopLossPercentage and TakeProfitPercentage are distances from the fill price; zero places no such order.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal

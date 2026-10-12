@@ -15,6 +15,8 @@ type StrategyBotRequest struct {
 	TriggerIntervalMinutes int    `json:"triggerIntervalMinutes"`
 	// May be omitted entirely, in which case the bot sends its plain message.
 	PositionPlan PositionPlanRequest `json:"positionPlan"`
+	// AutoOrderEntrySlippageTolerancePercentage is in percent, 0 to 5; omitted means 0.1 on create and unchanged on rewrite.
+	AutoOrderEntrySlippageTolerancePercentage decimal.NullDecimal `json:"autoOrderEntrySlippageTolerancePercentage"`
 }
 
 type PositionPlanRequest struct {
@@ -49,5 +51,6 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,
 		PositionPlan:           strategyBotRequest.PositionPlan.ToSettingsDto(),
 		DeclaredLeverage:       strategyBotRequest.PositionPlan.Leverage,
+		AutoOrderEntrySlippageTolerancePercentage: strategyBotRequest.AutoOrderEntrySlippageTolerancePercentage,
 	}
 }

@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // StrategyBotDto includes run state so a bot list can show which bots need attention without
 // extra requests.
@@ -32,6 +36,8 @@ type StrategyBotDto struct {
 	Conflicting bool `json:"conflicting"`
 	// AutoOrderEnabled lets a running contract bot open and close positions with its owner's Binance trading key; on spot bots it has no effect yet.
 	AutoOrderEnabled bool `json:"autoOrderEnabled"`
+	// AutoOrderEntrySlippageTolerancePercentage is in percent: 0.1 lets an auto order's entry limit sit up to 0.1% from the reference price.
+	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `json:"autoOrderEntrySlippageTolerancePercentage"`
 	// AutoOrderPosition is what a contract bot opened itself and still holds; spot bots have none.
 	AutoOrderPosition *AutoOrderPositionDto `json:"autoOrderPosition,omitempty"`
 	CreatedAt         time.Time             `json:"createdAt"`

@@ -184,11 +184,12 @@ func (strategyBotController *StrategyBotController) respondWithError(
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
-	// 409 with a named reason: a setup step is missing, nothing the caller sent is wrong, and the front end links each reason to a different fix.
+	// 409 with a named reason: something on the owner's side is in the way, nothing the caller sent is wrong, and the front end links each reason to a different fix.
 	for autoOrderRefusal, reason := range map[error]string{
 		domains.ErrStrategyBotAutoOrderKeyNotConfigured: "binanceTradingKeyNotConfigured",
 		domains.ErrStrategyBotAutoOrderMarketNotCovered: "tradableMarketNotCovered",
 		domains.ErrStrategyBotAutoOrderKeyChanged:       "binanceTradingKeyChanged",
+		domains.ErrStrategyBotAutoOrderEntryOutstanding: "autoOrderEntryOutstanding",
 	} {
 		if errors.Is(err, autoOrderRefusal) {
 			ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error(), "reason": reason})

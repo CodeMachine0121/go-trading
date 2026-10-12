@@ -18,6 +18,11 @@ const (
 	contractAutoOrderRetryWait = 5 * time.Second
 	// contractAutoOrderProtectionWindow is how long after the open fill a protective order that could not get through is still tried, before the owner is told to place it himself.
 	contractAutoOrderProtectionWindow = 5 * time.Minute
+	// contractAutoOrderEntryCheckWait is how long a working entry order is left before the venue is asked about it again.
+	contractAutoOrderEntryCheckWait = 5 * time.Second
+	// contractAutoOrderNoReferenceReason is said when an entry limit cannot be worked out because the round had no reference price.
+	contractAutoOrderNoReferenceReason = "這一輪沒有參考價，無法掛限價進場單，不下單"
+	contractAutoOrderUnfilledReason    = "進場單沒有成交，已撤單"
 	// contractAutoOrderClientIDPrefix marks the venue orders this system placed, so they can be found again by the same id.
 	contractAutoOrderClientIDPrefix = "gt-ao-"
 )
@@ -26,10 +31,12 @@ const (
 type ContractAutoOrderStepVo string
 
 const (
-	ContractAutoOrderStepClose   ContractAutoOrderStepVo = "close"
-	ContractAutoOrderStepOpen    ContractAutoOrderStepVo = "open"
-	ContractAutoOrderStepProtect ContractAutoOrderStepVo = "protect"
-	ContractAutoOrderStepSettle  ContractAutoOrderStepVo = "settle"
+	ContractAutoOrderStepClose ContractAutoOrderStepVo = "close"
+	ContractAutoOrderStepOpen  ContractAutoOrderStepVo = "open"
+	// ContractAutoOrderStepFollowEntry waits on an entry order already at the venue until it fills or is withdrawn.
+	ContractAutoOrderStepFollowEntry ContractAutoOrderStepVo = "followEntry"
+	ContractAutoOrderStepProtect     ContractAutoOrderStepVo = "protect"
+	ContractAutoOrderStepSettle      ContractAutoOrderStepVo = "settle"
 )
 
 // ContractAutoOrderDomain carries one auto order through its steps: close what the bot opened, open the new side, guard it, and settle.
@@ -43,28 +50,35 @@ func NewContractAutoOrderDomain(order entities.ContractAutoOrder) ContractAutoOr
 }
 
 // NewQueuedContractAutoOrderDomain queues a round's intent, due at once and worth sending until the deadline after the round ran.
+// The entry tolerance and the entry's fill window come from the bot as it was when the round was booked in.
 func NewQueuedContractAutoOrderDomain(
-	strategyBotID uint, ownerUserID uint, symbol string, roundDueAt time.Time, runNumber int,
+	bot entities.StrategyBot, roundDueAt time.Time, runNumber int,
 	intent dto.ContractAutoOrderIntentDto, ranAt time.Time,
 ) ContractAutoOrderDomain {
+	entryFillDeadline := ranAt.UTC().Add(time.Duration(bot.TriggerIntervalMinutes) * time.Minute)
 	order := entities.ContractAutoOrder{
-		StrategyBotID:        strategyBotID,
-		RoundDueAt:           roundDueAt.UTC(),
-		RunNumber:            runNumber,
-		OwnerUserID:          ownerUserID,
-		Symbol:               symbol,
-		TargetPosition:       intent.TargetPosition,
-		NoOpenReason:         intent.NoOpenReason,
-		Leverage:             intent.Leverage,
-		StopLossPercentage:   intent.StopLossPercentage,
-		TakeProfitPercentage: intent.TakeProfitPercentage,
-		Status:               string(vo.ContractAutoOrderReady),
-		NextAttemptAt:        ranAt.UTC(),
-		ExpiresAt:            ranAt.UTC().Add(ContractAutoOrderDeadline),
-		CreatedAt:            ranAt.UTC(),
+		StrategyBotID:                    bot.ID,
+		RoundDueAt:                       roundDueAt.UTC(),
+		RunNumber:                        runNumber,
+		OwnerUserID:                      bot.OwnerID,
+		Symbol:                           bot.Symbol,
+		EntrySlippageTolerancePercentage: bot.AutoOrderEntrySlippageTolerancePercentage,
+		EntryFillDeadline:                &entryFillDeadline,
+		TargetPosition:                   intent.TargetPosition,
+		NoOpenReason:                     intent.NoOpenReason,
+		Leverage:                         intent.Leverage,
+		StopLossPercentage:               intent.StopLossPercentage,
+		TakeProfitPercentage:             intent.TakeProfitPercentage,
+		Status:                           string(vo.ContractAutoOrderReady),
+		NextAttemptAt:                    ranAt.UTC(),
+		ExpiresAt:                        ranAt.UTC().Add(ContractAutoOrderDeadline),
+		CreatedAt:                        ranAt.UTC(),
 	}
 	if intent.HasOpenQuantity {
 		order.OpenQuantity = decimal.NewNullDecimal(intent.OpenQuantity)
+	}
+	if intent.ReferencePrice.IsPositive() {
+		order.ReferencePrice = decimal.NewNullDecimal(intent.ReferencePrice)
 	}
 
 	return ContractAutoOrderDomain{order: order}
@@ -134,6 +148,9 @@ func (orderDomain ContractAutoOrderDomain) NextStep(position vo.AutoOrderPositio
 	}
 
 	if target != vo.TargetPositionFlat && !order.OpenDone {
+		if order.EntryPlacedAt != nil {
+			return ContractAutoOrderStepFollowEntry
+		}
 		if _, refused := orderDomain.openRefusal(); refused {
 			return ContractAutoOrderStepSettle
 		}
@@ -240,17 +257,115 @@ func (orderDomain ContractAutoOrderDomain) AfterCloseVanished(
 	return orderDomain, vo.AutoOrderPositionVo{}
 }
 
-// OpenOrder is the market order that opens the target side.
-func (orderDomain ContractAutoOrderDomain) OpenOrder() vo.ContractMarketOrderVo {
-	side := vo.ContractOrderSideBuy
-	if vo.TargetPositionVo(orderDomain.order.TargetPosition) == vo.TargetPositionShort {
-		side = vo.ContractOrderSideSell
+// EntryOrder is the limit order that opens the target side, priced the tolerance away from the reference and rounded to the tick toward the reference, so the tolerance is never exceeded.
+// False means the contract has no tick size to round to.
+func (orderDomain ContractAutoOrderDomain) EntryOrder(tickSize decimal.Decimal) (vo.ContractLimitOrderVo, bool) {
+	if !tickSize.IsPositive() {
+		return vo.ContractLimitOrderVo{}, false
 	}
 
-	return vo.ContractMarketOrderVo{
-		Symbol: orderDomain.order.Symbol, Side: side, Quantity: orderDomain.order.OpenQuantity.Decimal,
-		ClientOrderID: orderDomain.OpenClientOrderID(),
+	order := orderDomain.order
+	tolerance := order.EntrySlippageTolerancePercentage.Div(decimal.NewFromInt(100))
+	side := vo.ContractOrderSideBuy
+	price := order.ReferencePrice.Decimal.Mul(decimal.NewFromInt(1).Add(tolerance)).Div(tickSize).Floor().Mul(tickSize)
+	if vo.TargetPositionVo(order.TargetPosition) == vo.TargetPositionShort {
+		side = vo.ContractOrderSideSell
+		price = order.ReferencePrice.Decimal.Mul(decimal.NewFromInt(1).Sub(tolerance)).Div(tickSize).Ceil().Mul(tickSize)
 	}
+
+	return vo.ContractLimitOrderVo{
+		Symbol: order.Symbol, Side: side, Quantity: order.OpenQuantity.Decimal, Price: price,
+		ClientOrderID: orderDomain.OpenClientOrderID(),
+	}, true
+}
+
+// SettledWithoutTickSize ends an order whose entry limit cannot be rounded to a price the venue accepts.
+func (orderDomain ContractAutoOrderDomain) SettledWithoutTickSize(now time.Time) ContractAutoOrderDomain {
+	return orderDomain.withOpenFailure("這個合約標的還沒有價格跳動單位，無法掛限價進場單，不下單", now)
+}
+
+// AfterEntryPlaced records the entry order the venue now holds; the bot holds nothing more until it fills.
+func (orderDomain ContractAutoOrderDomain) AfterEntryPlaced(
+	entryOrder vo.ContractLimitOrderVo, state vo.ContractOrderStateVo, now time.Time,
+) ContractAutoOrderDomain {
+	placedAt := now.UTC()
+	orderDomain.order.EntryPlacedAt = &placedAt
+	orderDomain.order.EntryLimitPrice = decimal.NewNullDecimal(entryOrder.Price)
+	orderDomain.order.EntryExchangeOrderID = state.ExchangeOrderID
+	orderDomain.order.EntryExecutedQuantity = decimal.NewNullDecimal(state.ExecutedQuantity)
+	orderDomain.order.EntryStatus = string(vo.ContractEntryWorking)
+
+	return orderDomain
+}
+
+// ShouldWithdrawEntryAt is whether a working entry order must come down: its fill window is over, a newer conclusion is waiting, or the owner pulled a brake.
+// An entry that has not filled is an order not yet carried out, and pulling a brake means none should be.
+func (orderDomain ContractAutoOrderDomain) ShouldWithdrawEntryAt(
+	now time.Time, laterOrderQueued bool, botRunning bool, autoOrderEnabled bool,
+) bool {
+	deadline := orderDomain.order.EntryFillDeadline
+
+	return laterOrderQueued || !botRunning || !autoOrderEnabled || deadline == nil || !now.Before(*deadline)
+}
+
+// AwaitingEntry hands a working entry order back to wait, keeping what it has filled so far for the round's history.
+func (orderDomain ContractAutoOrderDomain) AwaitingEntry(state vo.ContractOrderStateVo, now time.Time) ContractAutoOrderDomain {
+	orderDomain.order.EntryExecutedQuantity = decimal.NewNullDecimal(state.ExecutedQuantity)
+	orderDomain.order.Status = string(vo.ContractAutoOrderReady)
+	orderDomain.order.NextAttemptAt = now.UTC().Add(contractAutoOrderEntryCheckWait)
+	orderDomain.order.ClaimedBy = ""
+	orderDomain.order.ClaimedUntil = nil
+
+	return orderDomain
+}
+
+// ResolveEntry closes the book on an entry order that will execute no more: what it filled is the bot's position, guarded as any open is.
+// An entry that filled nothing settles the order as unfilled, and true says so.
+func (orderDomain ContractAutoOrderDomain) ResolveEntry(
+	position vo.AutoOrderPositionVo, state vo.ContractOrderStateVo, tickSize decimal.Decimal, now time.Time,
+) (ContractAutoOrderDomain, vo.AutoOrderPositionVo, bool) {
+	orderDomain.order.EntryExecutedQuantity = decimal.NewNullDecimal(state.ExecutedQuantity)
+
+	if !state.ExecutedQuantity.IsPositive() {
+		orderDomain.order.EntryStatus = string(vo.ContractEntryUnfilled)
+		if orderDomain.order.CloseDone && !orderDomain.order.ClosePositionVanished {
+			return orderDomain.withOpenFailure(contractAutoOrderUnfilledReason, now), position, true
+		}
+
+		return orderDomain.settledAs(vo.ContractAutoOrderUnfilled, contractAutoOrderUnfilledReason, now), position, true
+	}
+
+	orderDomain.order.EntryStatus = string(vo.ContractEntryFilled)
+	if state.ExecutedQuantity.LessThan(orderDomain.order.OpenQuantity.Decimal) {
+		orderDomain.order.EntryStatus = string(vo.ContractEntryPartiallyFilled)
+	}
+
+	filled, filledPosition := orderDomain.AfterOpen(position, vo.ContractOrderFillVo{
+		ExecutedQuantity: state.ExecutedQuantity, AveragePrice: state.AveragePrice,
+	}, tickSize, now)
+
+	return filled, filledPosition, false
+}
+
+// EntrySlippagePercentage is how far the entry fill sits from the reference price, positive when it cost the owner; false until the entry filled something.
+func (orderDomain ContractAutoOrderDomain) EntrySlippagePercentage() (decimal.Decimal, bool) {
+	order := orderDomain.order
+	if !order.OpenDone || !order.OpenAveragePrice.Valid || !order.ReferencePrice.Valid ||
+		!order.ReferencePrice.Decimal.IsPositive() {
+		return decimal.Zero, false
+	}
+
+	costlier := order.OpenAveragePrice.Decimal.Sub(order.ReferencePrice.Decimal)
+	if vo.TargetPositionVo(order.TargetPosition) == vo.TargetPositionShort {
+		costlier = costlier.Neg()
+	}
+
+	return costlier.Div(order.ReferencePrice.Decimal).Mul(decimal.NewFromInt(100)).Round(3), true
+}
+
+// EntryStatus is how the entry order has gone; empty when none was placed.
+func (orderDomain ContractAutoOrderDomain) EntryStatus() vo.ContractEntryStatusVo {
+	return vo.ContractEntryStatusVo(orderDomain.order.EntryStatus)
 }
 
 // OpenLeverage is whole, since the open step is never reached with a fractional one (see NextStep).
@@ -441,6 +556,11 @@ func (orderDomain ContractAutoOrderDomain) SettledInHedgeMode(now time.Time) Con
 	return orderDomain.withOpenFailure("請先在幣安把持倉模式改成單向持倉", now)
 }
 
+// SettledWithoutKey ends an order whose owner no longer has a key that may trade contracts, so nothing at the venue can be asked or cancelled any more.
+func (orderDomain ContractAutoOrderDomain) SettledWithoutKey(now time.Time) ContractAutoOrderDomain {
+	return orderDomain.withOpenFailure("沒有可交易合約的幣安交易金鑰", now)
+}
+
 // SettledUnsealable ends an order whose trading key this system cannot open, which no retry would fix.
 func (orderDomain ContractAutoOrderDomain) SettledUnsealable(now time.Time) ContractAutoOrderDomain {
 	return orderDomain.withOpenFailure("系統目前無法開啟你的幣安交易金鑰", now)
@@ -448,7 +568,12 @@ func (orderDomain ContractAutoOrderDomain) SettledUnsealable(now time.Time) Cont
 
 // ToResultDto names the act from what was done, so a reverse reads as one act rather than two.
 func (orderDomain ContractAutoOrderDomain) ToResultDto() dto.ContractAutoOrderResultDto {
-	return orderDomain.order.ToResultDto(orderDomain.ActionInWords())
+	resultDto := orderDomain.order.ToResultDto(orderDomain.ActionInWords())
+	if slippage, hasSlippage := orderDomain.EntrySlippagePercentage(); hasSlippage {
+		resultDto.EntrySlippagePercentage = &slippage
+	}
+
+	return resultDto
 }
 
 // ActionInWords is the act the order carried out, or the one it meant to when it did nothing.
@@ -490,8 +615,12 @@ func (orderDomain ContractAutoOrderDomain) Outcome() vo.ContractAutoOrderOutcome
 }
 
 // withOpenFailure keeps a reverse honest: when the close already went through, the order is partly done and says so.
+// An entry order still working when the order ends this way may rest at the venue with nobody to cancel it, so the owner is told to.
 func (orderDomain ContractAutoOrderDomain) withOpenFailure(reason string, now time.Time) ContractAutoOrderDomain {
 	order := orderDomain.order
+	if order.EntryStatus == string(vo.ContractEntryWorking) {
+		reason += "；進場單可能還掛在幣安上，請自己到幣安撤單"
+	}
 	if order.CloseDone && !order.ClosePositionVanished && !order.OpenDone {
 		return orderDomain.settledAs(vo.ContractAutoOrderPartiallyDone,
 			fmt.Sprintf("已平倉，但做%s沒開成：%s",
@@ -520,6 +649,9 @@ func (orderDomain ContractAutoOrderDomain) openRefusal() (string, bool) {
 	order := orderDomain.order
 	if !order.OpenQuantity.Valid {
 		return order.NoOpenReason, true
+	}
+	if !order.ReferencePrice.Valid {
+		return contractAutoOrderNoReferenceReason, true
 	}
 	if !order.Leverage.Equal(order.Leverage.Truncate(0)) {
 		return "交易所不收這一筆：幣安只接受整數槓桿", true

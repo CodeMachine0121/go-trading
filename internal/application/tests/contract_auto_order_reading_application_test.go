@@ -109,3 +109,64 @@ func TestTheHistoryIsNotShownWithoutItsAutoOrders(t *testing.T) {
 
 	require.ErrorIs(t, listError, readFailure)
 }
+
+func TestTheHistoryShowsHowEachEntryOrderWent(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	ranAt := time.Date(2026, 10, 12, 6, 30, 0, 0, time.UTC)
+	underTest.strategyBotRunRecordRepository.EXPECT().FindLatestByBot(gomock.Any(), strategyBotID).
+		Return([]entities.StrategyBotRunRecord{
+			{RunNumber: 62, RanAt: ranAt, Result: "sell"},
+			{RunNumber: 61, RanAt: ranAt, Result: "buy"},
+			{RunNumber: 60, RanAt: ranAt, Result: "sell"},
+		}, nil)
+	reference := decimal.NewNullDecimal(decimal.NewFromInt(84154))
+	*underTest.storedAutoOrders = []entities.ContractAutoOrder{
+		{RunNumber: 60, TargetPosition: "short", Status: string(vo.ContractAutoOrderSettled),
+			Outcome: string(vo.ContractAutoOrderFilled), OpenDone: true, ReferencePrice: reference,
+			EntrySlippageTolerancePercentage: decimal.RequireFromString("0.1"),
+			OpenQuantity:                     decimal.NewNullDecimal(decimal.RequireFromString("0.002")),
+			EntryLimitPrice:                  decimal.NewNullDecimal(decimal.RequireFromString("84069.9")),
+			EntryStatus:                      string(vo.ContractEntryFilled),
+			OpenedQuantity:                   decimal.NewNullDecimal(decimal.RequireFromString("0.002")),
+			OpenAveragePrice:                 decimal.NewNullDecimal(decimal.NewFromInt(84100))},
+		{RunNumber: 61, TargetPosition: "long", Status: string(vo.ContractAutoOrderSettled),
+			Outcome: string(vo.ContractAutoOrderUnfilled), Reason: "進場單沒有成交，已撤單", ReferencePrice: reference,
+			EntryLimitPrice: decimal.NewNullDecimal(decimal.RequireFromString("84238.1")),
+			EntryStatus:     string(vo.ContractEntryUnfilled)},
+		{RunNumber: 62, TargetPosition: "long", Status: string(vo.ContractAutoOrderReady), ReferencePrice: reference,
+			EntryLimitPrice:       decimal.NewNullDecimal(decimal.RequireFromString("84238.1")),
+			EntryExecutedQuantity: decimal.NewNullDecimal(decimal.RequireFromString("0.001")),
+			EntryStatus:           string(vo.ContractEntryWorking)},
+	}
+
+	runRecords, listError := underTest.strategyBotApplication.ListRunRecords(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, listError)
+	require.Len(t, runRecords, 3)
+
+	working := runRecords[0].AutoOrder
+	require.NotNil(t, working)
+	assert.Equal(t, "pending", working.Status)
+	assert.Equal(t, "working", working.EntryStatus)
+	assert.True(t, working.EntryExecutedQuantity.Equal(decimal.RequireFromString("0.001")))
+	assert.Nil(t, working.EntrySlippagePercentage)
+
+	unfilled := runRecords[1].AutoOrder
+	require.NotNil(t, unfilled)
+	assert.Equal(t, "unfilled", unfilled.Status)
+	assert.Equal(t, "unfilled", unfilled.EntryStatus)
+	assert.True(t, unfilled.EntryLimitPrice.Equal(decimal.RequireFromString("84238.1")))
+
+	filled := runRecords[2].AutoOrder
+	require.NotNil(t, filled)
+	assert.Equal(t, "filled", filled.EntryStatus)
+	assert.True(t, filled.ReferencePrice.Equal(decimal.NewFromInt(84154)))
+	assert.True(t, filled.EntrySlippageTolerancePercentage.Equal(decimal.RequireFromString("0.1")))
+	assert.True(t, filled.RequestedQuantity.Equal(decimal.RequireFromString("0.002")))
+	require.NotNil(t, filled.EntrySlippagePercentage)
+	// Selling 54 below the reference cost the owner 0.064%.
+	assert.True(t, filled.EntrySlippagePercentage.Equal(decimal.RequireFromString("0.064")), "滑價 %s", filled.EntrySlippagePercentage)
+}

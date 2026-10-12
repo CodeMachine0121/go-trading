@@ -40,6 +40,7 @@ func (intentDomain ContractAutoOrderIntentDomain) ToDto() (dto.ContractAutoOrder
 		Leverage:             leverage,
 		StopLossPercentage:   settings.StopLossPercentage,
 		TakeProfitPercentage: settings.TakeProfitPercentage,
+		ReferencePrice:       intentDomain.round.ReferencePrice,
 	}
 	if target == vo.TargetPositionFlat {
 		return intent, true

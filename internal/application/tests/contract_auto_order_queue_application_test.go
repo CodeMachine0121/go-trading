@@ -52,11 +52,17 @@ func TestARoundThatChangesItsConclusionQueuesAnAutoOrderFromItsOwnPlan(t *testin
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectTheVenue(aContractSpecification(), nil, "")
 
-	underTest.runsAContractRound(t, anAutoOrderingContractBot(string(vo.SignalSell)),
-		vo.ContractTradingModeLongOnly, vo.SignalBuy, vo.SignalBuy)
+	bot := anAutoOrderingContractBot(string(vo.SignalSell))
+	bot.AutoOrderEntrySlippageTolerancePercentage = decimal.RequireFromString("0.2")
+
+	underTest.runsAContractRound(t, bot, vo.ContractTradingModeLongOnly, vo.SignalBuy, vo.SignalBuy)
 
 	require.Len(t, *underTest.queuedAutoOrders, 1)
 	queued := (*underTest.queuedAutoOrders)[0]
+	assertFigure(t, "85000", queued.ReferencePrice)
+	assert.True(t, queued.EntrySlippageTolerancePercentage.Equal(decimal.RequireFromString("0.2")))
+	require.NotNil(t, queued.EntryFillDeadline)
+	assert.Equal(t, botRunNow.Add(time.Duration(bot.TriggerIntervalMinutes)*time.Minute), *queued.EntryFillDeadline)
 	assert.Equal(t, strategyBotID, queued.StrategyBotID)
 	assert.Equal(t, strategyBotOwnerID, queued.OwnerUserID)
 	assert.Equal(t, "BTCUSDT", queued.Symbol)
