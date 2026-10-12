@@ -27,6 +27,12 @@ type IContractAutoOrderRepository interface {
 		executionContext context.Context, contractAutoOrder entities.ContractAutoOrder, claimant string,
 	) (bool, error)
 
+	// ExistsUnsettledAfter reports whether the bot has an unsettled order queued after the given one, which is a newer conclusion waiting its turn.
+	ExistsUnsettledAfter(executionContext context.Context, strategyBotID uint, id uint) (bool, error)
+
+	// ExistsOutstandingEntry reports whether an unsettled order of the bot has an entry order at the venue that has not been resolved.
+	ExistsOutstandingEntry(executionContext context.Context, strategyBotID uint) (bool, error)
+
 	// FindByBotRunNumbers returns the bot's orders queued by the given rounds.
 	FindByBotRunNumbers(
 		executionContext context.Context, strategyBotID uint, runNumbers []int,

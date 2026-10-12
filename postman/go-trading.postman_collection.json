@@ -15382,7 +15382,7 @@
             "description": "行情種類合約行情的機器人引用一份合約交易策略、盯一個在合約追蹤名單上的合約標的，並帶自己的槓桿倍數。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  },\n  \"autoOrderEntrySlippageTolerancePercentage\": \"0.2\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15402,6 +15402,7 @@
                   "    pm.expect(saved.marketDataKind).to.eql(\"contractKCandle\");",
                   "    pm.expect(saved.positionPlan.leverage).to.eql(\"3\");",
                   "});",
+                  "pm.test(\"進場滑價容忍度照給的存下來\", function () { pm.expect(pm.response.json().autoOrderEntrySlippageTolerancePercentage).to.eql(\"0.2\"); });",
                   "pm.collectionVariables.set(\"contractStrategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -15734,6 +15735,7 @@
                   "    pm.expect(saved.tradingStrategyName).to.be.a(\"string\");",
                   "});",
                   "pm.test(\"新建的一台自動下單是關著的\", function () { pm.expect(pm.response.json().autoOrderEnabled).to.eql(false); });",
+                  "pm.test(\"沒給進場滑價容忍度就是 0.1\", function () { pm.expect(pm.response.json().autoOrderEntrySlippageTolerancePercentage).to.eql(\"0.1\"); });",
                   "pm.collectionVariables.set(\"strategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -15921,6 +15923,49 @@
                   "pm.test(\"說得出上限是多少\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"1440\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：進場滑價容忍度超出 0 到 5",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "進場滑價容忍度以百分比表示，必須介於 0 到 5（含）；沒給時建立用 0.1、改寫保留原值。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"太寬了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"autoOrderEntrySlippageTolerancePercentage\": \"5.01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出容忍度的範圍\", function () { pm.expect(pm.response.json().message).to.include(\"進場滑價容忍度必須介於 0 到 5 之間\"); });"
                 ]
               }
             }
@@ -16248,6 +16293,7 @@
                   "    pm.expect(updated.id).to.eql(Number(pm.collectionVariables.get(\"strategyBotId\")));",
                   "    pm.expect(updated.triggerIntervalMinutes).to.eql(15);",
                   "});",
+                  "pm.test(\"沒給進場滑價容忍度就保留原本的\", function () { pm.expect(pm.response.json().autoOrderEntrySlippageTolerancePercentage).to.eql(\"0.1\"); });",
                   "pm.test(\"部位規劃也改到了，而且拿掉的那一格真的不在了\", function () {\n    const plan = pm.response.json().positionPlan;\n    pm.expect(plan.capital).to.eql(\"80000\");\n    // 整份改寫就是整份：留白的停利距離要歸零，不是沿用上一版。\n    pm.expect(plan.takeProfitPercentage).to.eql(\"0\");\n});"
                 ]
               }
@@ -16361,7 +16407,7 @@
                 "runs"
               ]
             },
-            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。\n\n合約機器人那一輪有建議部位時，每一筆另帶 suggestedDirection（long／short）、suggestedLeverage、suggestedNotional；現貨機器人與交易所不收的那一輪不帶。\n\n那一輪排入了自動下單委託時（合約機器人、執行中、自動下單開著、結論改變），另帶 autoOrder：status（pending 等待下單／filled 成交／partiallyDone 平倉了但新方向沒開成／notPlaced 沒有下單／abandoned 放棄）、action（做多、做空、平多、平空、反手做多、反手做空、平倉）、closedQuantity、closeAveragePrice、openedDirection、openedQuantity、openAveragePrice、stopLossPrice、takeProfitPrice、protectionMissing（開了倉但止損或止盈沒掛上）、reason。"
+            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。\n\n合約機器人那一輪有建議部位時，每一筆另帶 suggestedDirection（long／short）、suggestedLeverage、suggestedNotional；現貨機器人與交易所不收的那一輪不帶。\n\n那一輪排入了自動下單委託時（合約機器人、執行中、自動下單開著、結論改變），另帶 autoOrder：status（pending 等待下單／filled 成交／partiallyDone 平倉了但新方向沒開成／unfilled 進場單沒有成交、已撤單／notPlaced 沒有下單／abandoned 放棄）、action（做多、做空、平多、平空、反手做多、反手做空、平倉）、closedQuantity、closeAveragePrice、openedDirection、openedQuantity、openAveragePrice、stopLossPrice、takeProfitPrice、protectionMissing（開了倉但止損或止盈沒掛上）、reason。開倉一律掛限價進場單（掛到撤為止，最多等一個觸發間隔）：referencePrice（參考價）、entrySlippageTolerancePercentage（進場滑價容忍度，%）、requestedQuantity（要求數量）、entryLimitPrice（限價）、entryStatus（working 等待成交／filled 全部成交／partiallyFilled 部分成交、其餘已撤單／unfilled 沒有成交、已撤單）、entryExecutedQuantity（進場單已成交數量）、entrySlippagePercentage（成交均價相對參考價，對擁有者不利為正，有成交才帶）。"
           },
           "event": [
             {

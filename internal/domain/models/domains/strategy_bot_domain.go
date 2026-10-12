@@ -18,6 +18,12 @@ const strategyBotTriggerIntervalMinimumMinutes = 1
 
 const strategyBotTriggerIntervalMaximumMinutes = 1440
 
+// strategyBotEntrySlippageToleranceDefaultPercentage is a little wider than the slippage market entries actually paid, so ordinary moves still fill.
+var (
+	strategyBotEntrySlippageToleranceDefaultPercentage = decimal.RequireFromString("0.1")
+	strategyBotEntrySlippageToleranceMaximumPercentage = decimal.NewFromInt(5)
+)
+
 // StrategyBotDomain is a validated bot being saved; it only checks that one trading strategy is named (ownership is the application's job) and knows nothing about run state (see StrategyBotRunStateDomain).
 type StrategyBotDomain struct {
 	id                     uint
@@ -29,7 +35,8 @@ type StrategyBotDomain struct {
 	triggerIntervalMinutes int
 	positionPlan           PositionPlanDomain
 	// leverage is one or more for contract bots and zero for spot bots.
-	leverage decimal.Decimal
+	leverage                         decimal.Decimal
+	entrySlippageTolerancePercentage decimal.Decimal
 }
 
 func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, error) {
@@ -96,16 +103,28 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		return StrategyBotDomain{}, leverageError
 	}
 
+	entrySlippageTolerancePercentage := strategyBotEntrySlippageToleranceDefaultPercentage
+	if writeDto.AutoOrderEntrySlippageTolerancePercentage.Valid {
+		entrySlippageTolerancePercentage = writeDto.AutoOrderEntrySlippageTolerancePercentage.Decimal
+	}
+	if entrySlippageTolerancePercentage.IsNegative() ||
+		entrySlippageTolerancePercentage.GreaterThan(strategyBotEntrySlippageToleranceMaximumPercentage) {
+		return StrategyBotDomain{}, fmt.Errorf(
+			"%w: 進場滑價容忍度必須介於 0 到 %s 之間（單位：%%）",
+			ErrStrategyBotValidation, strategyBotEntrySlippageToleranceMaximumPercentage.String())
+	}
+
 	return StrategyBotDomain{
-		id:                     writeDto.ID,
-		ownerID:                writeDto.OwnerID,
-		name:                   name,
-		symbol:                 tradingSymbol.Value(),
-		marketDataKind:         marketDataKind,
-		tradingStrategyID:      writeDto.TradingStrategyID,
-		triggerIntervalMinutes: writeDto.TriggerIntervalMinutes,
-		positionPlan:           positionPlan,
-		leverage:               leverage,
+		id:                               writeDto.ID,
+		ownerID:                          writeDto.OwnerID,
+		name:                             name,
+		symbol:                           tradingSymbol.Value(),
+		marketDataKind:                   marketDataKind,
+		tradingStrategyID:                writeDto.TradingStrategyID,
+		triggerIntervalMinutes:           writeDto.TriggerIntervalMinutes,
+		positionPlan:                     positionPlan,
+		leverage:                         leverage,
+		entrySlippageTolerancePercentage: entrySlippageTolerancePercentage,
 	}, nil
 }
 
@@ -150,6 +169,7 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanStopLossPercentage:   positionPlanSettings.StopLossPercentage,
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
 		PositionPlanLeverage:             strategyBotDomain.leverage,
-		RunState:                         string(vo.StrategyBotStopped),
+		AutoOrderEntrySlippageTolerancePercentage: strategyBotDomain.entrySlippageTolerancePercentage,
+		RunState: string(vo.StrategyBotStopped),
 	}
 }

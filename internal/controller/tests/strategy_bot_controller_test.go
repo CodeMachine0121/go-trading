@@ -18,6 +18,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -33,6 +34,8 @@ type strategyBotRouterUnderTest struct {
 	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository validate contract bots on save.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
+	// outstandingEntry is whether the bot still has an entry order resting at the venue.
+	outstandingEntry *bool
 }
 
 func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
@@ -73,10 +76,14 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
+	outstandingEntry := false
+	contractAutoOrderRepository := contractAutoOrderRepositoryNotInvolved(t)
+	contractAutoOrderRepository.EXPECT().ExistsOutstandingEntry(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, uint) (bool, error) { return outstandingEntry, nil }).AnyTimes()
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository,
 		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-		contractFundingRateSettlementRepository, nil, contractAutoOrderRepositoryNotInvolved(t), nil, clockProxy)
+		contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, nil, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
@@ -145,6 +152,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		outstandingEntry:                        &outstandingEntry,
 	}
 }
 
@@ -246,6 +254,78 @@ func TestStrategyBotRouterRewritesAndDeletes(t *testing.T) {
 
 	deleteResponse := fixture.send(http.MethodDelete, "/strategy-bots/3", "")
 	assert.Equal(t, http.StatusNoContent, deleteResponse.Code)
+}
+
+func TestStrategyBotRouterKeepsABotWhoseEntryOrderStillRests(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	*fixture.outstandingEntry = true
+	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+		Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+
+	response := fixture.send(http.MethodDelete, "/strategy-bots/3", "")
+
+	require.Equal(t, http.StatusConflict, response.Code)
+	answer := map[string]string{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Equal(t, "autoOrderEntryOutstanding", answer["reason"])
+}
+
+func TestStrategyBotRouterCarriesTheEntrySlippageTolerance(t *testing.T) {
+	testCases := []struct {
+		name              string
+		body              string
+		stored            string
+		expectedTolerance string
+	}{
+		{name: "建立時沒給就是 0.1", body: aStrategyBotBody, expectedTolerance: "0.1"},
+		{name: "建立時給 0", body: `{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+			"autoOrderEntrySlippageTolerancePercentage":0}`, expectedTolerance: "0"},
+		{name: "建立時給 5", body: `{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+			"autoOrderEntrySlippageTolerancePercentage":"5"}`, expectedTolerance: "5"},
+		{name: "改寫時沒給就保留", body: aStrategyBotBody, stored: "0.3", expectedTolerance: "0.3"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.expectResolvableTradingStrategy()
+			method, path := http.MethodPost, "/strategy-bots"
+			if testCase.stored != "" {
+				method, path = http.MethodPut, "/strategy-bots/3"
+				storedRow := aStoredStrategyBotRow(vo.StrategyBotStopped)
+				storedRow.AutoOrderEntrySlippageTolerancePercentage = decimal.RequireFromString(testCase.stored)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(storedRow, nil)
+			}
+			fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+					return bot, nil
+				})
+
+			response := fixture.send(method, path, testCase.body)
+
+			require.Less(t, response.Code, http.StatusMultipleChoices, response.Body.String())
+			answer := map[string]any{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+			assert.Equal(t, testCase.expectedTolerance, answer["autoOrderEntrySlippageTolerancePercentage"])
+		})
+	}
+}
+
+func TestStrategyBotRouterRefusesAnEntrySlippageToleranceOutOfRange(t *testing.T) {
+	for _, tolerance := range []string{"5.01", "-0.1"} {
+		t.Run(tolerance, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.expectResolvableTradingStrategy()
+			// No Save expectation: saving fails the test.
+
+			response := fixture.send(http.MethodPost, "/strategy-bots",
+				`{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+				"autoOrderEntrySlippageTolerancePercentage":`+tolerance+`}`)
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Contains(t, response.Body.String(), "進場滑價容忍度必須介於 0 到 5 之間（單位：%）")
+		})
+	}
 }
 
 func TestStrategyBotRouterStartsAndStops(t *testing.T) {

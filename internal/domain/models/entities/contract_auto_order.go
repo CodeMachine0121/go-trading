@@ -26,6 +26,11 @@ type ContractAutoOrder struct {
 	Leverage             decimal.Decimal     `gorm:"type:numeric(38,18);not null;default:0"`
 	StopLossPercentage   decimal.Decimal     `gorm:"type:numeric(38,18);not null;default:0"`
 	TakeProfitPercentage decimal.Decimal     `gorm:"type:numeric(38,18);not null;default:0"`
+	// ReferencePrice is the round's reference price; the entry order's limit is worked out from it and EntrySlippageTolerancePercentage, as the bot was set when the round was booked in.
+	ReferencePrice                   decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	EntrySlippageTolerancePercentage decimal.Decimal     `gorm:"type:numeric(38,18);not null;default:0"`
+	// EntryFillDeadline is one trigger interval after the round ran; an entry order still working then is cancelled.
+	EntryFillDeadline *time.Time `gorm:"type:timestamptz"`
 
 	Status        string    `gorm:"size:16;not null;index:idx_contract_auto_orders_unsettled"`
 	AttemptCount  int       `gorm:"not null;default:0"`
@@ -42,6 +47,12 @@ type ContractAutoOrder struct {
 	ClosedQuantity        decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	CloseAveragePrice     decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	ClosePositionVanished bool                `gorm:"not null;default:false"`
+	// Entry* record the limit order that opens the new position while it works; EntryPlacedAt is set once the venue has it.
+	EntryPlacedAt         *time.Time          `gorm:"type:timestamptz"`
+	EntryLimitPrice       decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	EntryExchangeOrderID  string              `gorm:"size:32;not null;default:''"`
+	EntryExecutedQuantity decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	EntryStatus           string              `gorm:"size:16;not null;default:''"`
 	// Open* record the step that opened the new position.
 	OpenDone         bool                `gorm:"not null;default:false"`
 	OpenedQuantity   decimal.NullDecimal `gorm:"type:numeric(38,18)"`
@@ -69,16 +80,24 @@ func (contractAutoOrder ContractAutoOrder) TableName() string {
 // ToResultDto shows an unsettled order as pending whatever it has done so far, since its result is not yet final.
 func (contractAutoOrder ContractAutoOrder) ToResultDto(action string) dto.ContractAutoOrderResultDto {
 	resultDto := dto.ContractAutoOrderResultDto{
-		Status:            "pending",
-		Action:            action,
-		ClosedQuantity:    figureOrNothing(contractAutoOrder.ClosedQuantity),
-		CloseAveragePrice: figureOrNothing(contractAutoOrder.CloseAveragePrice),
-		OpenedQuantity:    figureOrNothing(contractAutoOrder.OpenedQuantity),
-		OpenAveragePrice:  figureOrNothing(contractAutoOrder.OpenAveragePrice),
-		StopLossPrice:     figureOrNothing(contractAutoOrder.StopLossPrice),
-		TakeProfitPrice:   figureOrNothing(contractAutoOrder.TakeProfitPrice),
-		ProtectionMissing: contractAutoOrder.ProtectionMissing,
-		Reason:            contractAutoOrder.Reason,
+		Status:                "pending",
+		Action:                action,
+		ReferencePrice:        figureOrNothing(contractAutoOrder.ReferencePrice),
+		RequestedQuantity:     figureOrNothing(contractAutoOrder.OpenQuantity),
+		EntryLimitPrice:       figureOrNothing(contractAutoOrder.EntryLimitPrice),
+		EntryExecutedQuantity: figureOrNothing(contractAutoOrder.EntryExecutedQuantity),
+		EntryStatus:           contractAutoOrder.EntryStatus,
+		ClosedQuantity:        figureOrNothing(contractAutoOrder.ClosedQuantity),
+		CloseAveragePrice:     figureOrNothing(contractAutoOrder.CloseAveragePrice),
+		OpenedQuantity:        figureOrNothing(contractAutoOrder.OpenedQuantity),
+		OpenAveragePrice:      figureOrNothing(contractAutoOrder.OpenAveragePrice),
+		StopLossPrice:         figureOrNothing(contractAutoOrder.StopLossPrice),
+		TakeProfitPrice:       figureOrNothing(contractAutoOrder.TakeProfitPrice),
+		ProtectionMissing:     contractAutoOrder.ProtectionMissing,
+		Reason:                contractAutoOrder.Reason,
+	}
+	if contractAutoOrder.ReferencePrice.Valid {
+		resultDto.EntrySlippageTolerancePercentage = &contractAutoOrder.EntrySlippageTolerancePercentage
 	}
 	if contractAutoOrder.OpenDone {
 		resultDto.OpenedDirection = contractAutoOrder.TargetPosition

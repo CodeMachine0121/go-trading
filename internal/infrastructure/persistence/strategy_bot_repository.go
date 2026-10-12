@@ -51,18 +51,19 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			"position_plan_capital", "position_plan_sizing_mode",
 			"position_plan_sizing_value",
 			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
-			"position_plan_contract_leverage").
+			"position_plan_contract_leverage", "auto_order_entry_slippage_tolerance_percentage").
 		Updates(entities.StrategyBot{
-			Name:                             botRow.Name,
-			Symbol:                           botRow.Symbol,
-			TradingStrategyID:                botRow.TradingStrategyID,
-			TriggerIntervalMinutes:           botRow.TriggerIntervalMinutes,
-			PositionPlanCapital:              botRow.PositionPlanCapital,
-			PositionPlanSizingMode:           botRow.PositionPlanSizingMode,
-			PositionPlanSizingValue:          botRow.PositionPlanSizingValue,
-			PositionPlanStopLossPercentage:   botRow.PositionPlanStopLossPercentage,
-			PositionPlanTakeProfitPercentage: botRow.PositionPlanTakeProfitPercentage,
-			PositionPlanLeverage:             botRow.PositionPlanLeverage,
+			Name:                                      botRow.Name,
+			Symbol:                                    botRow.Symbol,
+			TradingStrategyID:                         botRow.TradingStrategyID,
+			TriggerIntervalMinutes:                    botRow.TriggerIntervalMinutes,
+			PositionPlanCapital:                       botRow.PositionPlanCapital,
+			PositionPlanSizingMode:                    botRow.PositionPlanSizingMode,
+			PositionPlanSizingValue:                   botRow.PositionPlanSizingValue,
+			PositionPlanStopLossPercentage:            botRow.PositionPlanStopLossPercentage,
+			PositionPlanTakeProfitPercentage:          botRow.PositionPlanTakeProfitPercentage,
+			PositionPlanLeverage:                      botRow.PositionPlanLeverage,
+			AutoOrderEntrySlippageTolerancePercentage: botRow.AutoOrderEntrySlippageTolerancePercentage,
 		})
 	if updates.Error != nil {
 		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(updates.Error, bot.Name)

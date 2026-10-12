@@ -46,3 +46,11 @@ var ErrStrategyBotAutoOrderMarketNotCovered = errors.New("strategy bot auto orde
 
 // ErrStrategyBotAutoOrderKeyChanged means the key was replaced or removed while the switch was being turned on; retrying re-checks against the current key.
 var ErrStrategyBotAutoOrderKeyChanged = errors.New("strategy bot auto order key changed meanwhile")
+
+// ErrStrategyBotAutoOrderEntryOutstanding refuses deleting a bot whose entry order still rests at the venue: with the bot gone nothing would cancel or guard it.
+var ErrStrategyBotAutoOrderEntryOutstanding = errors.New("strategy bot has an entry order outstanding")
+
+func StrategyBotAutoOrderEntryOutstanding() error {
+	return fmt.Errorf("%w: 這台機器人還有一張進場單掛在幣安上，請先關掉自動下單，等它撤單後再刪除",
+		ErrStrategyBotAutoOrderEntryOutstanding)
+}

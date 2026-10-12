@@ -41,6 +41,21 @@ func (m *MockIContractOrderProxy) EXPECT() *MockIContractOrderProxyMockRecorder 
 	return m.recorder
 }
 
+// CancelOrder mocks base method.
+func (m *MockIContractOrderProxy) CancelOrder(executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol, clientOrderID string) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelOrder", executionContext, credential, symbol, clientOrderID)
+	ret0, _ := ret[0].(vo.ContractOrderStateVo)
+	ret1, _ := ret[1].(vo.ContractOrderCallVo)
+	return ret0, ret1
+}
+
+// CancelOrder indicates an expected call of CancelOrder.
+func (mr *MockIContractOrderProxyMockRecorder) CancelOrder(executionContext, credential, symbol, clientOrderID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelOrder", reflect.TypeOf((*MockIContractOrderProxy)(nil).CancelOrder), executionContext, credential, symbol, clientOrderID)
+}
+
 // CancelProtectiveOrder mocks base method.
 func (m *MockIContractOrderProxy) CancelProtectiveOrder(executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol, clientOrderID string) vo.ContractOrderCallVo {
 	m.ctrl.T.Helper()
@@ -70,6 +85,21 @@ func (mr *MockIContractOrderProxyMockRecorder) FindMarketOrder(executionContext,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindMarketOrder", reflect.TypeOf((*MockIContractOrderProxy)(nil).FindMarketOrder), executionContext, credential, symbol, clientOrderID)
 }
 
+// FindOrder mocks base method.
+func (m *MockIContractOrderProxy) FindOrder(executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol, clientOrderID string) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindOrder", executionContext, credential, symbol, clientOrderID)
+	ret0, _ := ret[0].(vo.ContractOrderStateVo)
+	ret1, _ := ret[1].(vo.ContractOrderCallVo)
+	return ret0, ret1
+}
+
+// FindOrder indicates an expected call of FindOrder.
+func (mr *MockIContractOrderProxyMockRecorder) FindOrder(executionContext, credential, symbol, clientOrderID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOrder", reflect.TypeOf((*MockIContractOrderProxy)(nil).FindOrder), executionContext, credential, symbol, clientOrderID)
+}
+
 // FindProtectiveOrder mocks base method.
 func (m *MockIContractOrderProxy) FindProtectiveOrder(executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol, clientOrderID string) vo.ContractOrderCallVo {
 	m.ctrl.T.Helper()
@@ -82,6 +112,21 @@ func (m *MockIContractOrderProxy) FindProtectiveOrder(executionContext context.C
 func (mr *MockIContractOrderProxyMockRecorder) FindProtectiveOrder(executionContext, credential, symbol, clientOrderID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindProtectiveOrder", reflect.TypeOf((*MockIContractOrderProxy)(nil).FindProtectiveOrder), executionContext, credential, symbol, clientOrderID)
+}
+
+// PlaceLimitOrder mocks base method.
+func (m *MockIContractOrderProxy) PlaceLimitOrder(executionContext context.Context, credential vo.TradingKeyCredentialVo, order vo.ContractLimitOrderVo) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlaceLimitOrder", executionContext, credential, order)
+	ret0, _ := ret[0].(vo.ContractOrderStateVo)
+	ret1, _ := ret[1].(vo.ContractOrderCallVo)
+	return ret0, ret1
+}
+
+// PlaceLimitOrder indicates an expected call of PlaceLimitOrder.
+func (mr *MockIContractOrderProxyMockRecorder) PlaceLimitOrder(executionContext, credential, order any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlaceLimitOrder", reflect.TypeOf((*MockIContractOrderProxy)(nil).PlaceLimitOrder), executionContext, credential, order)
 }
 
 // PlaceMarketOrder mocks base method.

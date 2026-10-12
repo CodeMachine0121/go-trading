@@ -1,5 +1,7 @@
 package exchange
 
+import "encoding/json"
+
 // binancePositionModeResponse is the account's position mode; true holds long and short separately.
 type binancePositionModeResponse struct {
 	DualSidePosition bool `json:"dualSidePosition"`
@@ -11,11 +13,12 @@ type binancePositionRiskResponse struct {
 	PositionSide string `json:"positionSide"`
 }
 
-// binanceContractOrderResponse keeps only how much of an order was executed and at what price.
+// binanceContractOrderResponse keeps only the order's venue id, its status, and how much was executed at what price.
 type binanceContractOrderResponse struct {
-	Status      string `json:"status"`
-	ExecutedQty string `json:"executedQty"`
-	AvgPrice    string `json:"avgPrice"`
+	OrderID     json.Number `json:"orderId"`
+	Status      string      `json:"status"`
+	ExecutedQty string      `json:"executedQty"`
+	AvgPrice    string      `json:"avgPrice"`
 }
 
 // contractOrderFailureCodes sorts the venue's refusals by what the owner has to do about them; codes not listed pass the venue's own words on unchanged.

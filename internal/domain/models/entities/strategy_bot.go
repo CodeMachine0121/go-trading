@@ -47,6 +47,8 @@ type StrategyBot struct {
 	RoundClaimedUntil *time.Time `gorm:"type:timestamptz"`
 	// AutoOrderEnabled is off for every existing bot; neither Save nor UpdateRunState names it, so only the switch routes change it.
 	AutoOrderEnabled bool `gorm:"not null;default:false"`
+	// AutoOrderEntrySlippageTolerancePercentage is how far, in percent of the reference price, an auto order's entry limit may sit from it; the default reaches existing rows when the column is added.
+	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0.1"`
 	// AutoOrderPosition* is what the bot opened with auto orders and has not closed: a direction (empty when flat), a quantity and the protective orders guarding it. Neither Save nor UpdateRunState names them.
 	AutoOrderPositionDirection  string          `gorm:"size:8;not null;default:''"`
 	AutoOrderPositionQuantity   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
@@ -122,8 +124,9 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		HaltReason:             strategyBot.HaltReason,
 		Conflicting:            strategyBot.Conflicting,
 		AutoOrderEnabled:       strategyBot.AutoOrderEnabled,
-		AutoOrderPosition:      autoOrderPosition,
-		CreatedAt:              strategyBot.CreatedAt.UTC(),
-		UpdatedAt:              strategyBot.UpdatedAt.UTC(),
+		AutoOrderEntrySlippageTolerancePercentage: strategyBot.AutoOrderEntrySlippageTolerancePercentage,
+		AutoOrderPosition:                         autoOrderPosition,
+		CreatedAt:                                 strategyBot.CreatedAt.UTC(),
+		UpdatedAt:                                 strategyBot.UpdatedAt.UTC(),
 	}
 }

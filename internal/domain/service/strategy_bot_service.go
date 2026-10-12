@@ -11,6 +11,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 // It deliberately cannot reach scripts, K candles or Telegram (the application layer joins those); the contract readers are needed only to validate contract bots and plan contract positions.
@@ -145,6 +146,11 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	}
 	writeDto.MarketDataKind = string(retainedKind.Value())
 
+	if !writeDto.AutoOrderEntrySlippageTolerancePercentage.Valid {
+		writeDto.AutoOrderEntrySlippageTolerancePercentage = decimal.NewNullDecimal(
+			storedBot.AutoOrderEntrySlippageTolerancePercentage)
+	}
+
 	strategyBotDomain, validationError := strategyBotService.settle(
 		executionContext, writeDto, followedTradingStrategy)
 	if validationError != nil {
@@ -160,12 +166,21 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	return savedBot.ToDto(), nil
 }
 
-// DeleteStrategyBot removes the viewer's bot even while running, since a deleted bot is never picked up again.
+// DeleteStrategyBot removes the viewer's bot even while running, since a deleted bot is never picked up again; an entry order still resting at the venue keeps it, since nothing would look after that order once the bot is gone.
 func (strategyBotService *StrategyBotService) DeleteStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
 	if _, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id); findError != nil {
 		return findError
+	}
+
+	hasOutstandingEntry, entryError := strategyBotService.contractAutoOrderRepository.ExistsOutstandingEntry(
+		executionContext, id)
+	if entryError != nil {
+		return entryError
+	}
+	if hasOutstandingEntry {
+		return domains.StrategyBotAutoOrderEntryOutstanding()
 	}
 
 	return strategyBotService.strategyBotRepository.Delete(executionContext, id)
@@ -532,7 +547,7 @@ func (strategyBotService *StrategyBotService) RecordRound(
 				storedBot.RunState == string(vo.StrategyBotRunning) {
 				if enqueueError := strategyBotService.contractAutoOrderRepository.Enqueue(transactionContext,
 					domains.NewQueuedContractAutoOrderDomain(
-						id, storedBot.OwnerID, storedBot.Symbol, dueAt, runNumber, outcomeDto.AutoOrderIntent, ranAt,
+						storedBot, dueAt, runNumber, outcomeDto.AutoOrderIntent, ranAt,
 					).ToEntity()); enqueueError != nil {
 					return enqueueError
 				}

@@ -151,6 +151,50 @@ func (contractOrderProxy *BinanceContractOrderProxy) FindMarketOrder(
 	return contractOrderProxy.fillOf(body)
 }
 
+func (contractOrderProxy *BinanceContractOrderProxy) PlaceLimitOrder(
+	executionContext context.Context, credential vo.TradingKeyCredentialVo, order vo.ContractLimitOrderVo,
+) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	body, call := contractOrderProxy.send(executionContext, credential, http.MethodPost, contractOrderPath, url.Values{
+		"symbol":           {order.Symbol},
+		"side":             {string(order.Side)},
+		"type":             {"LIMIT"},
+		"timeInForce":      {"GTC"},
+		"quantity":         {order.Quantity.String()},
+		"price":            {order.Price.String()},
+		"newClientOrderId": {order.ClientOrderID},
+		"newOrderRespType": {"RESULT"},
+	})
+	if call.Failure != vo.ContractOrderFailureNone {
+		return vo.ContractOrderStateVo{}, call
+	}
+
+	return contractOrderProxy.stateOf(body)
+}
+
+func (contractOrderProxy *BinanceContractOrderProxy) FindOrder(
+	executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol string, clientOrderID string,
+) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	body, call := contractOrderProxy.send(executionContext, credential, http.MethodGet, contractOrderPath,
+		url.Values{"symbol": {symbol}, "origClientOrderId": {clientOrderID}})
+	if call.Failure != vo.ContractOrderFailureNone {
+		return vo.ContractOrderStateVo{}, call
+	}
+
+	return contractOrderProxy.stateOf(body)
+}
+
+func (contractOrderProxy *BinanceContractOrderProxy) CancelOrder(
+	executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol string, clientOrderID string,
+) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	body, call := contractOrderProxy.send(executionContext, credential, http.MethodDelete, contractOrderPath,
+		url.Values{"symbol": {symbol}, "origClientOrderId": {clientOrderID}})
+	if call.Failure != vo.ContractOrderFailureNone {
+		return vo.ContractOrderStateVo{}, call
+	}
+
+	return contractOrderProxy.stateOf(body)
+}
+
 // PlaceProtectiveOrder triggers on the mark price, so a momentary spike in the last trade does not close the position.
 func (contractOrderProxy *BinanceContractOrderProxy) PlaceProtectiveOrder(
 	executionContext context.Context, credential vo.TradingKeyCredentialVo, order vo.ContractProtectiveOrderVo,
@@ -222,6 +266,36 @@ func (contractOrderProxy *BinanceContractOrderProxy) fillOf(body []byte) (vo.Con
 	}
 
 	return vo.ContractOrderFillVo{ExecutedQuantity: executedQuantity, AveragePrice: averagePrice}, vo.ContractOrderCallVo{}
+}
+
+// stateOf reads any status the venue does not describe as open or filled as ended, since nothing more will execute on it.
+func (contractOrderProxy *BinanceContractOrderProxy) stateOf(body []byte) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+	var orderResponse binanceContractOrderResponse
+	if decodeError := json.Unmarshal(body, &orderResponse); decodeError != nil {
+		return vo.ContractOrderStateVo{}, unreadableAnswer
+	}
+
+	executedQuantity, quantityError := decimal.NewFromString(orderResponse.ExecutedQty)
+	averagePrice, priceError := decimal.NewFromString(orderResponse.AvgPrice)
+	if quantityError != nil || priceError != nil {
+		return vo.ContractOrderStateVo{}, vo.ContractOrderCallVo{
+			Failure: vo.ContractOrderFailureUncertain, ExchangeMessage: "看不懂幣安回覆的成交"}
+	}
+
+	progress := vo.ContractOrderEnded
+	switch orderResponse.Status {
+	case "NEW", "PARTIALLY_FILLED":
+		progress = vo.ContractOrderWorking
+	case "FILLED":
+		progress = vo.ContractOrderFilled
+	}
+
+	return vo.ContractOrderStateVo{
+		ExchangeOrderID:  orderResponse.OrderID.String(),
+		Progress:         progress,
+		ExecutedQuantity: executedQuantity,
+		AveragePrice:     averagePrice,
+	}, vo.ContractOrderCallVo{}
 }
 
 // send signs the parameters into the query string, which the venue accepts for every method, and sorts whatever comes back by what can be done about it.

@@ -46,6 +46,8 @@ type strategyBotApplicationUnderTest struct {
 	// storedAutoOrders are what the rounds' auto orders read back as; autoOrderReadFailure makes reading them fail.
 	storedAutoOrders     *[]entities.ContractAutoOrder
 	autoOrderReadFailure *error
+	// outstandingEntry is whether one of the bot's orders still has its entry order resting at the venue.
+	outstandingEntry *bool
 }
 
 // newStrategyBotApplicationUnderTest wires real domain services, mocking only storage, the seal, the carrier and the clock.
@@ -94,6 +96,10 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 			return storedAutoOrders, autoOrderReadFailure
 		}).AnyTimes()
 
+	outstandingEntry := false
+	contractAutoOrderRepository.EXPECT().ExistsOutstandingEntry(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, uint) (bool, error) { return outstandingEntry, autoOrderReadFailure }).AnyTimes()
+
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
@@ -127,6 +133,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		storedAutoOrders:                        &storedAutoOrders,
 		autoOrderReadFailure:                    &autoOrderReadFailure,
+		outstandingEntry:                        &outstandingEntry,
 	}
 }
 
@@ -257,6 +264,33 @@ func TestStrategyBotApplicationDeleteDoesNotAskForAStopFirst(t *testing.T) {
 
 	assert.NoError(t, underTest.strategyBotApplication.DeleteStrategyBot(
 		context.Background(), strategyBotOwnerID, strategyBotID))
+}
+
+func TestStrategyBotApplicationDeleteKeepsABotWhoseEntryOrderStillRests(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	*underTest.outstandingEntry = true
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	// No Delete expectation: deleting fails the test.
+
+	deleteError := underTest.strategyBotApplication.DeleteStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.ErrorIs(t, deleteError, domains.ErrStrategyBotAutoOrderEntryOutstanding)
+	assert.Contains(t, deleteError.Error(), "這台機器人還有一張進場單掛在幣安上，請先關掉自動下單，等它撤單後再刪除")
+}
+
+func TestStrategyBotApplicationDeleteReportsEntryOrdersThatCannotBeRead(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	*underTest.autoOrderReadFailure = errors.New("the database went away")
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotStopped), nil)
+
+	deleteError := underTest.strategyBotApplication.DeleteStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.Error(t, deleteError)
+	assert.NotErrorIs(t, deleteError, domains.ErrStrategyBotAutoOrderEntryOutstanding)
 }
 
 func TestStrategyBotApplicationStartRefusesWithNowhereToBeSpokenTo(t *testing.T) {

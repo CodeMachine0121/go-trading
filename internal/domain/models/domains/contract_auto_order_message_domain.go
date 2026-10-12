@@ -41,6 +41,18 @@ func (messageDomain ContractAutoOrderMessageDomain) Text() string {
 			result.OpenedQuantity.String(), result.OpenAveragePrice.String()))
 	}
 
+	if result.ReferencePrice != nil && result.EntryLimitPrice != nil {
+		entryFigures := []string{"參考價 " + result.ReferencePrice.String(), "限價 " + result.EntryLimitPrice.String()}
+		if result.EntrySlippagePercentage != nil {
+			sign := ""
+			if result.EntrySlippagePercentage.IsPositive() {
+				sign = "+"
+			}
+			entryFigures = append(entryFigures, fmt.Sprintf("滑價 %s%s%%", sign, result.EntrySlippagePercentage.StringFixed(3)))
+		}
+		lines = append(lines, "📌 "+strings.Join(entryFigures, "｜"))
+	}
+
 	exits := []string{}
 	if result.StopLossPrice != nil {
 		exits = append(exits, "止損 "+result.StopLossPrice.String())
@@ -50,6 +62,12 @@ func (messageDomain ContractAutoOrderMessageDomain) Text() string {
 	}
 	if len(exits) > 0 {
 		lines = append(lines, "🛡 "+strings.Join(exits, "｜"))
+	}
+
+	if result.EntryStatus == string(vo.ContractEntryPartiallyFilled) &&
+		result.OpenedQuantity != nil && result.RequestedQuantity != nil {
+		lines = append(lines, fmt.Sprintf("⚠️ 部分成交 %s／%s，其餘已撤單",
+			result.OpenedQuantity.String(), result.RequestedQuantity.String()))
 	}
 
 	if result.Reason != "" {

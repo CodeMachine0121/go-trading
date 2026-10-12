@@ -152,6 +152,8 @@ func (contractAutoOrderService *ContractAutoOrderService) execute(
 			outcome, stepError = contractAutoOrderService.close(callContext, &run)
 		case domains.ContractAutoOrderStepOpen:
 			outcome, stepError = contractAutoOrderService.open(callContext, &run)
+		case domains.ContractAutoOrderStepFollowEntry:
+			outcome, stepError = contractAutoOrderService.followEntry(callContext, &run)
 		case domains.ContractAutoOrderStepProtect:
 			outcome, stepError = contractAutoOrderService.protect(callContext, &run)
 		default:
@@ -282,18 +284,17 @@ func (contractAutoOrderService *ContractAutoOrderService) takeDownGuards(
 	return stepContinues, contractAutoOrderService.recordStep(callContext, run, applyClose)
 }
 
-// open sets the contract to isolated margin at the bot's leverage and opens the target side, unless the venue already has it opened under this order's id.
+// open sets the contract to isolated margin at the bot's leverage and places the entry order, unless the venue already has it under this order's id; either way the entry is then followed.
 func (contractAutoOrderService *ContractAutoOrderService) open(
 	callContext context.Context, run *orderRun,
 ) (contractAutoOrderStepOutcome, error) {
-	if run.hasCredential {
-		fill, findCall := contractAutoOrderService.contractOrderProxy.FindMarketOrder(
+	entryOrder, hasTickSize := run.order.EntryOrder(run.tickSize)
+
+	if run.hasCredential && hasTickSize {
+		state, findCall := contractAutoOrderService.contractOrderProxy.FindOrder(
 			callContext, run.credential, run.order.Symbol(), run.order.OpenClientOrderID())
 		if findCall.Failure == vo.ContractOrderFailureNone {
-			return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
-				run.order, run.position = run.order.AfterOpen(
-					run.position, fill, run.tickSize, contractAutoOrderService.clockProxy.Now())
-			})
+			return contractAutoOrderService.recordEntryPlaced(callContext, run, entryOrder, state)
 		}
 		if findCall.Failure != vo.ContractOrderFailureNotFound {
 			return contractAutoOrderService.fail(callContext, *run, findCall)
@@ -303,6 +304,10 @@ func (contractAutoOrderService *ContractAutoOrderService) open(
 	if outcome, refuseError := contractAutoOrderService.refuseToSend(callContext, run); outcome != stepContinues || refuseError != nil {
 		return outcome, refuseError
 	}
+	if !hasTickSize {
+		return stepSettled, contractAutoOrderService.settle(callContext, *run,
+			run.order.SettledWithoutTickSize(contractAutoOrderService.clockProxy.Now()), nil, false)
+	}
 
 	prepareCall := contractAutoOrderService.contractOrderProxy.PrepareIsolatedLeverage(
 		callContext, run.credential, run.order.Symbol(), run.order.OpenLeverage())
@@ -310,15 +315,94 @@ func (contractAutoOrderService *ContractAutoOrderService) open(
 		return contractAutoOrderService.fail(callContext, *run, prepareCall)
 	}
 
-	fill, placeCall := contractAutoOrderService.contractOrderProxy.PlaceMarketOrder(
-		callContext, run.credential, run.order.OpenOrder())
+	state, placeCall := contractAutoOrderService.contractOrderProxy.PlaceLimitOrder(callContext, run.credential, entryOrder)
 	if placeCall.Failure != vo.ContractOrderFailureNone {
 		return contractAutoOrderService.fail(callContext, *run, placeCall)
 	}
 
+	return contractAutoOrderService.recordEntryPlaced(callContext, run, entryOrder, state)
+}
+
+// recordEntryPlaced writes the entry order down before anything else is asked of it, so a replica taking over follows it rather than looks for it.
+func (contractAutoOrderService *ContractAutoOrderService) recordEntryPlaced(
+	callContext context.Context, run *orderRun, entryOrder vo.ContractLimitOrderVo, state vo.ContractOrderStateVo,
+) (contractAutoOrderStepOutcome, error) {
+	run.order = run.order.AfterEntryPlaced(entryOrder, state, contractAutoOrderService.clockProxy.Now())
+	if saveError := contractAutoOrderService.saveProgress(callContext, run.order); saveError != nil {
+		return stepWaits, saveError
+	}
+
+	return contractAutoOrderService.actOnEntry(callContext, run, state)
+}
+
+// followEntry asks the venue how the entry order stands and acts on it.
+func (contractAutoOrderService *ContractAutoOrderService) followEntry(
+	callContext context.Context, run *orderRun,
+) (contractAutoOrderStepOutcome, error) {
+	now := contractAutoOrderService.clockProxy.Now()
+	if run.unsealable {
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, run.order.SettledUnsealable(now), nil, false)
+	}
+	if !run.hasCredential {
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, run.order.SettledWithoutKey(now), nil, false)
+	}
+
+	state, findCall := contractAutoOrderService.contractOrderProxy.FindOrder(
+		callContext, run.credential, run.order.Symbol(), run.order.OpenClientOrderID())
+	if findCall.Failure != vo.ContractOrderFailureNone {
+		return contractAutoOrderService.fail(callContext, *run, findCall)
+	}
+
+	return contractAutoOrderService.actOnEntry(callContext, run, state)
+}
+
+// actOnEntry resolves an entry order that will execute no more; a working one either waits for the next look or, once it must come down, is cancelled and resolved by what it filled.
+// A cancel the venue cannot place means the order is no longer open, so it is looked up again; a cancel with no clear answer waits and is tried again.
+func (contractAutoOrderService *ContractAutoOrderService) actOnEntry(
+	callContext context.Context, run *orderRun, state vo.ContractOrderStateVo,
+) (contractAutoOrderStepOutcome, error) {
+	if state.Progress != vo.ContractOrderWorking {
+		return contractAutoOrderService.resolveEntry(callContext, run, state)
+	}
+
+	now := contractAutoOrderService.clockProxy.Now()
+	laterOrderQueued, laterError := contractAutoOrderService.contractAutoOrderRepository.ExistsUnsettledAfter(
+		callContext, run.order.StrategyBotID(), run.order.ID())
+	if laterError != nil {
+		return stepWaits, laterError
+	}
+	if !run.order.ShouldWithdrawEntryAt(now, laterOrderQueued, run.botRunning, run.autoOrderEnabled) {
+		return stepWaits, contractAutoOrderService.saveProgress(callContext, run.order.AwaitingEntry(state, now))
+	}
+
+	cancelledState, cancelCall := contractAutoOrderService.contractOrderProxy.CancelOrder(
+		callContext, run.credential, run.order.Symbol(), run.order.OpenClientOrderID())
+	if cancelCall.Failure == vo.ContractOrderFailureNotFound {
+		cancelledState, cancelCall = contractAutoOrderService.contractOrderProxy.FindOrder(
+			callContext, run.credential, run.order.Symbol(), run.order.OpenClientOrderID())
+	}
+	if cancelCall.Failure != vo.ContractOrderFailureNone {
+		return contractAutoOrderService.fail(callContext, *run, cancelCall)
+	}
+	if cancelledState.Progress == vo.ContractOrderWorking {
+		return stepWaits, contractAutoOrderService.saveProgress(callContext, run.order.AwaitingEntry(cancelledState, now))
+	}
+
+	return contractAutoOrderService.resolveEntry(callContext, run, cancelledState)
+}
+
+// resolveEntry records what an entry order that will execute no more filled as the bot's position, or settles the order as unfilled.
+func (contractAutoOrderService *ContractAutoOrderService) resolveEntry(
+	callContext context.Context, run *orderRun, state vo.ContractOrderStateVo,
+) (contractAutoOrderStepOutcome, error) {
+	resolvedOrder, resolvedPosition, settled := run.order.ResolveEntry(
+		run.position, state, run.tickSize, contractAutoOrderService.clockProxy.Now())
+	if settled {
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, resolvedOrder, nil, false)
+	}
+
 	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
-		run.order, run.position = run.order.AfterOpen(
-			run.position, fill, run.tickSize, contractAutoOrderService.clockProxy.Now())
+		run.order, run.position = resolvedOrder, resolvedPosition
 	})
 }
 
@@ -448,12 +532,19 @@ func (contractAutoOrderService *ContractAutoOrderService) recordStep(
 func (contractAutoOrderService *ContractAutoOrderService) reschedule(
 	callContext context.Context, run orderRun,
 ) error {
+	return contractAutoOrderService.saveProgress(callContext,
+		run.order.Rescheduled(contractAutoOrderService.clockProxy.Now()))
+}
+
+// saveProgress writes the order alone under its own deadline, so progress decided at the end of the calls' time is still written.
+func (contractAutoOrderService *ContractAutoOrderService) saveProgress(
+	callContext context.Context, order domains.ContractAutoOrderDomain,
+) error {
 	writeContext, endWrite := context.WithTimeout(context.WithoutCancel(callContext), contractAutoOrderService.executionTimeout)
 	defer endWrite()
 
 	held, saveError := contractAutoOrderService.contractAutoOrderRepository.SaveProgress(
-		writeContext, run.order.Rescheduled(contractAutoOrderService.clockProxy.Now()).ToEntity(),
-		contractAutoOrderService.replicaName)
+		writeContext, order.ToEntity(), contractAutoOrderService.replicaName)
 	if saveError != nil {
 		return saveError
 	}

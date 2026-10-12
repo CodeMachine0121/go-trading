@@ -116,10 +116,10 @@ func TestAnAutoOrderPassesTheVenuesOwnWordsOn(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newAutoOrderExecutionUnderTest(t)
 			underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-			underTest.venueHasNo(openClientOrderID)
+			underTest.entryIsNotAtTheVenue()
 			underTest.accountIsOneWay()
 			underTest.leverageIsSet()
-			underTest.marketOrderAnswers(testCase.call)
+			underTest.entryOrderAnswers(testCase.call)
 
 			underTest.execute(t)
 
@@ -131,10 +131,10 @@ func TestAnAutoOrderPassesTheVenuesOwnWordsOn(t *testing.T) {
 func TestATargetTheVenueRefusesIsNamedLoudly(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "1.5", "3"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideSell,
 		"83725.0", "0.002", stopLossClientID, vo.ContractOrderCallVo{})
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderTakeProfit, vo.ContractOrderSideSell,
@@ -275,10 +275,10 @@ func TestARejectedKeyThatCannotBeAskedAboutAgainWaits(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newAutoOrderExecutionUnderTest(t)
 			underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-			underTest.venueHasNo(openClientOrderID)
+			underTest.entryIsNotAtTheVenue()
 			underTest.accountIsOneWay()
 			underTest.leverageIsSet()
-			underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
+			underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
 			underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
 				Return(testCase.verification, testCase.verifyError)
 
@@ -340,13 +340,13 @@ func TestAnAutoOrderTakenOverMidWayLeavesEverythingToItsNewHolder(t *testing.T) 
 			setUp: func(autoOrderExecutionUnderTest) {}},
 		{name: "重試時 claim 已被接手", opensSomething: true, fail: func(failures *autoOrderStorageFailures) { failures.claimLost = true },
 			setUp: func(underTest autoOrderExecutionUnderTest) {
-				underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
-					Return(vo.ContractOrderFillVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
+				underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+					Return(vo.ContractOrderStateVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
 			}},
 		{name: "重試時寫不進去", opensSomething: true, fail: func(failures *autoOrderStorageFailures) { failures.saveError = storageWentAway },
 			setUp: func(underTest autoOrderExecutionUnderTest) {
-				underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
-					Return(vo.ContractOrderFillVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
+				underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+					Return(vo.ContractOrderStateVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
 			}},
 		{name: "記步驟時 claim 已被接手", opensSomething: true, fail: func(failures *autoOrderStorageFailures) { failures.claimLost = true },
 			setUp: func(underTest autoOrderExecutionUnderTest) { underTest.openIsAlreadyFilled() }},
@@ -378,9 +378,10 @@ func TestAnAutoOrderTakenOverMidWayLeavesEverythingToItsNewHolder(t *testing.T) 
 
 // openIsAlreadyFilled is a venue that already filled this order's open, so the next write is the open's step.
 func (underTest autoOrderExecutionUnderTest) openIsAlreadyFilled() {
-	underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
-		Return(vo.ContractOrderFillVo{
-			ExecutedQuantity: decimal.RequireFromString("0.002"), AveragePrice: decimal.NewFromInt(85000),
+	underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+		Return(vo.ContractOrderStateVo{
+			Progress: vo.ContractOrderFilled, ExecutedQuantity: decimal.RequireFromString("0.002"),
+			AveragePrice: decimal.NewFromInt(85000),
 		}, vo.ContractOrderCallVo{})
 }
 
@@ -391,9 +392,9 @@ func TestAReverseFindingItsOldSideGoneStillOpensTheNewOne(t *testing.T) {
 	underTest.venueHasNo(closeClientOrderID)
 	underTest.accountIsOneWay()
 	underTest.venueHolds("0", "0")
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.003", false, openClientOrderID, "0.003", "84000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideSell, "0.003", "0.003", "84000")
 
 	underTest.execute(t)
 
@@ -420,10 +421,10 @@ func TestAnOpenedPositionWhoseKeyIsGoneIsHandedToTheOwner(t *testing.T) {
 func TestAnAutoOrderWhoseSwitchesCannotBeTurnedOffIsNotSettled(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
 	underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
 		Return(vo.TradingKeyVerificationVo{FailureReason: vo.TradingKeyVerificationFailureKeyRejected}, nil)
 	underTest.failures.switchOff = storageWentAway
@@ -517,7 +518,7 @@ func TestAReverseWhoseOpenIsHeldBackAfterItsCloseSaysItClosed(t *testing.T) {
 			closed.CloseAveragePrice = decimal.NewNullDecimal(decimal.NewFromInt(84000))
 			underTest.queues(closed)
 			testCase.holdBack(underTest)
-			underTest.venueHasNo(openClientOrderID)
+			underTest.entryIsNotAtTheVenue()
 
 			underTest.execute(t)
 
@@ -537,7 +538,7 @@ func TestAReverseThatFoundNothingToCloseIsGivenUpWhenItsOpenIsTooLate(t *testing
 	vanished.ClosePositionVanished = true
 	underTest.queues(vanished)
 	*underTest.now = autoOrderRoundRanAt.Add(2 * time.Minute)
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 
 	underTest.execute(t)
 

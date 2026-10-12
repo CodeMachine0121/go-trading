@@ -10,6 +10,8 @@ const (
 	// ContractAutoOrderPartiallyDone closed the bot's position but could not open the new one.
 	ContractAutoOrderPartiallyDone ContractAutoOrderOutcomeVo = "partiallyDone"
 	ContractAutoOrderNotPlaced     ContractAutoOrderOutcomeVo = "notPlaced"
+	// ContractAutoOrderUnfilled sent its entry order, which filled nothing before it was cancelled.
+	ContractAutoOrderUnfilled ContractAutoOrderOutcomeVo = "unfilled"
 	// ContractAutoOrderAbandoned was given up before sending: too late, or the owner pulled the brake.
 	ContractAutoOrderAbandoned ContractAutoOrderOutcomeVo = "abandoned"
 )

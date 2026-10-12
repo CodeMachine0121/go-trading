@@ -71,6 +71,36 @@ func (mr *MockIContractAutoOrderRepositoryMockRecorder) Enqueue(executionContext
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).Enqueue), executionContext, contractAutoOrder)
 }
 
+// ExistsOutstandingEntry mocks base method.
+func (m *MockIContractAutoOrderRepository) ExistsOutstandingEntry(executionContext context.Context, strategyBotID uint) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExistsOutstandingEntry", executionContext, strategyBotID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExistsOutstandingEntry indicates an expected call of ExistsOutstandingEntry.
+func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsOutstandingEntry(executionContext, strategyBotID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsOutstandingEntry", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsOutstandingEntry), executionContext, strategyBotID)
+}
+
+// ExistsUnsettledAfter mocks base method.
+func (m *MockIContractAutoOrderRepository) ExistsUnsettledAfter(executionContext context.Context, strategyBotID, id uint) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExistsUnsettledAfter", executionContext, strategyBotID, id)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExistsUnsettledAfter indicates an expected call of ExistsUnsettledAfter.
+func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsUnsettledAfter(executionContext, strategyBotID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsUnsettledAfter", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsUnsettledAfter), executionContext, strategyBotID, id)
+}
+
 // FindByBotRunNumbers mocks base method.
 func (m *MockIContractAutoOrderRepository) FindByBotRunNumbers(executionContext context.Context, strategyBotID uint, runNumbers []int) ([]entities.ContractAutoOrder, error) {
 	m.ctrl.T.Helper()

@@ -61,6 +61,10 @@ type autoOrderExecutionUnderTest struct {
 	key *entities.BinanceTradingKey
 	// unsealFailure makes the stored key impossible to open.
 	unsealFailure *error
+	// laterOrderQueued is whether the bot has a newer order waiting behind this one.
+	laterOrderQueued *bool
+	// tickSize is the contract's price step; an invalid one means the contract has none.
+	tickSize *decimal.NullDecimal
 }
 
 type autoOrderStorageFailures struct {
@@ -72,6 +76,8 @@ type autoOrderStorageFailures struct {
 	position   error
 	enqueue    error
 	switchOff  error
+	// laterOrders makes asking whether a newer order waits behind this one fail.
+	laterOrders error
 }
 
 func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
@@ -108,6 +114,12 @@ func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
 			saved = append(saved, order)
 
 			return true, nil
+		}).AnyTimes()
+
+	laterOrderQueued := false
+	contractAutoOrderRepository.EXPECT().ExistsUnsettledAfter(gomock.Any(), autoOrderBotID, autoOrderID).
+		DoAndReturn(func(context.Context, uint, uint) (bool, error) {
+			return laterOrderQueued, failures.laterOrders
 		}).AnyTimes()
 
 	bot := entities.StrategyBot{
@@ -167,7 +179,9 @@ func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
 	tickSize := decimal.NewNullDecimal(decimal.RequireFromString("0.1"))
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
-		Return(entities.ContractTradingSymbol{Symbol: "BTCUSDT", TickSize: tickSize}, true, nil).AnyTimes()
+		DoAndReturn(func(context.Context, string) (entities.ContractTradingSymbol, bool, error) {
+			return entities.ContractTradingSymbol{Symbol: "BTCUSDT", TickSize: tickSize}, true, nil
+		}).AnyTimes()
 
 	messages := []entities.PendingMessage{}
 	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
@@ -211,11 +225,14 @@ func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
 		failures:              &failures,
 		key:                   key,
 		unsealFailure:         &unsealFailure,
+		laterOrderQueued:      &laterOrderQueued,
+		tickSize:              &tickSize,
 	}
 }
 
-// anAutoOrder is queued by a round that ran at autoOrderRoundRanAt; an empty openQuantity opens nothing.
+// anAutoOrder is queued by a round that ran at autoOrderRoundRanAt with a reference price of 85000, a 0.1% entry tolerance and a 15-minute trigger interval; an empty openQuantity opens nothing.
 func anAutoOrder(target string, openQuantity string, stopLoss string, takeProfit string) entities.ContractAutoOrder {
+	entryFillDeadline := autoOrderRoundRanAt.Add(15 * time.Minute)
 	order := entities.ContractAutoOrder{
 		ID: autoOrderID, StrategyBotID: autoOrderBotID, OwnerUserID: autoOrderOwnerID, Symbol: "BTCUSDT",
 		RoundDueAt: autoOrderRoundRanAt, RunNumber: 52, TargetPosition: target,
@@ -223,6 +240,9 @@ func anAutoOrder(target string, openQuantity string, stopLoss string, takeProfit
 		TakeProfitPercentage: decimal.RequireFromString(takeProfit),
 		Status:               string(vo.ContractAutoOrderReady), NextAttemptAt: autoOrderRoundRanAt,
 		ExpiresAt: autoOrderRoundRanAt.Add(2 * time.Minute), CreatedAt: autoOrderRoundRanAt,
+		ReferencePrice:                   decimal.NewNullDecimal(decimal.NewFromInt(85000)),
+		EntrySlippageTolerancePercentage: decimal.RequireFromString("0.1"),
+		EntryFillDeadline:                &entryFillDeadline,
 	}
 	if openQuantity != "" {
 		order.OpenQuantity = decimal.NewNullDecimal(decimal.RequireFromString(openQuantity))
@@ -270,6 +290,51 @@ func (underTest autoOrderExecutionUnderTest) onlyMessage(t *testing.T) entities.
 func (underTest autoOrderExecutionUnderTest) venueHasNo(clientOrderID string) {
 	underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", clientOrderID).
 		Return(vo.ContractOrderFillVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureNotFound})
+}
+
+func (underTest autoOrderExecutionUnderTest) entryIsNotAtTheVenue() {
+	underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+		Return(vo.ContractOrderStateVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureNotFound})
+}
+
+// entryLimitFor is the limit a 0.1% tolerance puts on a reference of 85000: 85085 to buy, 84915 to sell.
+func entryLimitFor(side vo.ContractOrderSideVo) string {
+	if side == vo.ContractOrderSideSell {
+		return "84915"
+	}
+
+	return "85085"
+}
+
+// entryOrderStands checks the entry order sent and answers with the order as the venue holds it.
+func (underTest autoOrderExecutionUnderTest) entryOrderStands(
+	t *testing.T, side vo.ContractOrderSideVo, quantity string, state vo.ContractOrderStateVo,
+) *gomock.Call {
+	return underTest.contractOrderProxy.EXPECT().PlaceLimitOrder(gomock.Any(), theCredential, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.TradingKeyCredentialVo, order vo.ContractLimitOrderVo) (vo.ContractOrderStateVo, vo.ContractOrderCallVo) {
+			assert.Equal(t, "BTCUSDT", order.Symbol)
+			assert.Equal(t, side, order.Side)
+			assert.True(t, order.Quantity.Equal(decimal.RequireFromString(quantity)), "數量 %s", order.Quantity)
+			assert.True(t, order.Price.Equal(decimal.RequireFromString(entryLimitFor(side))), "限價 %s", order.Price)
+			assert.Equal(t, openClientOrderID, order.ClientOrderID)
+
+			return state, vo.ContractOrderCallVo{}
+		})
+}
+
+// entryOrderFills is an entry order the venue fills at once.
+func (underTest autoOrderExecutionUnderTest) entryOrderFills(
+	t *testing.T, side vo.ContractOrderSideVo, quantity string, filledQuantity string, averagePrice string,
+) *gomock.Call {
+	return underTest.entryOrderStands(t, side, quantity, vo.ContractOrderStateVo{
+		ExchangeOrderID: "9001", Progress: vo.ContractOrderFilled,
+		ExecutedQuantity: decimal.RequireFromString(filledQuantity), AveragePrice: decimal.RequireFromString(averagePrice),
+	})
+}
+
+func (underTest autoOrderExecutionUnderTest) entryOrderAnswers(call vo.ContractOrderCallVo) {
+	underTest.contractOrderProxy.EXPECT().PlaceLimitOrder(gomock.Any(), theCredential, gomock.Any()).
+		Return(vo.ContractOrderStateVo{}, call)
 }
 
 func (underTest autoOrderExecutionUnderTest) accountIsOneWay() {
@@ -353,10 +418,10 @@ func assertFigure(t *testing.T, expected string, figure decimal.NullDecimal) {
 func TestAnAutoOrderOpensALongAndGuardsItFromTheFill(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "1.5", "3"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideSell,
 		"83725.0", "0.002", stopLossClientID, vo.ContractOrderCallVo{})
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderTakeProfit, vo.ContractOrderSideSell,
@@ -389,10 +454,10 @@ func TestAnAutoOrderOpensALongAndGuardsItFromTheFill(t *testing.T) {
 func TestAnAutoOrderWhoseSendGotNoClearAnswerWaitsToAskAgain(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "1.5", "3"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
 
 	underTest.execute(t)
 
@@ -410,9 +475,10 @@ func TestAnAutoOrderTheVenueAlreadyFilledIsNotSentAgain(t *testing.T) {
 	retried := anAutoOrder("long", "0.002", "0", "0")
 	retried.AttemptCount = 1
 	underTest.queues(retried)
-	underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
-		Return(vo.ContractOrderFillVo{
-			ExecutedQuantity: decimal.RequireFromString("0.002"), AveragePrice: decimal.NewFromInt(85000),
+	underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+		Return(vo.ContractOrderStateVo{
+			Progress: vo.ContractOrderFilled, ExecutedQuantity: decimal.RequireFromString("0.002"),
+			AveragePrice: decimal.NewFromInt(85000),
 		}, vo.ContractOrderCallVo{})
 	// No PlaceMarketOrder expectation: sending it again fails the test.
 
@@ -429,10 +495,10 @@ func TestAnAutoOrderTheVenueNeverReceivedIsSentAgainUnderTheSameID(t *testing.T)
 	retried := anAutoOrder("long", "0.002", "0", "0")
 	retried.AttemptCount = 1
 	underTest.queues(retried)
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
 
 	underTest.execute(t)
 
@@ -455,10 +521,10 @@ func TestAnAutoOrderWithNothingToOpenSendsNothing(t *testing.T) {
 func TestAnAutoOrderRefusedForLackOfBalanceKeepsAutoOrderOn(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureInsufficientBalance})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureInsufficientBalance})
 
 	underTest.execute(t)
 
@@ -531,10 +597,10 @@ func TestAnAutoOrderNeverAddsToWhatTheBotAlreadyHolds(t *testing.T) {
 func TestAnAutoOrderOpensAShortWithItsExitsSwapped(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("short", "0.002", "1.5", "3"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideSell, "0.002", "0.002", "85000")
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideBuy,
 		"86275.0", "0.002", stopLossClientID, vo.ContractOrderCallVo{})
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderTakeProfit, vo.ContractOrderSideBuy,
@@ -571,9 +637,9 @@ func TestAnAutoOrderReversesByClosingThenOpening(t *testing.T) {
 	underTest.accountIsOneWay()
 	underTest.venueHolds("0.002", "0")
 	closing := underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.leverageIsSet()
-	opening := underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.003", false, openClientOrderID, "0.003", "84000")
+	opening := underTest.entryOrderFills(t, vo.ContractOrderSideSell, "0.003", "0.003", "84000")
 	gomock.InOrder(closing, opening)
 
 	underTest.execute(t)
@@ -593,9 +659,9 @@ func TestAReverseWhoseOpenIsRefusedSaysItClosedButDidNotOpen(t *testing.T) {
 	underTest.accountIsOneWay()
 	underTest.venueHolds("0.002", "0")
 	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureInsufficientBalance})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureInsufficientBalance})
 
 	underTest.execute(t)
 
@@ -625,10 +691,10 @@ func TestAnAutoOrderFindingThePositionGoneSendsNoClose(t *testing.T) {
 func TestAStopTheVenueRefusesLeavesThePositionAndSaysSoLoudly(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "1.5", "3"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
 	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideSell,
 		"83725.0", "0.002", stopLossClientID,
 		vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureVenueRefused, ExchangeMessage: "Order would immediately trigger."})
@@ -648,10 +714,10 @@ func TestAStopTheVenueRefusesLeavesThePositionAndSaysSoLoudly(t *testing.T) {
 func TestAnAutoOrderWithoutExitDistancesPlacesNoProtection(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", false, openClientOrderID, "0.002", "85000")
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
 
 	underTest.execute(t)
 
@@ -664,7 +730,7 @@ func TestAnAutoOrderWithoutExitDistancesPlacesNoProtection(t *testing.T) {
 func TestAnAutoOrderTheAccountSettingsRefuseKeepsAutoOrderOn(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.contractOrderProxy.EXPECT().PrepareIsolatedLeverage(gomock.Any(), theCredential, "BTCUSDT", 3).
 		Return(vo.ContractOrderCallVo{
@@ -682,7 +748,7 @@ func TestAnAutoOrderTheAccountSettingsRefuseKeepsAutoOrderOn(t *testing.T) {
 func TestAnAutoOrderOnAHedgeModeAccountSendsNothing(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.contractOrderProxy.EXPECT().ReadPositionMode(gomock.Any(), theCredential).
 		Return(true, vo.ContractOrderCallVo{})
 
@@ -707,7 +773,7 @@ func TestAnAutoOrderNotSentByItsDeadlineIsGivenUp(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
 	*underTest.now = autoOrderRoundRanAt.Add(2 * time.Minute)
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 
 	underTest.execute(t)
 
@@ -720,8 +786,8 @@ func TestAnAutoOrderThatCannotReachTheVenueWaitsWithinItsDeadline(t *testing.T) 
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
 	*underTest.now = autoOrderRoundRanAt.Add(time.Minute)
-	underTest.contractOrderProxy.EXPECT().FindMarketOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
-		Return(vo.ContractOrderFillVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
+	underTest.contractOrderProxy.EXPECT().FindOrder(gomock.Any(), theCredential, "BTCUSDT", openClientOrderID).
+		Return(vo.ContractOrderStateVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureUncertain})
 
 	underTest.execute(t)
 
@@ -733,10 +799,10 @@ func TestAnAutoOrderThatCannotReachTheVenueWaitsWithinItsDeadline(t *testing.T) 
 func TestAKeyTheVenueRejectsSwitchesOffEveryAutoOrder(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
 	underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
 		Return(vo.TradingKeyVerificationVo{FailureReason: vo.TradingKeyVerificationFailureKeyRejected}, nil)
 
@@ -752,10 +818,10 @@ func TestAKeyTheVenueRejectsSwitchesOffEveryAutoOrder(t *testing.T) {
 func TestAKeyWithoutContractTradingSwitchesOffOnlyContractBots(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureKeyRejected})
 	underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
 		Return(vo.TradingKeyVerificationVo{SpotTradingEnabled: true}, nil)
 
@@ -768,10 +834,10 @@ func TestAKeyWithoutContractTradingSwitchesOffOnlyContractBots(t *testing.T) {
 func TestARejectionAGoodKeyContradictsSwitchesNothingOff(t *testing.T) {
 	underTest := newAutoOrderExecutionUnderTest(t)
 	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
-	underTest.venueHasNo(openClientOrderID)
+	underTest.entryIsNotAtTheVenue()
 	underTest.accountIsOneWay()
 	underTest.leverageIsSet()
-	underTest.marketOrderAnswers(vo.ContractOrderCallVo{
+	underTest.entryOrderAnswers(vo.ContractOrderCallVo{
 		Failure: vo.ContractOrderFailureKeyRejected, ExchangeMessage: "Invalid API-key, IP, or permissions for action."})
 	underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
 		Return(vo.TradingKeyVerificationVo{SpotTradingEnabled: true, ContractTradingEnabled: true}, nil)
@@ -801,7 +867,7 @@ func TestAnAutoOrderSendsNothingOnceTheBrakeIsPulled(t *testing.T) {
 			underTest := newAutoOrderExecutionUnderTest(t)
 			underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
 			testCase.pullTheBrake(underTest.bot)
-			underTest.venueHasNo(openClientOrderID)
+			underTest.entryIsNotAtTheVenue()
 
 			underTest.execute(t)
 
