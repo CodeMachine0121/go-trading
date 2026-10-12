@@ -411,3 +411,121 @@ func TestBinanceContractOrderProxyCallsAnAnswerCutShortUncertain(t *testing.T) {
 
 	assert.Equal(t, vo.ContractOrderFailureUncertain, call.Failure)
 }
+
+var aLimitBuy = vo.ContractLimitOrderVo{
+	Symbol: "BTCUSDT", Side: vo.ContractOrderSideBuy, Quantity: decimal.RequireFromString("0.002"),
+	Price: decimal.RequireFromString("84238.1"), ClientOrderID: "gt-ao-41-open",
+}
+
+func TestBinanceContractOrderProxyRestsALimitOrderUntilCancelled(t *testing.T) {
+	proxy, received := contractVenueAnswering(t, http.StatusOK,
+		`{"orderId":283194212,"status":"NEW","executedQty":"0","avgPrice":"0.00"}`)
+
+	state, call := proxy.PlaceLimitOrder(t.Context(), aTradingKeyCredential, aLimitBuy)
+
+	assert.Equal(t, vo.ContractOrderFailureNone, call.Failure)
+	assert.Equal(t, vo.ContractOrderWorking, state.Progress)
+	assert.Equal(t, "283194212", state.ExchangeOrderID)
+	assert.True(t, state.ExecutedQuantity.IsZero())
+	require.Len(t, *received, 1)
+	request := (*received)[0]
+	assert.Equal(t, http.MethodPost, request.method)
+	assert.Equal(t, "/fapi/v1/order", request.path)
+	assert.Equal(t, "LIMIT", request.query.Get("type"))
+	assert.Equal(t, "GTC", request.query.Get("timeInForce"))
+	assert.Equal(t, "BUY", request.query.Get("side"))
+	assert.Equal(t, "0.002", request.query.Get("quantity"))
+	assert.Equal(t, "84238.1", request.query.Get("price"))
+	assert.Equal(t, "gt-ao-41-open", request.query.Get("newClientOrderId"))
+	assert.Equal(t, "RESULT", request.query.Get("newOrderRespType"))
+	assert.Empty(t, request.query.Get("reduceOnly"))
+}
+
+func TestBinanceContractOrderProxyReadsWhereAnOrderStands(t *testing.T) {
+	testCases := []struct {
+		status           string
+		executedQuantity string
+		expectedProgress vo.ContractOrderProgressVo
+	}{
+		{status: "NEW", executedQuantity: "0", expectedProgress: vo.ContractOrderWorking},
+		{status: "PARTIALLY_FILLED", executedQuantity: "0.001", expectedProgress: vo.ContractOrderWorking},
+		{status: "FILLED", executedQuantity: "0.002", expectedProgress: vo.ContractOrderFilled},
+		{status: "CANCELED", executedQuantity: "0.001", expectedProgress: vo.ContractOrderEnded},
+		{status: "EXPIRED", executedQuantity: "0", expectedProgress: vo.ContractOrderEnded},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.status, func(t *testing.T) {
+			proxy, received := contractVenueAnswering(t, http.StatusOK,
+				`{"orderId":7,"status":"`+testCase.status+`","executedQty":"`+testCase.executedQuantity+`","avgPrice":"84200.5"}`)
+
+			state, call := proxy.FindOrder(t.Context(), aTradingKeyCredential, "BTCUSDT", "gt-ao-41-open")
+
+			assert.Equal(t, vo.ContractOrderFailureNone, call.Failure)
+			assert.Equal(t, testCase.expectedProgress, state.Progress)
+			assert.True(t, state.ExecutedQuantity.Equal(decimal.RequireFromString(testCase.executedQuantity)))
+			assert.True(t, state.AveragePrice.Equal(decimal.RequireFromString("84200.5")))
+			request := (*received)[0]
+			assert.Equal(t, http.MethodGet, request.method)
+			assert.Equal(t, "gt-ao-41-open", request.query.Get("origClientOrderId"))
+		})
+	}
+}
+
+func TestBinanceContractOrderProxyCancelsAnOrderAndReadsHowItEnded(t *testing.T) {
+	proxy, received := contractVenueAnswering(t, http.StatusOK,
+		`{"orderId":7,"status":"CANCELED","executedQty":"0.001","avgPrice":"84200.0"}`)
+
+	state, call := proxy.CancelOrder(t.Context(), aTradingKeyCredential, "BTCUSDT", "gt-ao-41-open")
+
+	assert.Equal(t, vo.ContractOrderFailureNone, call.Failure)
+	assert.Equal(t, vo.ContractOrderEnded, state.Progress)
+	assert.True(t, state.ExecutedQuantity.Equal(decimal.RequireFromString("0.001")))
+	request := (*received)[0]
+	assert.Equal(t, http.MethodDelete, request.method)
+	assert.Equal(t, "/fapi/v1/order", request.path)
+	assert.Equal(t, "gt-ao-41-open", request.query.Get("origClientOrderId"))
+}
+
+func TestBinanceContractOrderProxyAnswersHowAnOrderCallWent(t *testing.T) {
+	testCases := []struct {
+		name            string
+		statusCode      int
+		body            string
+		expectedFailure vo.ContractOrderFailureVo
+	}{
+		{name: "撤一張已不在的單", statusCode: http.StatusBadRequest, body: `{"code":-2011,"msg":"Unknown order sent."}`,
+			expectedFailure: vo.ContractOrderFailureNotFound},
+		{name: "價格不合規則", statusCode: http.StatusBadRequest, body: `{"code":-4131,"msg":"PERCENT_PRICE"}`,
+			expectedFailure: vo.ContractOrderFailureVenueRefused},
+		{name: "看不懂的回覆", statusCode: http.StatusOK, body: `not json`,
+			expectedFailure: vo.ContractOrderFailureUncertain},
+		{name: "看不懂的成交", statusCode: http.StatusOK, body: `{"status":"NEW","executedQty":"x","avgPrice":"0"}`,
+			expectedFailure: vo.ContractOrderFailureUncertain},
+		{name: "連不上", statusCode: http.StatusServiceUnavailable, body: ``,
+			expectedFailure: vo.ContractOrderFailureUncertain},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, callTheVenue := range []func(proxy *exchange.BinanceContractOrderProxy) vo.ContractOrderCallVo{
+				func(proxy *exchange.BinanceContractOrderProxy) vo.ContractOrderCallVo {
+					_, call := proxy.PlaceLimitOrder(t.Context(), aTradingKeyCredential, aLimitBuy)
+					return call
+				},
+				func(proxy *exchange.BinanceContractOrderProxy) vo.ContractOrderCallVo {
+					_, call := proxy.FindOrder(t.Context(), aTradingKeyCredential, "BTCUSDT", "gt-ao-41-open")
+					return call
+				},
+				func(proxy *exchange.BinanceContractOrderProxy) vo.ContractOrderCallVo {
+					_, call := proxy.CancelOrder(t.Context(), aTradingKeyCredential, "BTCUSDT", "gt-ao-41-open")
+					return call
+				},
+			} {
+				proxy, _ := contractVenueAnswering(t, testCase.statusCode, testCase.body)
+
+				assert.Equal(t, testCase.expectedFailure, callTheVenue(proxy).Failure)
+			}
+		})
+	}
+}

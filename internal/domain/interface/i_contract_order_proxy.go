@@ -34,6 +34,21 @@ type IContractOrderProxy interface {
 		executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol string, clientOrderID string,
 	) (vo.ContractOrderFillVo, vo.ContractOrderCallVo)
 
+	// PlaceLimitOrder rests a limit order until it fills or is cancelled; the answer is the order as it stood once accepted.
+	PlaceLimitOrder(
+		executionContext context.Context, credential vo.TradingKeyCredentialVo, order vo.ContractLimitOrderVo,
+	) (vo.ContractOrderStateVo, vo.ContractOrderCallVo)
+
+	// FindOrder reports where an order stands by its client order id; a venue with no record of it answers not found.
+	FindOrder(
+		executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol string, clientOrderID string,
+	) (vo.ContractOrderStateVo, vo.ContractOrderCallVo)
+
+	// CancelOrder answers the order as it ended; an order no longer open (filled already, or unknown) answers not found.
+	CancelOrder(
+		executionContext context.Context, credential vo.TradingKeyCredentialVo, symbol string, clientOrderID string,
+	) (vo.ContractOrderStateVo, vo.ContractOrderCallVo)
+
 	PlaceProtectiveOrder(
 		executionContext context.Context, credential vo.TradingKeyCredentialVo, order vo.ContractProtectiveOrderVo,
 	) vo.ContractOrderCallVo
