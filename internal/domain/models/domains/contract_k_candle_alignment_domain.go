@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -141,6 +142,27 @@ func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	}
 
 	return contractKCandleVos
+}
+
+// OrderFlowReach is the order flow these bars need at a price step: from the first bar's open to the last bar's close, refused past 31 UTC calendar days.
+func (alignmentDomain ContractKCandleAlignmentDomain) OrderFlowReach(
+	priceStep OrderFlowPriceStepDomain,
+) (OrderFlowReachDomain, error) {
+	query := alignmentDomain.queryReachingBack(0)
+	reachDomain := OrderFlowReachDomain{
+		priceStep: priceStep,
+		interval:  alignmentDomain.interval.duration,
+		start:     query.StartTime(),
+		end:       query.EndTime(),
+	}
+
+	if dayCount := len(reachDomain.Days()); dayCount > orderFlowMaximumDays {
+		return OrderFlowReachDomain{}, fmt.Errorf(
+			"%w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
+			ErrContractOrderFlowRefused, orderFlowMaximumDays, dayCount)
+	}
+
+	return reachDomain, nil
 }
 
 // queryReachingBack spans from reach before the first bar to the last bar's close.

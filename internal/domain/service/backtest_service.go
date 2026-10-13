@@ -163,4 +163,3 @@ func signalsOf(perCandleIndicatorValues []map[string]vo.IndicatorValueVo) []doma
 
 	return signals
 }
-
