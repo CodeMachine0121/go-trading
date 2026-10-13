@@ -59,6 +59,19 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 		gatheringContext = boundedContext
 	}
 
+	// The last bar's final trades may not have reached the live venue yet; reading before they settle would remember its minute as whole without them. Waited once, before any day's lock is held, so nobody queues behind a sleep.
+	if settledAt := reach.LiveSettledAt(); contractOrderFlowService.clockProxy.Now().Before(settledAt) {
+		select {
+		case <-time.After(settledAt.Sub(contractOrderFlowService.clockProxy.Now())):
+		case <-gatheringContext.Done():
+			if executionContext.Err() != nil {
+				return nil, executionContext.Err()
+			}
+
+			return nil, fmt.Errorf("%w：%s 內沒能備齊", domains.ErrContractOrderFlowNotReady, preparationAllowance)
+		}
+	}
+
 	reachedDays := reach.Days()
 	days := make([]domains.ContractOrderFlowDayDomain, len(reachedDays))
 	gathering, groupContext := errgroup.WithContext(gatheringContext)
@@ -91,7 +104,7 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 }
 
 // gatherDay holds the day's gathering lock from the recall that finds it missing to the keep that fills it, so two runs never fetch the same day at once; extracted so the deferred release scopes exactly that.
-// Which source a day comes from is the day's own rule (ReadsFromArchive, ArchiveMayStillBeComing); this only carries it out.
+// Which source a day comes from is the day's own rule (ReadsFromArchive, ArchiveMayStillBeComing); this only carries it out. The day's clock is read after the lock is won, so a long wait never leaves it stale.
 func (contractOrderFlowService *ContractOrderFlowService) gatherDay(
 	executionContext context.Context, reach domains.OrderFlowReachDomain, dayStart time.Time,
 ) (domains.ContractOrderFlowDayDomain, error) {
@@ -122,7 +135,7 @@ func (contractOrderFlowService *ContractOrderFlowService) gatherDay(
 			return domains.ContractOrderFlowDayDomain{}, archiveError
 		}
 		if isPublished {
-			day = day.Extending(ledger, day.NeededUntil(dayStart.AddDate(0, 0, 1)))
+			day = day.Extending(ledger, dayStart.AddDate(0, 0, 1))
 			contractOrderFlowService.memory.Keep(symbol, day)
 
 			return day, nil
@@ -131,15 +144,6 @@ func (contractOrderFlowService *ContractOrderFlowService) gatherDay(
 			return domains.ContractOrderFlowDayDomain{}, fmt.Errorf(
 				"%w：%s 的 %s 歷史檔不存在", domains.ErrContractOrderFlowUnavailable,
 				symbol, dayStart.Format(time.DateOnly))
-		}
-	}
-
-	// The last instant's trades may not have reached the live venue yet; reading before they settle would remember the minute as whole without them.
-	if settledAt := day.LiveSettledAt(neededUntil); now.Before(settledAt) {
-		select {
-		case <-time.After(settledAt.Sub(now)):
-		case <-executionContext.Done():
-			return domains.ContractOrderFlowDayDomain{}, executionContext.Err()
 		}
 	}
 

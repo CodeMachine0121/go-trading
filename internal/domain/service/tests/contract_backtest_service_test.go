@@ -42,6 +42,13 @@ type contractBacktestServiceFailure struct {
 func newContractBacktestServiceUnderTest(
 	t *testing.T, failure func(contractBacktestServiceMocks),
 ) *service.ContractBacktestService {
+	return newContractBacktestServiceWarmingUp(t, failure, 0)
+}
+
+// newContractBacktestServiceWarmingUp adds that many bars of warm-up to every replay that names none, as the server does.
+func newContractBacktestServiceWarmingUp(
+	t *testing.T, failure func(contractBacktestServiceMocks), defaultWarmupBarCount int,
+) *service.ContractBacktestService {
 	controller := gomock.NewController(t)
 	boundaries := contractBacktestServiceMocks{
 		kCandleContractRepository:    mocks.NewMockIKCandleContractRepository(controller),
@@ -103,7 +110,7 @@ func newContractBacktestServiceUnderTest(
 		service.NewContractOrderFlowService(boundaries.tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
 		clockProxy,
 		1000,
-		0,
+		defaultWarmupBarCount,
 	)
 }
 
@@ -394,4 +401,23 @@ func TestAContractReplayReachingPastThirtyOneDaysOfOrderFlowIsRefusedWhenSubmitt
 	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), shortScriptRequest))
 	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), noOrderFlowRequest),
 		"沒宣告訂單流的不受 31 天限制")
+}
+
+func TestTheUpFrontOrderFlowCheckCountsTheDefaultWarmUpTheReplayWillAdd(t *testing.T) {
+	// Twenty-five days asked for, plus two hundred hourly bars of default warm-up, reaches past thirty-one days.
+	requestDto := contractBacktestServiceRequest()
+	requestDto.StartTime = contractBacktestServiceStart.AddDate(0, 0, -25)
+	requestDto.Parameters = orderFlowWidth(10)
+	strategyRequest := contractTradingStrategyBacktestServiceRequest()
+	strategyRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -25)
+	strategyRequest.SignalSources[0].Parameters = orderFlowWidth(10)
+	warmingUp := newContractBacktestServiceWarmingUp(t, func(contractBacktestServiceMocks) {}, 200)
+
+	scriptError := warmingUp.ValidateContractBacktest(context.Background(), requestDto)
+	strategyError := warmingUp.ValidateContractTradingStrategyBacktest(context.Background(), strategyRequest)
+
+	require.ErrorIs(t, scriptError, domains.ErrBacktestValidation)
+	assert.Contains(t, scriptError.Error(), "訂單流一次至多涵蓋 31 天")
+	require.ErrorIs(t, strategyError, domains.ErrBacktestValidation)
+	assert.Contains(t, strategyError.Error(), "訂單流一次至多涵蓋 31 天")
 }

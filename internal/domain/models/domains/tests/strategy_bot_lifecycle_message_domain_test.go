@@ -44,7 +44,7 @@ func TestStrategyBotLifecycleMessageSaysWhichHaltItWas(t *testing.T) {
 	}{
 		{vo.StrategyBotHaltStrategyScriptUnavailable, "找不到了"},
 		{vo.StrategyBotHaltScriptFailed, "算不出來"},
-		{vo.StrategyBotHaltOrderFlowRefused, "原因：它用到的某一支策略腳本要的訂單流超過一次能給的天數。"},
+		{vo.StrategyBotHaltOrderFlowRefused, "原因：它用到的某一支策略腳本要的訂單流超過一次能給的範圍（天數或價位數）。"},
 		{vo.StrategyBotHaltCredentialRejected, "金鑰不被接受"},
 		{vo.StrategyBotHaltDestinationNotFound, "找不到這個聊天室"},
 		{vo.StrategyBotHaltDeliveryNotConfigured, "投遞設定被移除"},

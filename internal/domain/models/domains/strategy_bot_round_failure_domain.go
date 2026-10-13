@@ -29,8 +29,8 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}
 
-	// The same stretch is refused again every round. Too many price levels is not here: it depends on how wild the bars were, and it passes once those bars leave the look-back. A source not answering or not ready in time skips too.
-	case errors.Is(roundError, ErrContractOrderFlowReachTooLong):
+	// Halted rather than skipped, both for reaching past 31 days and for too many price levels: a price step too fine for the symbol would otherwise skip every round without the owner ever hearing why. A source not answering or not ready in time skips.
+	case errors.Is(roundError, ErrContractOrderFlowRefused):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltOrderFlowRefused}
 
 	default:

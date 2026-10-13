@@ -9,9 +9,6 @@ import (
 // orderFlowDayLength is one UTC calendar day, the unit the venue's archive is published in.
 const orderFlowDayLength = 24 * time.Hour
 
-// orderFlowLiveSettling is how long after a minute closes its trades are trusted to be all there on the live venue; reading sooner could miss the last instant's trades and remember the minute as whole.
-const orderFlowLiveSettling = 3 * time.Second
-
 // Estimated in-memory footprint used to keep remembered order flow within its budget.
 const (
 	orderFlowLevelBytes  = 32
@@ -51,7 +48,7 @@ func NewContractOrderFlowDayDomain(priceStep OrderFlowPriceStepDomain, day time.
 func (dayDomain ContractOrderFlowDayDomain) Extending(
 	ledger *OrderFlowMinuteLedgerDomain, coveredUntil time.Time,
 ) ContractOrderFlowDayDomain {
-	newCoveredUntil := dayDomain.cappedAtDayEnd(coveredUntil)
+	newCoveredUntil := dayDomain.NeededUntil(coveredUntil)
 	if !newCoveredUntil.After(dayDomain.coveredUntil) {
 		return dayDomain
 	}
@@ -82,11 +79,6 @@ func (dayDomain ContractOrderFlowDayDomain) Extending(
 	return extended
 }
 
-// NeededUntil is how far into this day a reach ending at reachEnd needs trades: its close, or the day's end.
-func (dayDomain ContractOrderFlowDayDomain) NeededUntil(reachEnd time.Time) time.Time {
-	return dayDomain.cappedAtDayEnd(reachEnd)
-}
-
 // ReadsFromArchive is true for a day that has ended and has nothing gathered yet; a day already partly read live carries on live, so its minutes never come from two sources.
 func (dayDomain ContractOrderFlowDayDomain) ReadsFromArchive(now time.Time) bool {
 	return dayDomain.dayStart.Before(now.UTC().Truncate(orderFlowDayLength)) && !dayDomain.coveredUntil.After(dayDomain.dayStart)
@@ -97,14 +89,9 @@ func (dayDomain ContractOrderFlowDayDomain) ArchiveMayStillBeComing(now time.Tim
 	return !dayDomain.dayStart.Before(now.UTC().Truncate(orderFlowDayLength).Add(-orderFlowDayLength))
 }
 
-// LiveSettledAt is the earliest moment the live venue is trusted to hold every trade before neededUntil.
-func (dayDomain ContractOrderFlowDayDomain) LiveSettledAt(neededUntil time.Time) time.Time {
-	return neededUntil.Add(orderFlowLiveSettling)
-}
-
 // Covers reports whether every minute up to until (or the whole day, if until is later) is held.
 func (dayDomain ContractOrderFlowDayDomain) Covers(until time.Time) bool {
-	return !dayDomain.coveredUntil.Before(dayDomain.cappedAtDayEnd(until))
+	return !dayDomain.coveredUntil.Before(dayDomain.NeededUntil(until))
 }
 
 func (dayDomain ContractOrderFlowDayDomain) CoveredUntil() time.Time {
@@ -129,8 +116,8 @@ func (dayDomain ContractOrderFlowDayDomain) EstimatedBytes() int64 {
 	return estimatedBytes
 }
 
-// cappedAtDayEnd keeps a moment inside this day, since a day never holds minutes of the next.
-func (dayDomain ContractOrderFlowDayDomain) cappedAtDayEnd(moment time.Time) time.Time {
+// NeededUntil keeps a moment inside this day: how far into the day a reach ending then needs trades, since a day never holds minutes of the next.
+func (dayDomain ContractOrderFlowDayDomain) NeededUntil(moment time.Time) time.Time {
 	dayEnd := dayDomain.dayStart.Add(orderFlowDayLength)
 	if moment.After(dayEnd) {
 		return dayEnd

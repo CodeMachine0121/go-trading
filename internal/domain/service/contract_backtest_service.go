@@ -59,6 +59,10 @@ func (contractBacktestService *ContractBacktestService) ValidateContractBacktest
 	if rulesError != nil {
 		return rulesError
 	}
+	// The same default warm-up the replay will add, so the stretch judged here is the stretch it will read.
+	if requestDto.DefaultWarmupBarCount == 0 {
+		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
+	}
 	_, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 
@@ -71,6 +75,9 @@ func (contractBacktestService *ContractBacktestService) ValidateContractTradingS
 	tradingRules, rulesError := contractBacktestService.readTradingRules(executionContext, requestDto.Symbol)
 	if rulesError != nil {
 		return rulesError
+	}
+	if requestDto.DefaultWarmupBarCount == 0 {
+		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
 	}
 	_, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())

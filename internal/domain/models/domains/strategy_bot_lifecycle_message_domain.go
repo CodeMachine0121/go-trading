@@ -48,7 +48,7 @@ func (messageDomain StrategyBotLifecycleMessageDomain) haltReasonInWords() strin
 	case vo.StrategyBotHaltScriptFailed:
 		return "原因：它用到的某一支策略腳本算不出來。"
 	case vo.StrategyBotHaltOrderFlowRefused:
-		return "原因：它用到的某一支策略腳本要的訂單流超過一次能給的天數。"
+		return "原因：它用到的某一支策略腳本要的訂單流超過一次能給的範圍（天數或價位數）。"
 	case vo.StrategyBotHaltCredentialRejected:
 		return "原因：機器人金鑰不被接受。"
 	case vo.StrategyBotHaltDestinationNotFound:

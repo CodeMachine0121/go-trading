@@ -68,17 +68,17 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 		},
 		{
 			// The same stretch is refused again every round, so waiting achieves nothing.
-			name: "order flow reaching back more days than one run may hold stops the bot",
-			roundError: fmt.Errorf("%w: %w: 訂單流一次至多涵蓋 31 天",
-				domains.ErrContractOrderFlowRefused, domains.ErrContractOrderFlowReachTooLong),
+			name:               "order flow reaching back more days than one run may hold stops the bot",
+			roundError:         fmt.Errorf("%w: 訂單流一次至多涵蓋 31 天", domains.ErrContractOrderFlowRefused),
 			expectedToHalt:     true,
 			expectedHaltReason: vo.StrategyBotHaltOrderFlowRefused,
 		},
 		{
-			// It depends on how wild the bars were, and passes once those bars leave the look-back.
-			name:           "a bar holding too many price levels only skips the round",
-			roundError:     fmt.Errorf("%w: 一格至多 1000 個價位", domains.ErrContractOrderFlowRefused),
-			expectedToHalt: false,
+			// A step too fine for the symbol would otherwise skip every round without the owner hearing why.
+			name:               "a bar holding too many price levels stops the bot too",
+			roundError:         fmt.Errorf("%w: 一格至多 1000 個價位", domains.ErrContractOrderFlowRefused),
+			expectedToHalt:     true,
+			expectedHaltReason: vo.StrategyBotHaltOrderFlowRefused,
 		},
 		{
 			name:           "order flow not gathered in time only skips the round",

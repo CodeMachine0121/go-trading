@@ -45,11 +45,19 @@ func (reachDomain OrderFlowReachDomain) Days() []time.Time {
 func (reachDomain OrderFlowReachDomain) requireWithinDays() error {
 	if dayCount := len(reachDomain.Days()); dayCount > orderFlowMaximumDays {
 		return fmt.Errorf(
-			"%w: %w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
-			ErrContractOrderFlowRefused, ErrContractOrderFlowReachTooLong, orderFlowMaximumDays, dayCount)
+			"%w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
+			ErrContractOrderFlowRefused, orderFlowMaximumDays, dayCount)
 	}
 
 	return nil
+}
+
+// orderFlowLiveSettling is how long after the last bar closes its trades are trusted to be all there on the live venue; reading sooner could miss the last instant's trades and remember the minute as whole.
+const orderFlowLiveSettling = 3 * time.Second
+
+// LiveSettledAt is the earliest moment the live venue is trusted to hold every trade before the last bar's close.
+func (reachDomain OrderFlowReachDomain) LiveSettledAt() time.Time {
+	return reachDomain.end.Add(orderFlowLiveSettling)
 }
 
 // End is the last bar's close; nothing at or after it is needed.
