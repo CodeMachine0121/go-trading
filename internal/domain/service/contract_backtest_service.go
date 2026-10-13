@@ -59,10 +59,7 @@ func (contractBacktestService *ContractBacktestService) ValidateContractBacktest
 	if rulesError != nil {
 		return rulesError
 	}
-	// The same default warm-up the replay will add, so the stretch judged here is the stretch it will read.
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	_, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 
@@ -76,9 +73,7 @@ func (contractBacktestService *ContractBacktestService) ValidateContractTradingS
 	if rulesError != nil {
 		return rulesError
 	}
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	_, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 
@@ -100,9 +95,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	contractBacktestDomain, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {
@@ -151,9 +144,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	strategyBacktestDomain, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {

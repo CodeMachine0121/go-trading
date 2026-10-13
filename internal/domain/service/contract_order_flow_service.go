@@ -60,15 +60,12 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 	}
 
 	// The last bar's final trades may not have reached the live venue yet; reading before they settle would remember its minute as whole without them. Waited once, before any day's lock is held, so nobody queues behind a sleep.
+	settleError := error(nil)
 	if settledAt := reach.LiveSettledAt(); contractOrderFlowService.clockProxy.Now().Before(settledAt) {
 		select {
 		case <-time.After(settledAt.Sub(contractOrderFlowService.clockProxy.Now())):
 		case <-gatheringContext.Done():
-			if executionContext.Err() != nil {
-				return nil, executionContext.Err()
-			}
-
-			return nil, fmt.Errorf("%w：%s 內沒能備齊", domains.ErrContractOrderFlowNotReady, preparationAllowance)
+			settleError = gatheringContext.Err()
 		}
 	}
 
@@ -76,16 +73,22 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 	days := make([]domains.ContractOrderFlowDayDomain, len(reachedDays))
 	gathering, groupContext := errgroup.WithContext(gatheringContext)
 	gathering.SetLimit(contractOrderFlowConcurrentDays)
-	for dayIndex, dayStart := range reachedDays {
-		gathering.Go(func() error {
-			day, gatherError := contractOrderFlowService.gatherDay(groupContext, reach, dayStart)
-			days[dayIndex] = day
+	if settleError == nil {
+		for dayIndex, dayStart := range reachedDays {
+			gathering.Go(func() error {
+				day, gatherError := contractOrderFlowService.gatherDay(groupContext, reach, dayStart)
+				days[dayIndex] = day
 
-			return gatherError
-		})
+				return gatherError
+			})
+		}
 	}
 
-	if gatherError := gathering.Wait(); gatherError != nil {
+	gatherError := gathering.Wait()
+	if settleError != nil {
+		gatherError = settleError
+	}
+	if gatherError != nil {
 		// Judged by whose time ran out, never by the error's own kind: a venue connection timing out also reads as a deadline, and that is the venue failing, not the allowance.
 		switch {
 		// The caller's own deadline or cancellation is the caller's to report, e.g. a replay out of time.
