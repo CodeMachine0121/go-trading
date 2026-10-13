@@ -45,7 +45,8 @@ func (reachDomain OrderFlowReachDomain) Days() []time.Time {
 func (reachDomain OrderFlowReachDomain) requireWithinDays() error {
 	if dayCount := len(reachDomain.Days()); dayCount > orderFlowMaximumDays {
 		return fmt.Errorf(
-			"%w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
+			"%w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天（從回看或暖機的第一格算起）；"+
+				"請縮短時間、改用較細的彙總刻度，或宣告較小的回看根數（沒宣告時重演會先讀預設的暖機）",
 			ErrContractOrderFlowRefused, orderFlowMaximumDays, dayCount)
 	}
 
