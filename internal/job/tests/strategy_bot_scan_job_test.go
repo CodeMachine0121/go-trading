@@ -97,6 +97,7 @@ func newStrategyBotScanJobUnderTest(
 			"replica-under-test",
 			4,
 			time.Minute,
+			0,
 		),
 		scanInterval)
 }

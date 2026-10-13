@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,7 @@ type contractIndicatorRouterUnderTest struct {
 	engine                       *gin.Engine
 	kCandleContractRepository    *mocks.MockIKCandleContractRepository
 	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
+	tradeHistoryProxy            *mocks.MockIContractTradeHistoryProxy
 }
 
 func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUnderTest {
@@ -56,6 +58,7 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(mockController)
+	tradeHistoryProxy := mocks.NewMockIContractTradeHistoryProxy(mockController)
 
 	indicatorCalculationController := controller.NewIndicatorCalculationController(
 		application.NewIndicatorCalculationApplication(
@@ -64,7 +67,9 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 			nil,
 			service.NewContractIndicatorCalculationService(
 				kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
-				contractIndicatorScriptProxy, nil, clockProxy,
+				contractIndicatorScriptProxy,
+				service.NewContractOrderFlowService(tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
+				clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				queryMaxResults)))
 
@@ -76,6 +81,7 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 		engine:                       engine,
 		kCandleContractRepository:    kCandleContractRepository,
 		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
+		tradeHistoryProxy:            tradeHistoryProxy,
 	}
 }
 
@@ -194,4 +200,48 @@ func TestContractIndicatorRouteTurnsAwayARequestCarryingNoProofOfIdentity(t *tes
 	fixture.engine.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+// orderFlowAlgorithmBody is a daily contract algorithm declaring an order flow price step, reaching back that many days.
+func orderFlowAlgorithmBody(daysBack int) string {
+	return `{"symbol":"BTCUSDT","aggregationInterval":"1d","startTime":"` +
+		indicatorRouterNow.Truncate(24*time.Hour).AddDate(0, 0, -daysBack).Format(time.RFC3339) +
+		`","script":"my own contract script","resultType":"float",` +
+		`"parameters":[{"name":"寬","kind":"orderFlowPriceStep","defaultValue":10}]}`
+}
+
+func (fixture contractIndicatorRouterUnderTest) expectDailyContractCandles(dayCount int) {
+	figure := decimal.RequireFromString("100")
+	newestFirst := []entities.KCandleContract{}
+	for daysBack := 1; daysBack <= dayCount; daysBack++ {
+		newestFirst = append(newestFirst, entities.KCandleContract{
+			Symbol: "BTCUSDT", OpenTime: indicatorRouterNow.Truncate(24*time.Hour).AddDate(0, 0, -daysBack),
+			Open: figure, High: figure, Low: figure, Close: figure,
+			MarkOpen: figure, MarkHigh: figure, MarkLow: figure, MarkClose: figure,
+		})
+	}
+	fixture.kCandleContractRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).Return(newestFirst, nil)
+}
+
+func TestContractIndicatorRouteRefusesOrderFlowPastWhatOneRunMayHoldAsTheCallersToChange(t *testing.T) {
+	fixture := newContractIndicatorRouterUnderTest(t)
+	fixture.expectDailyContractCandles(40)
+
+	recorder := fixture.post(orderFlowAlgorithmBody(40))
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "訂單流一次至多涵蓋 31 天")
+}
+
+func TestContractIndicatorRouteBlamesTheVenueForOrderFlowItCannotRead(t *testing.T) {
+	fixture := newContractIndicatorRouterUnderTest(t)
+	fixture.expectDailyContractCandles(1)
+	fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, errors.New("archive answered 503"))
+
+	recorder := fixture.post(orderFlowAlgorithmBody(1))
+
+	assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "讀不到訂單流")
 }

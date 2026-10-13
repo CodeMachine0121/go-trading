@@ -55,6 +55,20 @@ type IngestionConfig struct {
 	MarketDataRequestsPerMinute int
 }
 
+// ContractOrderFlowConfig is where contract trades are read from for footprints, and how much of them is kept in memory; nothing is stored.
+type ContractOrderFlowConfig struct {
+	ArchiveBaseUrl string
+	LiveTradesUrl  string
+	// ArchiveTimeout covers a whole day's download, which runs to a hundred megabytes for busy symbols.
+	ArchiveTimeout time.Duration
+	// LiveRequestsPerMinute is its own allowance so gathering footprints never starves candle ingestion.
+	LiveRequestsPerMinute      int
+	MemoryBytes                int64
+	ConcurrentArchiveDownloads int
+	// BotPreparationAllowance is how long a bot round may spend gathering before it skips.
+	BotPreparationAllowance time.Duration
+}
+
 // ContractIngestionConfig mirrors the spot settings without sharing any: the venues budget requests
 // separately and each contract candle costs two requests.
 type ContractIngestionConfig struct {
@@ -314,6 +328,7 @@ type ApplicationConfig struct {
 	PendingMessage                PendingMessageConfig
 	Ingestion                     IngestionConfig
 	ContractIngestion             ContractIngestionConfig
+	ContractOrderFlow             ContractOrderFlowConfig
 	LiveFollow                    LiveFollowConfig
 	TaiwanStock                   TaiwanStockConfig
 	// MarketRules maps each market to its behaviour so nothing branches on market identity.
@@ -504,6 +519,23 @@ func loadAsWritten() ApplicationConfig {
 			// Half the spot allowance because each contract candle costs two requests.
 			RequestsPerMinute: positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", 300),
+		},
+		ContractOrderFlow: ContractOrderFlowConfig{
+			ArchiveBaseUrl: stringWithDefault(
+				"CONTRACT_ORDER_FLOW_ARCHIVE_BASE_URL",
+				"https://data.binance.vision/data/futures/um/daily/aggTrades"),
+			LiveTradesUrl: stringWithDefault(
+				"CONTRACT_ORDER_FLOW_TRADES_URL", "https://fapi.binance.com/fapi/v1/aggTrades"),
+			ArchiveTimeout: time.Duration(positiveIntWithDefault(
+				"CONTRACT_ORDER_FLOW_ARCHIVE_TIMEOUT_SECONDS", 180)) * time.Second,
+			// Each page weighs twenty against the venue's 2400-per-minute allowance, so forty leaves most of it to candles.
+			LiveRequestsPerMinute: positiveIntWithDefault("CONTRACT_ORDER_FLOW_REQUESTS_PER_MINUTE", 40),
+			MemoryBytes: int64(positiveIntWithDefault(
+				"CONTRACT_ORDER_FLOW_MEMORY_MEGABYTES", 256)) << 20,
+			ConcurrentArchiveDownloads: positiveIntWithDefault(
+				"CONTRACT_ORDER_FLOW_CONCURRENT_ARCHIVE_DOWNLOADS", 2),
+			BotPreparationAllowance: time.Duration(positiveIntWithDefault(
+				"CONTRACT_ORDER_FLOW_BOT_PREPARATION_SECONDS", 40)) * time.Second,
 		},
 		LiveFollow: LiveFollowConfig{
 			RelayInterval: time.Duration(

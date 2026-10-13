@@ -127,6 +127,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 			"replica-under-test",
 			4,
 			time.Minute,
+			0,
 		))
 
 	engine := gin.New()

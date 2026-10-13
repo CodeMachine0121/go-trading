@@ -24,6 +24,9 @@ import (
 
 var botRunNow = at(9, 15)
 
+// botOrderFlowPreparationAllowance is short so a round that cannot gather its order flow gives up quickly.
+const botOrderFlowPreparationAllowance = 50 * time.Millisecond
+
 // botRoundClaimedUntil is the one-minute round ceiling plus the fifteen seconds that booking a round in may take.
 var botRoundClaimedUntil = at(9, 16).Add(15 * time.Second)
 
@@ -106,6 +109,7 @@ type strategyBotRunUnderTest struct {
 	releasedClaims *[]uint
 	// Held by pointer so a test can edit the rules and the next round sees the change.
 	tradingStrategy        *entities.TradingStrategy
+	tradeHistoryProxy      *mocks.MockIContractTradeHistoryProxy
 	tradingStrategyFailure *error
 	// Captured by the fixture's own AnyTimes expectation, since gomock would match it before any later one a test adds.
 	appendedRunRecords *[]dto.StrategyBotRunRecordWriteDto
@@ -235,6 +239,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
+	tradeHistoryProxy := mocks.NewMockIContractTradeHistoryProxy(controller)
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
@@ -267,7 +272,9 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				marketCatalog, queryMaxResults),
 			service.NewContractIndicatorCalculationService(
 				kCandleContractRepository, contractFundingRateSettlementRepository,
-				contractPositionStatisticRepository, contractIndicatorScriptProxy, nil, clockProxy,
+				contractPositionStatisticRepository, contractIndicatorScriptProxy,
+				service.NewContractOrderFlowService(tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
+				clockProxy,
 				marketCatalog, queryMaxResults),
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
@@ -279,6 +286,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			thisReplicaName,
 			4,
 			time.Minute,
+			botOrderFlowPreparationAllowance,
 		),
 		strategyBotRepository:        strategyBotRepository,
 		kCandleRepository:            kCandleRepository,
@@ -298,6 +306,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		claimFailure:                            &claimFailure,
 		releasedClaims:                          &releasedClaims,
 		tradingStrategy:                         &tradingStrategy,
+		tradeHistoryProxy:                       tradeHistoryProxy,
 		tradingStrategyFailure:                  &tradingStrategyFailure,
 		appendedRunRecords:                      &appendedRunRecords,
 		t:                                       t,
