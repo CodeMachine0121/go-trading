@@ -52,7 +52,8 @@ Oracle: Acceptance Criteria (40 clauses: 34 AC + 4 BR + 1 edge case + 1 NFR)
 | AC-36 | 回測送出時就拒絕 | 送出即拒絕、說 31 天；沒宣告的不受限 | `KCandleQueryDomain.requireOrderFlowReach`（兩個合約回測建構子） | `TestAContractReplayReachingPastThirtyOneDaysOfOrderFlowIsRefusedWhenSubmitted` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-37 | 剛收盤就讀 | 收盤後 3 秒前不向即時來源要 | `ContractOrderFlowDayDomain.LiveSettledAt` + `gatherDay` | `TestTheLastMinuteIsNotReadBeforeItsTradesHaveSettled` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-38 | 來源連線逾時 | 讀不到訂單流，不是還沒備齊 | `AttachFootprints`（依誰的時間用完判斷） | `TestAVenueConnectionTimingOutIsTheVenueFailingNotTheAllowance` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-39 | 一格價位太多（機器人） | 跳過、維持執行中 | `StrategyBotRoundFailureDomain`（只在 `ErrContractOrderFlowReachTooLong` 停下） | `TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans/a bar holding too many…` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-39 | 一格價位太多（機器人） | 停下，原因說超過一次能給的範圍 | `StrategyBotRoundFailureDomain`（任何訂單流拒絕都停下） | `TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans/a bar holding too many price levels stops the bot too` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-41 | 送出時連預設暖機一起算 | 25 天加 200 根小時暖機超過 31 天，送出即拒絕 | 兩個 Validate 補上預設暖機 | `TestTheUpFrontOrderFlowCheckCountsTheDefaultWarmUpTheReplayWillAdd` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-40 | 等別的計算拿同一天時時間到 | 跳過（還沒備齊），不卡住 | `ContractOrderFlowMemory.Gathering`（等待可被時間到打斷） | `TestARunWaitingBehindAnotherForTheSameDayStillStopsWhenItsOwnTimeRunsOut` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-1 | 速度上限：即時查詢每分鐘至多 40 次 | 預設 40，自己一份節奏 | `ContractOrderFlowConfig`、`venuePacers.cryptoContractTrades` | `TestLoadAppliesTheContractOrderFlowDefaultsWhenNothingIsSet` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-2 | 同時下載的歷史檔至多 2 份 | 第二份等第一份 | `BinanceContractTradeHistoryProxy.archiveDownloads` | `TestArchiveDownloadsWaitForAFreeSlot`、config 測試 | asserts-oracle | produces-oracle | ✅ conforms |
@@ -71,7 +72,8 @@ Oracle: Acceptance Criteria (40 clauses: 34 AC + 4 BR + 1 edge case + 1 NFR)
 
 ## Summary
 
-- Conforms: 44/44 in-repo clauses ✅ (100%)
+- Conforms: 45/45 in-repo clauses ✅ (100%)
+- Second review round: AC-39 reversed (too many levels halts again, so a too-fine step is never silently skipped forever); AC-41 added.
 - Violations: —
 - Mis-asserted: —
 - Partial: — (AC-29, EDGE-1 were partial at first pass; tests added and falsified)
