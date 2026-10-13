@@ -52,6 +52,13 @@ func NewContractTradingStrategyBacktestDomain(
 
 	contractBacktest.backtest = contractBacktest.backtest.warmedUpFor(sources.MaximumLookbackCount())
 
+	for sourceIndex := range sources.SourceCount() {
+		if reachError := contractBacktest.KCandleQuery().requireOrderFlowReach(
+			sources.SourceParameters(sourceIndex)); reachError != nil {
+			return ContractTradingStrategyBacktestDomain{}, reachError
+		}
+	}
+
 	return ContractTradingStrategyBacktestDomain{contractBacktest: contractBacktest, sources: sources}, nil
 }
 

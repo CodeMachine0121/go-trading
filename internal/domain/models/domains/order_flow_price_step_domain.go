@@ -6,6 +6,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// orderFlowMinimumPriceStep is the finest width allowed: the venue quotes no contract finer than eight decimals, and a finer step would push a price's level index past what an int64 holds.
+var orderFlowMinimumPriceStep = decimal.New(1, -8)
+
 // OrderFlowPriceStepDomain is how wide one footprint price level is; it works in decimals so a price on a level boundary (0.3 at width 0.1) lands on that level rather than the one below.
 type OrderFlowPriceStepDomain struct {
 	step decimal.Decimal
@@ -16,6 +19,9 @@ func NewOrderFlowPriceStepDomain(value float64) (OrderFlowPriceStepDomain, error
 	step := decimal.NewFromFloat(value)
 	if !step.IsPositive() {
 		return OrderFlowPriceStepDomain{}, errors.New("是訂單流價位寬度，必須大於零")
+	}
+	if step.LessThan(orderFlowMinimumPriceStep) {
+		return OrderFlowPriceStepDomain{}, errors.New("是訂單流價位寬度，至少 0.00000001")
 	}
 
 	return OrderFlowPriceStepDomain{step: step}, nil

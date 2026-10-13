@@ -1,7 +1,6 @@
 package domains
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -157,10 +156,8 @@ func (alignmentDomain ContractKCandleAlignmentDomain) OrderFlowReach(
 		end:       query.EndTime(),
 	}
 
-	if dayCount := len(reachDomain.Days()); dayCount > orderFlowMaximumDays {
-		return OrderFlowReachDomain{}, fmt.Errorf(
-			"%w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
-			ErrContractOrderFlowRefused, orderFlowMaximumDays, dayCount)
+	if reachError := reachDomain.requireWithinDays(); reachError != nil {
+		return OrderFlowReachDomain{}, reachError
 	}
 
 	return reachDomain, nil

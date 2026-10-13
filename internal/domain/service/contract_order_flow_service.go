@@ -12,9 +12,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// contractOrderFlowDayLength is one UTC calendar day, the unit the archive is published in.
-const contractOrderFlowDayLength = 24 * time.Hour
-
 // contractOrderFlowConcurrentDays is how many days one run gathers at once; the proxy separately limits archive downloads across all runs.
 const contractOrderFlowConcurrentDays = 4
 
@@ -76,11 +73,12 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 	}
 
 	if gatherError := gathering.Wait(); gatherError != nil {
+		// Judged by whose time ran out, never by the error's own kind: a venue connection timing out also reads as a deadline, and that is the venue failing, not the allowance.
 		switch {
 		// The caller's own deadline or cancellation is the caller's to report, e.g. a replay out of time.
 		case executionContext.Err() != nil:
 			return nil, executionContext.Err()
-		case errors.Is(gatherError, context.DeadlineExceeded) || errors.Is(gatherError, context.Canceled):
+		case gatheringContext.Err() != nil:
 			return nil, fmt.Errorf("%w：%s 內沒能備齊", domains.ErrContractOrderFlowNotReady, preparationAllowance)
 		case errors.Is(gatherError, domains.ErrContractOrderFlowUnavailable):
 			return nil, gatherError
@@ -93,31 +91,30 @@ func (contractOrderFlowService *ContractOrderFlowService) AttachFootprints(
 }
 
 // gatherDay holds the day's gathering lock from the recall that finds it missing to the keep that fills it, so two runs never fetch the same day at once; extracted so the deferred release scopes exactly that.
-// A day that ended before today comes from its archive; yesterday's archive may not be out yet, so it falls back to the live venue; today always comes live, only the minutes not yet remembered.
+// Which source a day comes from is the day's own rule (ReadsFromArchive, ArchiveMayStillBeComing); this only carries it out.
 func (contractOrderFlowService *ContractOrderFlowService) gatherDay(
 	executionContext context.Context, reach domains.OrderFlowReachDomain, dayStart time.Time,
 ) (domains.ContractOrderFlowDayDomain, error) {
 	symbol := reach.Symbol()
 	priceStep := reach.PriceStep()
-	neededUntil := dayStart.Add(contractOrderFlowDayLength)
-	if reach.End().Before(neededUntil) {
-		neededUntil = reach.End()
-	}
 
-	releaseGathering := contractOrderFlowService.memory.Gathering(symbol, dayStart, priceStep)
+	releaseGathering, waitError := contractOrderFlowService.memory.Gathering(executionContext, symbol, dayStart, priceStep)
+	if waitError != nil {
+		return domains.ContractOrderFlowDayDomain{}, waitError
+	}
 	defer releaseGathering()
 
 	day, isRemembered := contractOrderFlowService.memory.Recall(symbol, dayStart, priceStep)
-	if isRemembered && day.Covers(neededUntil) {
-		return day, nil
-	}
 	if !isRemembered {
 		day = domains.NewContractOrderFlowDayDomain(priceStep, dayStart)
 	}
+	neededUntil := day.NeededUntil(reach.End())
+	if day.Covers(neededUntil) {
+		return day, nil
+	}
 
-	today := contractOrderFlowService.clockProxy.Now().UTC().Truncate(contractOrderFlowDayLength)
-	// Only an untouched past day is read from its archive; a day already partly read live carries on live, so its minutes never come from two sources.
-	if dayStart.Before(today) && !day.CoveredUntil().After(dayStart) {
+	now := contractOrderFlowService.clockProxy.Now()
+	if day.ReadsFromArchive(now) {
 		ledger := domains.NewOrderFlowMinuteLedgerDomain(priceStep)
 		isPublished, archiveError := contractOrderFlowService.contractTradeHistoryProxy.VisitDailyTrades(
 			executionContext, symbol, dayStart, ledger.Record)
@@ -125,15 +122,24 @@ func (contractOrderFlowService *ContractOrderFlowService) gatherDay(
 			return domains.ContractOrderFlowDayDomain{}, archiveError
 		}
 		if isPublished {
-			day = day.Extending(ledger, dayStart.Add(contractOrderFlowDayLength))
+			day = day.Extending(ledger, day.NeededUntil(dayStart.AddDate(0, 0, 1)))
 			contractOrderFlowService.memory.Keep(symbol, day)
 
 			return day, nil
 		}
-		if dayStart.Before(today.Add(-contractOrderFlowDayLength)) {
+		if !day.ArchiveMayStillBeComing(now) {
 			return domains.ContractOrderFlowDayDomain{}, fmt.Errorf(
 				"%w：%s 的 %s 歷史檔不存在", domains.ErrContractOrderFlowUnavailable,
 				symbol, dayStart.Format(time.DateOnly))
+		}
+	}
+
+	// The last instant's trades may not have reached the live venue yet; reading before they settle would remember the minute as whole without them.
+	if settledAt := day.LiveSettledAt(neededUntil); now.Before(settledAt) {
+		select {
+		case <-time.After(settledAt.Sub(now)):
+		case <-executionContext.Done():
+			return domains.ContractOrderFlowDayDomain{}, executionContext.Err()
 		}
 	}
 

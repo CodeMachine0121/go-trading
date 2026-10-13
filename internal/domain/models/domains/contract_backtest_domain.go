@@ -28,6 +28,10 @@ func NewContractBacktestDomain(
 		return ContractBacktestDomain{}, backtestError
 	}
 
+	if reachError := backtest.KCandleQuery().requireOrderFlowReach(backtest.Parameters()); reachError != nil {
+		return ContractBacktestDomain{}, reachError
+	}
+
 	if !requestDto.MaintenanceMarginRate.IsZero() {
 		return ContractBacktestDomain{}, BacktestValidationFailure(BacktestMaintenanceMarginRateField,
 			"維持保證金率由這個合約標的的分級決定，重演時不能另外指定")

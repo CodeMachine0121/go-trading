@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -20,8 +21,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// orderFlowToday is 09:15 on 2026-10-14; the day before has ended, and its archive may or may not be out.
-var orderFlowToday = time.Date(2026, 10, 14, 9, 15, 0, 0, time.UTC)
+// orderFlowToday is just past 09:15 on 2026-10-14, after the 09:14 minute's trades have settled on the live venue; the day before has ended, and its archive may or may not be out.
+var orderFlowToday = time.Date(2026, 10, 14, 9, 15, 5, 0, time.UTC)
 
 func orderFlowDay(month time.Month, day int) time.Time {
 	return time.Date(2026, month, day, 0, 0, 0, 0, time.UTC)
@@ -168,7 +169,7 @@ func TestTodaysBarsCarryFootprintsAtThisRunsPriceStep(t *testing.T) {
 	fixture := newOrderFlowUnderTest(t, 1<<20)
 	fixture.storesContractCandles(at14(9, 13), at14(9, 14))
 	fixture.tradeHistoryProxy.EXPECT().
-		VisitTradesBetween(gomock.Any(), "BTCUSDT", orderFlowDay(10, 14), orderFlowToday, gomock.Any()).
+		VisitTradesBetween(gomock.Any(), "BTCUSDT", orderFlowDay(10, 14), at14(9, 15), gomock.Any()).
 		DoAndReturn(liveHolding(buyerTrade(at14(9, 13).Add(10*time.Second), 84160)))
 	requestDto := orderFlowRequest("1m", at14(9, 13), orderFlowToday)
 	requestDto.ParameterValues = []dto.StrategyScriptParameterValueDto{{Name: "寬", Value: 25}}
@@ -310,7 +311,7 @@ func TestTodayOnlyAsksForTheMinutesNotYetRemembered(t *testing.T) {
 
 	_, firstError := fixture.indicatorCalculationApplication.CalculateContractIndicator(
 		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), orderFlowRequest("5m", at14(9, 10), at14(9, 15)))
-	fixture.setNow(at14(9, 20))
+	fixture.setNow(at14(9, 20).Add(5 * time.Second))
 	_, secondError := fixture.indicatorCalculationApplication.CalculateContractIndicator(
 		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), orderFlowRequest("5m", at14(9, 10), at14(9, 20)))
 
@@ -327,7 +328,7 @@ func TestOrderFlowNotGatheredInTimeIsNotReadyAndKeepsItsWholeMinutes(t *testing.
 	fixture.storesContractCandles(at14(9, 14))
 	gomock.InOrder(
 		fixture.tradeHistoryProxy.EXPECT().
-			VisitTradesBetween(gomock.Any(), "BTCUSDT", orderFlowDay(10, 14), orderFlowToday, gomock.Any()).
+			VisitTradesBetween(gomock.Any(), "BTCUSDT", orderFlowDay(10, 14), at14(9, 15), gomock.Any()).
 			DoAndReturn(func(executionContext context.Context, _ string, _ time.Time, _ time.Time, visit tradeVisit) error {
 				visit(buyerTrade(at14(0, 0).Add(30*time.Second), 100))
 				visit(buyerTrade(at14(0, 5).Add(10*time.Second), 100))
@@ -337,7 +338,7 @@ func TestOrderFlowNotGatheredInTimeIsNotReadyAndKeepsItsWholeMinutes(t *testing.
 			}),
 		// 00:05 had only begun when time ran out, so it is asked for again.
 		fixture.tradeHistoryProxy.EXPECT().
-			VisitTradesBetween(gomock.Any(), "BTCUSDT", at14(0, 5), orderFlowToday, gomock.Any()).
+			VisitTradesBetween(gomock.Any(), "BTCUSDT", at14(0, 5), at14(9, 15), gomock.Any()).
 			Return(nil),
 	)
 	requestDto := orderFlowRequest("1m", at14(9, 14), orderFlowToday)
@@ -468,4 +469,67 @@ func TestADayWhoseArchiveBreaksHalfwayIsNotRemembered(t *testing.T) {
 	require.ErrorIs(t, brokenError, domains.ErrContractOrderFlowUnavailable)
 	require.NoError(t, laterError)
 	assert.Equal(t, 200.0, fixture.lastFootprints()[0].PointOfControl, "第二次整份重拿，半份不留")
+}
+
+func TestARunWaitingBehindAnotherForTheSameDayStillStopsWhenItsOwnTimeRunsOut(t *testing.T) {
+	fixture := newOrderFlowUnderTest(t, 1<<20)
+	fixture.storesContractCandles(orderFlowDay(10, 12))
+	releaseFirst := make(chan struct{})
+	firstStarted := make(chan struct{})
+	fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", orderFlowDay(10, 12), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ time.Time, _ tradeVisit) (bool, error) {
+			close(firstStarted)
+			<-releaseFirst
+
+			return true, nil
+		}).Times(1)
+	requestDto := orderFlowRequest("1h", orderFlowDay(10, 12), orderFlowDay(10, 12).Add(time.Hour))
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		_, _ = fixture.indicatorCalculationApplication.CalculateContractIndicator(
+			context.Background(), indicatorViewerID, carryingOrderFlow(t, 10), requestDto)
+	}()
+	<-firstStarted
+
+	boundedRequest := requestDto
+	boundedRequest.OrderFlowPreparationAllowance = 50 * time.Millisecond
+	startedAt := time.Now()
+	_, waitingError := fixture.indicatorCalculationApplication.CalculateContractIndicator(
+		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), boundedRequest)
+	close(releaseFirst)
+	<-firstDone
+
+	require.ErrorIs(t, waitingError, domains.ErrContractOrderFlowNotReady)
+	assert.Less(t, time.Since(startedAt), 2*time.Second)
+}
+
+func TestTheLastMinuteIsNotReadBeforeItsTradesHaveSettled(t *testing.T) {
+	fixture := newOrderFlowUnderTest(t, 1<<20)
+	// Right on the close of 09:14: its last instant's trades may not be on the live venue yet.
+	fixture.setNow(at14(9, 15))
+	fixture.storesContractCandles(at14(9, 14))
+	requestDto := orderFlowRequest("1m", at14(9, 14), at14(9, 15))
+	requestDto.OrderFlowPreparationAllowance = 50 * time.Millisecond
+
+	_, err := fixture.indicatorCalculationApplication.CalculateContractIndicator(
+		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), requestDto)
+
+	// The trade history mock expects nothing: being asked before the trades settled fails the test.
+	require.ErrorIs(t, err, domains.ErrContractOrderFlowNotReady)
+}
+
+func TestAVenueConnectionTimingOutIsTheVenueFailingNotTheAllowance(t *testing.T) {
+	fixture := newOrderFlowUnderTest(t, 1<<20)
+	fixture.storesContractCandles(orderFlowDay(10, 12))
+	fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, fmt.Errorf("read trade archive: %w", context.DeadlineExceeded))
+	requestDto := orderFlowRequest("1h", orderFlowDay(10, 12), orderFlowDay(10, 12).Add(time.Hour))
+	requestDto.OrderFlowPreparationAllowance = time.Minute
+
+	_, err := fixture.indicatorCalculationApplication.CalculateContractIndicator(
+		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), requestDto)
+
+	require.ErrorIs(t, err, domains.ErrContractOrderFlowUnavailable)
+	assert.NotErrorIs(t, err, domains.ErrContractOrderFlowNotReady)
 }

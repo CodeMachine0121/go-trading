@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -33,8 +34,9 @@ type contractOrderFlowMemoryEntry struct {
 	lastUsed uint64
 }
 
+// contractOrderFlowGatherer's token is held by whoever gathers the day; a channel rather than a mutex so a waiter can give up when its own time runs out.
 type contractOrderFlowGatherer struct {
-	lock    sync.Mutex
+	token   chan struct{}
 	holders int
 }
 
@@ -99,26 +101,22 @@ func (memory *ContractOrderFlowMemory) Keep(symbol string, day domains.ContractO
 	memory.usedBytes += dayBytes
 }
 
-// Gathering waits until no one else gathers that day and returns the release; hold it from the recall that found the day missing to the keep that fills it.
+// Gathering waits until no one else gathers that day, or until the caller's own time runs out, and returns the release; hold it from the recall that found the day missing to the keep that fills it.
 func (memory *ContractOrderFlowMemory) Gathering(
-	symbol string, day time.Time, priceStep domains.OrderFlowPriceStepDomain,
-) func() {
+	executionContext context.Context, symbol string, day time.Time, priceStep domains.OrderFlowPriceStepDomain,
+) (func(), error) {
 	key := contractOrderFlowMemoryKey{symbol: symbol, dayStart: day.UTC().Unix(), priceStep: priceStep.Key()}
 
 	memory.lock.Lock()
 	gatherer, isGathered := memory.gatherers[key]
 	if !isGathered {
-		gatherer = &contractOrderFlowGatherer{}
+		gatherer = &contractOrderFlowGatherer{token: make(chan struct{}, 1)}
 		memory.gatherers[key] = gatherer
 	}
 	gatherer.holders++
 	memory.lock.Unlock()
 
-	gatherer.lock.Lock()
-
-	return func() {
-		gatherer.lock.Unlock()
-
+	leaving := func() {
 		memory.lock.Lock()
 		defer memory.lock.Unlock()
 		gatherer.holders--
@@ -126,4 +124,17 @@ func (memory *ContractOrderFlowMemory) Gathering(
 			delete(memory.gatherers, key)
 		}
 	}
+
+	select {
+	case gatherer.token <- struct{}{}:
+	case <-executionContext.Done():
+		leaving()
+
+		return nil, executionContext.Err()
+	}
+
+	return func() {
+		<-gatherer.token
+		leaving()
+	}, nil
 }

@@ -9,6 +9,9 @@ import (
 // orderFlowDayLength is one UTC calendar day, the unit the venue's archive is published in.
 const orderFlowDayLength = 24 * time.Hour
 
+// orderFlowLiveSettling is how long after a minute closes its trades are trusted to be all there on the live venue; reading sooner could miss the last instant's trades and remember the minute as whole.
+const orderFlowLiveSettling = 3 * time.Second
+
 // Estimated in-memory footprint used to keep remembered order flow within its budget.
 const (
 	orderFlowLevelBytes  = 32
@@ -77,6 +80,26 @@ func (dayDomain ContractOrderFlowDayDomain) Extending(
 	extended.coveredUntil = newCoveredUntil
 
 	return extended
+}
+
+// NeededUntil is how far into this day a reach ending at reachEnd needs trades: its close, or the day's end.
+func (dayDomain ContractOrderFlowDayDomain) NeededUntil(reachEnd time.Time) time.Time {
+	return dayDomain.cappedAtDayEnd(reachEnd)
+}
+
+// ReadsFromArchive is true for a day that has ended and has nothing gathered yet; a day already partly read live carries on live, so its minutes never come from two sources.
+func (dayDomain ContractOrderFlowDayDomain) ReadsFromArchive(now time.Time) bool {
+	return dayDomain.dayStart.Before(now.UTC().Truncate(orderFlowDayLength)) && !dayDomain.coveredUntil.After(dayDomain.dayStart)
+}
+
+// ArchiveMayStillBeComing is true only for yesterday: the venue publishes a day's archive about a day late, so a missing file then is expected and the day is read live instead; older missing files are a failure.
+func (dayDomain ContractOrderFlowDayDomain) ArchiveMayStillBeComing(now time.Time) bool {
+	return !dayDomain.dayStart.Before(now.UTC().Truncate(orderFlowDayLength).Add(-orderFlowDayLength))
+}
+
+// LiveSettledAt is the earliest moment the live venue is trusted to hold every trade before neededUntil.
+func (dayDomain ContractOrderFlowDayDomain) LiveSettledAt(neededUntil time.Time) time.Time {
+	return neededUntil.Add(orderFlowLiveSettling)
 }
 
 // Covers reports whether every minute up to until (or the whole day, if until is later) is held.

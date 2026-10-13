@@ -205,3 +205,12 @@ func TestOrderFlowPriceStepsWithTheSameWidthShareAKey(t *testing.T) {
 	assert.Equal(t, ten.Key(), alsoTen.Key())
 	assert.NotEqual(t, ten.Key(), twentyFive.Key())
 }
+
+func TestOrderFlowPriceStepIsNoFinerThanEightDecimals(t *testing.T) {
+	_, finestError := domains.NewOrderFlowPriceStepDomain(0.00000001)
+	_, tooFineError := domains.NewOrderFlowPriceStepDomain(0.000000009)
+
+	assert.NoError(t, finestError)
+	require.Error(t, tooFineError)
+	assert.Contains(t, tooFineError.Error(), "是訂單流價位寬度，至少 0.00000001")
+}

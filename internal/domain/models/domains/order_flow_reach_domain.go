@@ -41,6 +41,17 @@ func (reachDomain OrderFlowReachDomain) Days() []time.Time {
 	return days
 }
 
+// requireWithinDays refuses a stretch spanning more UTC days than one run may hold; shared by the bars a run reads and the stretch a replay asks for before anything is read.
+func (reachDomain OrderFlowReachDomain) requireWithinDays() error {
+	if dayCount := len(reachDomain.Days()); dayCount > orderFlowMaximumDays {
+		return fmt.Errorf(
+			"%w: %w: 訂單流一次至多涵蓋 %d 天，這一次要 %d 天，請縮短時間或改用較細的彙總刻度",
+			ErrContractOrderFlowRefused, ErrContractOrderFlowReachTooLong, orderFlowMaximumDays, dayCount)
+	}
+
+	return nil
+}
+
 // End is the last bar's close; nothing at or after it is needed.
 func (reachDomain OrderFlowReachDomain) End() time.Time {
 	return reachDomain.end

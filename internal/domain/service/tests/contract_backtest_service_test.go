@@ -370,3 +370,28 @@ func TestAContractReplayWhoseOrderFlowCannotBeReadFails(t *testing.T) {
 		})
 	}
 }
+
+func TestAContractReplayReachingPastThirtyOneDaysOfOrderFlowIsRefusedWhenSubmitted(t *testing.T) {
+	longScriptRequest := contractBacktestServiceRequest()
+	longScriptRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	longScriptRequest.Parameters = orderFlowWidth(10)
+	longStrategyRequest := contractTradingStrategyBacktestServiceRequest()
+	longStrategyRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	longStrategyRequest.SignalSources[0].Parameters = orderFlowWidth(10)
+	shortScriptRequest := contractBacktestServiceRequest()
+	shortScriptRequest.Parameters = orderFlowWidth(10)
+	noOrderFlowRequest := contractBacktestServiceRequest()
+	noOrderFlowRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(contractBacktestServiceMocks) {})
+
+	scriptError := contractBacktestService.ValidateContractBacktest(context.Background(), longScriptRequest)
+	strategyError := contractBacktestService.ValidateContractTradingStrategyBacktest(context.Background(), longStrategyRequest)
+
+	require.ErrorIs(t, scriptError, domains.ErrBacktestValidation)
+	assert.Contains(t, scriptError.Error(), "訂單流一次至多涵蓋 31 天")
+	require.ErrorIs(t, strategyError, domains.ErrBacktestValidation)
+	assert.Contains(t, strategyError.Error(), "訂單流一次至多涵蓋 31 天")
+	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), shortScriptRequest))
+	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), noOrderFlowRequest),
+		"沒宣告訂單流的不受 31 天限制")
+}

@@ -12,7 +12,7 @@ const (
 	StrategyBotHaltTradingStrategyUnavailable StrategyBotHaltReasonVo = "tradingStrategyUnavailable"
 	// StrategyBotHaltScriptFailed is a script that would not run or read an undeclared parameter.
 	StrategyBotHaltScriptFailed StrategyBotHaltReasonVo = "scriptFailed"
-	// StrategyBotHaltOrderFlowRefused is order flow asked for in a way no retry can meet: more than the days or price levels one run may hold.
+	// StrategyBotHaltOrderFlowRefused is order flow reaching back more days than one run may hold, which no retry can meet.
 	StrategyBotHaltOrderFlowRefused StrategyBotHaltReasonVo = "orderFlowRefused"
 	// StrategyBotHaltCredentialRejected means only a new bot token fixes it.
 	StrategyBotHaltCredentialRejected StrategyBotHaltReasonVo = "credentialRejected"
