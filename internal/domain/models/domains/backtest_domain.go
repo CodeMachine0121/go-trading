@@ -205,6 +205,16 @@ func (backtestDomain BacktestDomain) Interval() AggregationIntervalDomain {
 }
 
 // Parameters already carry each declared parameter's resolved value.
+// RequireSpotParameters refuses an order flow declaration on a spot replay, whose bars carry no footprint; contract replays never ask.
+func (backtestDomain BacktestDomain) RequireSpotParameters() error {
+	if kindError := backtestDomain.parameters.RequireMarketDataKind(
+		MarketDataKindDomain{value: vo.MarketDataKindKCandle}); kindError != nil {
+		return fmt.Errorf("%w: %w", ErrBacktestValidation, kindError)
+	}
+
+	return nil
+}
+
 func (backtestDomain BacktestDomain) Parameters() StrategyScriptParametersDomain {
 	return backtestDomain.parameters
 }

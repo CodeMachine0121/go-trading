@@ -83,6 +83,10 @@ func NewStrategyScriptDomain(writeDto dto.StrategyScriptWriteDto) (StrategyScrip
 		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, parametersError)
 	}
 
+	if kindError := parameters.RequireMarketDataKind(marketDataKind); kindError != nil {
+		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, kindError)
+	}
+
 	return StrategyScriptDomain{
 		id:             writeDto.ID,
 		ownerID:        writeDto.OwnerID,

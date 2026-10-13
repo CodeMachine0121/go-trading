@@ -12,6 +12,7 @@ var declarableStrategyScriptParameterKinds = []vo.StrategyScriptParameterKindVo{
 	vo.StrategyScriptParameterKindLookbackCount,
 	vo.StrategyScriptParameterKindNumber,
 	vo.StrategyScriptParameterKindBoolean,
+	vo.StrategyScriptParameterKindOrderFlowPriceStep,
 }
 
 // StrategyScriptParameterKindDomain is a declared parameter kind; its zero value is only returned alongside an error.

@@ -205,6 +205,16 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) CandleCount() int {
 }
 
 // Parameters carry each declared knob's settled value, from the run or its default.
+// RequireSpotParameters refuses an order flow declaration on a spot calculation, whose bars carry no footprint; the contract calculation never asks.
+func (indicatorCalculationDomain IndicatorCalculationDomain) RequireSpotParameters() error {
+	if kindError := indicatorCalculationDomain.parameters.RequireMarketDataKind(
+		MarketDataKindDomain{value: vo.MarketDataKindKCandle}); kindError != nil {
+		return fmt.Errorf("%w: %w", ErrIndicatorCalculationValidation, kindError)
+	}
+
+	return nil
+}
+
 func (indicatorCalculationDomain IndicatorCalculationDomain) Parameters() StrategyScriptParametersDomain {
 	return indicatorCalculationDomain.parameters
 }
