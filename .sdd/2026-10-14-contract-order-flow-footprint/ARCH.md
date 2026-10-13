@@ -37,7 +37,7 @@
 | `controller.IndicatorCalculationController`、`BacktestController`、`TradingStrategyBacktestController` | **Modify** | `ErrContractOrderFlowRefused` → 400；`Unavailable` 落入既有 502；`NotReady` → 503（只有機器人會遇到，防禦用） |
 | `infrastructure/script` 合約輸入型別表 | **Modify** | 匯出 `Footprint`、`PriceLevel` 兩個名字給算式 |
 | `config` / `cmd/server/dependencies.go` | **Modify** | 新設定區塊 `ContractOrderFlow`；組裝 proxy、pacer、service |
-| 助手兩處說明（`assistantqueries` 參數 schema、`claude_assistant_proxy` system prompt） | **Modify** | 參數種類與合約行情格欄位都加上訂單流 |
+| 助手兩處說明（`assistantqueries` 參數 schema、`claude_assistant_proxy` system prompt） | **Not touched** | 助手只寫 K 線種類的策略腳本；教它一個只給合約的參數種類只會寫出存不進去的腳本 |
 | `postman/` | **Modify** | 建立策略腳本範例加一個 `orderFlowPriceStep` 參數 |
 | 資料庫 schema | **Not touched** | 參數種類是字串欄；訂單流不落地 |
 | 現貨 K 線格、現貨回測、合約 K 線蒐集、歷史同步 | **Not touched** | 與訂單流無關 |
@@ -127,7 +127,7 @@ flowchart TD
 | US-04 剛算過不重拿／換寬度重整理 | `ContractOrderFlowMemory` |
 | US-05 合約回測逐格／兩個來源各自寬度 | `ContractBacktestService` |
 | US-06 備齊／來不及跳過／不答話跳過／超過 31 天停下 | `ContractOrderFlowService`（備齊時間）+ `StrategyBotRoundFailureDomain` |
-| US-07 助手、外掛說明 | 助手兩處說明（本 repo）；外掛與畫面在各自 repo |
+| US-07 外掛說明 | 外掛與畫面在各自 repo |
 
 ---
 

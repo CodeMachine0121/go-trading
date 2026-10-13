@@ -39,4 +39,4 @@ Expected outcomes pinned from the PRD before implementation. Tests copy their ex
 | 27 | 機器人備齊時間到 | `ErrContractOrderFlowNotReady`；已拿到的分鐘留在記憶中；輪次失敗判定為跳過 | Service + RoundFailureDomain |
 | 28 | 來源不答話 | 輪次跳過（不停機器人） | RoundFailureDomain |
 | 29 | 超過 31 天 | 輪次停下，停擺原因 `orderFlowRefused` | RoundFailureDomain |
-| 30 | 助手說明 | system prompt 與參數 schema 都提到 `orderFlowPriceStep` 與 `Footprint` | assistant |
+| 30 | ~~助手說明~~ | 移出範圍：助手還不會寫合約策略腳本（見 PRD US-07 附註） | — |
