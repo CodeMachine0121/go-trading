@@ -444,3 +444,28 @@ func TestADayLargerThanTheWholeMemoryIsNeverKept(t *testing.T) {
 func at14(hour int, minute int) time.Time {
 	return time.Date(2026, 10, 14, hour, minute, 0, 0, time.UTC)
 }
+
+func TestADayWhoseArchiveBreaksHalfwayIsNotRemembered(t *testing.T) {
+	fixture := newOrderFlowUnderTest(t, 1<<20)
+	fixture.storesContractCandles(orderFlowDay(10, 12))
+	gomock.InOrder(
+		fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", orderFlowDay(10, 12), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ time.Time, visit tradeVisit) (bool, error) {
+				visit(buyerTrade(orderFlowDay(10, 12), 100))
+
+				return false, errors.New("connection reset halfway through the file")
+			}),
+		fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", orderFlowDay(10, 12), gomock.Any()).
+			DoAndReturn(archiveHolding(buyerTrade(orderFlowDay(10, 12), 200))),
+	)
+	requestDto := orderFlowRequest("1h", orderFlowDay(10, 12), orderFlowDay(10, 12).Add(time.Hour))
+
+	_, brokenError := fixture.indicatorCalculationApplication.CalculateContractIndicator(
+		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), requestDto)
+	_, laterError := fixture.indicatorCalculationApplication.CalculateContractIndicator(
+		t.Context(), indicatorViewerID, carryingOrderFlow(t, 10), requestDto)
+
+	require.ErrorIs(t, brokenError, domains.ErrContractOrderFlowUnavailable)
+	require.NoError(t, laterError)
+	assert.Equal(t, 200.0, fixture.lastFootprints()[0].PointOfControl, "第二次整份重拿，半份不留")
+}

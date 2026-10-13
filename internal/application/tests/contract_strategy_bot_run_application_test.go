@@ -470,3 +470,41 @@ func TestAContractBotAskingForOrderFlowPastThirtyOneDaysIsHalted(t *testing.T) {
 
 	require.NoError(t, runError)
 }
+
+func TestAContractBotWhoseOrderFlowIsReadyConcludesAsUsual(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectTheContractsLatestCandle("100")
+	underTest.expectOrderFlowSources("5m", []time.Time{at(9, 5)})
+	underTest.tradeHistoryProxy.EXPECT().VisitTradesBetween(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ time.Time, _ time.Time, visit func(vo.ContractAggregatedTradeVo)) error {
+			visit(vo.ContractAggregatedTradeVo{Price: decimal.NewFromInt(100), Quantity: 1, TradeCount: 1,
+				TradeTime: at(9, 6), BuyerIsTaker: true})
+
+			return nil
+		})
+	footprintsSeen := []vo.OrderFlowFootprintVo{}
+	underTest.contractIndicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+			_ domains.StrategyScriptParametersDomain) (map[string]vo.IndicatorValueVo, error) {
+			footprintsSeen = append(footprintsSeen, bars[len(bars)-1].Footprint)
+
+			return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalSell}}, nil
+		}).Times(2)
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "合約突破 · BTCUSDT 永續合約")
+	})
+	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
+		assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
+		assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+	})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	require.Len(t, footprintsSeen, 2)
+	for _, footprint := range footprintsSeen {
+		assert.Equal(t, 100.0, footprint.PointOfControl, "兩個信號來源都讀到同一份備齊的足跡")
+	}
+}
