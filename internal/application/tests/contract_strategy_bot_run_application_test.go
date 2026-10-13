@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -483,11 +484,15 @@ func TestAContractBotWhoseOrderFlowIsReadyConcludesAsUsual(t *testing.T) {
 
 			return nil
 		})
+	// The two sources run at once, so what they saw is collected under a lock.
 	footprintsSeen := []vo.OrderFlowFootprintVo{}
+	footprintsLock := sync.Mutex{}
 	underTest.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
 			_ domains.StrategyScriptParametersDomain) (map[string]vo.IndicatorValueVo, error) {
+			footprintsLock.Lock()
+			defer footprintsLock.Unlock()
 			footprintsSeen = append(footprintsSeen, bars[len(bars)-1].Footprint)
 
 			return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalSell}}, nil
