@@ -16,6 +16,7 @@ type ContractIndicatorCalculationService struct {
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
 	contractPositionStatisticRepository     domaininterface.IContractPositionStatisticRepository
 	contractIndicatorScriptProxy            domaininterface.IContractIndicatorScriptProxy
+	contractOrderFlowService                *ContractOrderFlowService
 	clockProxy                              domaininterface.IClockProxy
 	roundTheClockMarket                     domains.MarketDomain
 	maxCandleCount                          int
@@ -26,6 +27,7 @@ func NewContractIndicatorCalculationService(
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
 	contractPositionStatisticRepository domaininterface.IContractPositionStatisticRepository,
 	contractIndicatorScriptProxy domaininterface.IContractIndicatorScriptProxy,
+	contractOrderFlowService *ContractOrderFlowService,
 	clockProxy domaininterface.IClockProxy,
 	marketCatalogDomain domains.MarketCatalogDomain,
 	maxCandleCount int,
@@ -35,13 +37,14 @@ func NewContractIndicatorCalculationService(
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		contractPositionStatisticRepository:     contractPositionStatisticRepository,
 		contractIndicatorScriptProxy:            contractIndicatorScriptProxy,
+		contractOrderFlowService:                contractOrderFlowService,
 		clockProxy:                              clockProxy,
 		roundTheClockMarket:                     marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
 		maxCandleCount:                          maxCandleCount,
 	}
 }
 
-// CalculateContractIndicator runs the script over the requested number of finished contract bars using four stored reads; nothing is fetched to fill gaps.
+// CalculateContractIndicator runs the script over the requested number of finished contract bars using four stored reads; nothing is fetched to fill gaps, except order flow, which is never stored.
 func (contractIndicatorCalculationService *ContractIndicatorCalculationService) CalculateContractIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
@@ -93,7 +96,12 @@ func (contractIndicatorCalculationService *ContractIndicatorCalculationService) 
 		return dto.IndicatorCalculationResultDto{}, findStatisticsError
 	}
 
-	contractKCandleVos := alignmentDomain.Aligning(settlements, statistics)
+	contractKCandleVos, attachError := contractIndicatorCalculationService.contractOrderFlowService.AttachFootprints(
+		executionContext, alignmentDomain, alignmentDomain.Aligning(settlements, statistics),
+		calculationDomain.Parameters(), requestDto.OrderFlowPreparationAllowance)
+	if attachError != nil {
+		return dto.IndicatorCalculationResultDto{}, attachError
+	}
 
 	indicatorValues, executionError := contractIndicatorCalculationService.contractIndicatorScriptProxy.Execute(
 		executionContext, requestDto.Script, calculationDomain.ResultType(), contractKCandleVos,

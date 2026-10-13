@@ -90,7 +90,7 @@ func newContractBacktestRouterUnderTest(t *testing.T) contractBacktestRouterUnde
 		clockProxy, queryMaxResults, 0)
 	contractBacktestService := service.NewContractBacktestService(
 		kCandleContractRepository, settlementRepository, statisticRepository,
-		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0)
+		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, nil, clockProxy, queryMaxResults, 0)
 
 	runs := newRouterBacktestRuns(t, mockController, clockProxy, backtestService, contractBacktestService)
 

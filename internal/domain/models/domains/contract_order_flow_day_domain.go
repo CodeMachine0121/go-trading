@@ -88,6 +88,10 @@ func (dayDomain ContractOrderFlowDayDomain) CoveredUntil() time.Time {
 	return dayDomain.coveredUntil
 }
 
+func (dayDomain ContractOrderFlowDayDomain) PriceStep() OrderFlowPriceStepDomain {
+	return dayDomain.priceStep
+}
+
 func (dayDomain ContractOrderFlowDayDomain) DayStart() time.Time {
 	return dayDomain.dayStart
 }

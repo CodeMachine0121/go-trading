@@ -64,7 +64,7 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 			nil,
 			service.NewContractIndicatorCalculationService(
 				kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
-				contractIndicatorScriptProxy, clockProxy,
+				contractIndicatorScriptProxy, nil, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				queryMaxResults)))
 

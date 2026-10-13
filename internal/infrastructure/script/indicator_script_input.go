@@ -29,6 +29,8 @@ var contractIndicatorScriptInput = indicatorScriptInput{
 	types: map[string]reflect.Value{
 		"ContractKCandle": reflect.ValueOf((*vo.ContractKCandleVo)(nil)),
 		"PriceLine":       reflect.ValueOf((*vo.PriceLineVo)(nil)),
+		"Footprint":       reflect.ValueOf((*vo.OrderFlowFootprintVo)(nil)),
+		"PriceLevel":      reflect.ValueOf((*vo.OrderFlowPriceLevelVo)(nil)),
 		"KCandle":         reflect.ValueOf((*vo.KCandleVo)(nil)),
 	},
 }

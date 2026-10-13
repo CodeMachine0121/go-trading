@@ -72,7 +72,7 @@ func newLiveComparisonAllowing(t *testing.T, onDemandAllowance time.Duration) li
 		service.NewContractBacktestService(
 			fixture.kCandleContractRepository, fundingRateSettlementRepository, positionStatisticRepository,
 			fixture.contractTradingSymbolRepository, maintenanceMarginTierRepository,
-			fixture.contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0), onDemandAllowance,
+			fixture.contractIndicatorScriptProxy, nil, clockProxy, queryMaxResults, 0), onDemandAllowance,
 	)
 
 	return fixture

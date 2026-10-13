@@ -150,6 +150,7 @@ func (alignmentDomain ContractKCandleAlignmentDomain) OrderFlowReach(
 ) (OrderFlowReachDomain, error) {
 	query := alignmentDomain.queryReachingBack(0)
 	reachDomain := OrderFlowReachDomain{
+		symbol:    query.symbol,
 		priceStep: priceStep,
 		interval:  alignmentDomain.interval.duration,
 		start:     query.StartTime(),

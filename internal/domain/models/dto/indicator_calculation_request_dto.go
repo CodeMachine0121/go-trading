@@ -18,4 +18,6 @@ type IndicatorCalculationRequestDto struct {
 	Parameters []StrategyScriptParameterWriteDto
 	// ParameterValues override declared defaults; omitted ones keep their declared value.
 	ParameterValues []StrategyScriptParameterValueDto
+	// OrderFlowPreparationAllowance bounds gathering order flow for a contract script; zero means no bound. Only bot rounds set it, since they would rather skip a round than run late.
+	OrderFlowPreparationAllowance time.Duration
 }

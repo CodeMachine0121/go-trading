@@ -267,7 +267,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				marketCatalog, queryMaxResults),
 			service.NewContractIndicatorCalculationService(
 				kCandleContractRepository, contractFundingRateSettlementRepository,
-				contractPositionStatisticRepository, contractIndicatorScriptProxy, clockProxy,
+				contractPositionStatisticRepository, contractIndicatorScriptProxy, nil, clockProxy,
 				marketCatalog, queryMaxResults),
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),

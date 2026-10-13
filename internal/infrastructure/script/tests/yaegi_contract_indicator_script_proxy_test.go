@@ -169,3 +169,56 @@ func TestContractExecuteForEachCandleReportsABrokenScriptBeforeAnyBar(t *testing
 	require.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	assert.Nil(t, perBarValues)
 }
+
+// footprintReadingScript names both footprint types, so it fails to compile unless the sandbox exports them.
+const footprintReadingScript = `
+package main
+
+import "indicator"
+
+func lowestBuy(footprint indicator.Footprint) float64 {
+	var level indicator.PriceLevel = footprint.Levels[0]
+	return level.BuyVolume
+}
+
+func Calculate(data []indicator.ContractKCandle) map[string]float64 {
+	bar := data[0]
+	return map[string]float64{
+		"step":       bar.Footprint.PriceStep,
+		"levels":     float64(len(bar.Footprint.Levels)),
+		"lowestBuy":  lowestBuy(bar.Footprint),
+		"topSell":    bar.Footprint.Levels[1].SellVolume,
+		"topPrice":   bar.Footprint.Levels[1].Price,
+		"trades":     float64(bar.Footprint.Levels[1].TradeCount),
+		"delta":      bar.Footprint.Delta,
+		"control":    bar.Footprint.PointOfControl,
+	}
+}
+`
+
+func TestAContractScriptReadsTheFootprintOfEachBar(t *testing.T) {
+	bars := contractBarsWithClosePrices(100)
+	bars[0].Footprint = vo.OrderFlowFootprintVo{
+		PriceStep: 10,
+		Levels: []vo.OrderFlowPriceLevelVo{
+			{Price: 84150, BuyVolume: 2, SellVolume: 1, TradeCount: 2},
+			{Price: 84160, BuyVolume: 3, SellVolume: 0.5, TradeCount: 4},
+		},
+		Delta:          3.5,
+		PointOfControl: 84150,
+	}
+
+	indicatorValues, err := contractIndicatorScriptProxy(2*time.Second).
+		Execute(t.Context(), footprintReadingScript, resultTypeOf(t, "float"), bars, noStrategyScriptParameters(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]float64{
+		"step": 10, "levels": 2, "lowestBuy": 2, "topSell": 0.5, "topPrice": 84160, "trades": 4,
+		"delta": 3.5, "control": 84150,
+	}, map[string]float64{
+		"step": numberOf(indicatorValues, "step"), "levels": numberOf(indicatorValues, "levels"),
+		"lowestBuy": numberOf(indicatorValues, "lowestBuy"), "topSell": numberOf(indicatorValues, "topSell"),
+		"topPrice": numberOf(indicatorValues, "topPrice"), "trades": numberOf(indicatorValues, "trades"),
+		"delta": numberOf(indicatorValues, "delta"), "control": numberOf(indicatorValues, "control"),
+	})
+}

@@ -81,7 +81,7 @@ func newContractIndicatorUnderTest(t *testing.T) contractIndicatorUnderTest {
 				queryMaxResults),
 			service.NewContractIndicatorCalculationService(
 				kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
-				contractIndicatorScriptProxy, clockProxy, marketCatalog, queryMaxResults)),
+				contractIndicatorScriptProxy, nil, clockProxy, marketCatalog, queryMaxResults)),
 		kCandleRepository:            kCandleRepository,
 		indicatorScriptProxy:         indicatorScriptProxy,
 		kCandleContractRepository:    kCandleContractRepository,

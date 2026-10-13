@@ -20,6 +20,7 @@ const (
 
 // OrderFlowReachDomain is the order flow one run needs: the UTC days its bars span and the price step to tally at; it turns gathered days into each bar's footprint.
 type OrderFlowReachDomain struct {
+	symbol    string
 	priceStep OrderFlowPriceStepDomain
 	interval  time.Duration
 	// start is the first bar's open; end is the last bar's close.
@@ -43,6 +44,10 @@ func (reachDomain OrderFlowReachDomain) Days() []time.Time {
 // End is the last bar's close; nothing at or after it is needed.
 func (reachDomain OrderFlowReachDomain) End() time.Time {
 	return reachDomain.end
+}
+
+func (reachDomain OrderFlowReachDomain) Symbol() string {
+	return reachDomain.symbol
 }
 
 func (reachDomain OrderFlowReachDomain) PriceStep() OrderFlowPriceStepDomain {
