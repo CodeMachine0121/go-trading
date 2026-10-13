@@ -80,7 +80,7 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockIKCandleContractRepository(mockController),
 				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 				mocks.NewMockIContractPositionStatisticRepository(mockController),
-				mocks.NewMockIContractIndicatorScriptProxy(mockController), nil, clockProxy,
+				mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewKCandleService(

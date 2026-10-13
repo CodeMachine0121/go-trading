@@ -77,7 +77,7 @@ func newContractTradeRouterUnderTest(t *testing.T) contractTradeRouterUnderTest 
 			service.NewContractBacktestService(
 				kCandleContractRepository, fundingRateSettlementRepository,
 				mocks.NewMockIContractPositionStatisticRepository(mockController), contractTradingSymbolRepository,
-				maintenanceMarginTierRepository, mocks.NewMockIContractIndicatorScriptProxy(mockController), nil,
+				maintenanceMarginTierRepository, mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t),
 				clockProxy, 1000, 0), time.Minute),
 	)
 

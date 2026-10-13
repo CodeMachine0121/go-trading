@@ -84,7 +84,7 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 		contractPositionStatisticRepository,
 		contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository,
-		contractIndicatorScriptProxy, nil,
+		contractIndicatorScriptProxy, noOrderFlowService(t),
 		clockProxy,
 		queryMaxResults,
 		0,
