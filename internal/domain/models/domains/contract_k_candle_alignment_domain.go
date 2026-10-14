@@ -143,6 +143,26 @@ func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	return contractKCandleVos
 }
 
+// OrderFlowReach is the order flow these bars need at a price step: from the first bar's open to the last bar's close, refused past 31 UTC calendar days.
+func (alignmentDomain ContractKCandleAlignmentDomain) OrderFlowReach(
+	priceStep OrderFlowPriceStepDomain,
+) (OrderFlowReachDomain, error) {
+	query := alignmentDomain.queryReachingBack(0)
+	reachDomain := OrderFlowReachDomain{
+		symbol:    query.symbol,
+		priceStep: priceStep,
+		interval:  alignmentDomain.interval.duration,
+		start:     query.StartTime(),
+		end:       query.EndTime(),
+	}
+
+	if reachError := reachDomain.requireWithinDays(); reachError != nil {
+		return OrderFlowReachDomain{}, reachError
+	}
+
+	return reachDomain, nil
+}
+
 // queryReachingBack spans from reach before the first bar to the last bar's close.
 func (alignmentDomain ContractKCandleAlignmentDomain) queryReachingBack(reach time.Duration) KCandleQueryDomain {
 	firstBucket := alignmentDomain.buckets[0]

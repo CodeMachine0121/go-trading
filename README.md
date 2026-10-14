@@ -183,6 +183,13 @@ curl localhost:8080/health
 | `CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 合約啟動回補最多往回幾小時 |
 | `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /contract-k-candles/history` 一次最多往回抓幾天。自己一份，因為永續合約的歷史比現貨短得多 |
 | `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS` | `2` | 同時最多幾趟合約歷史同步在跑。與現貨**各算各的**：兩邊打的是不同場所、吃不同額度 |
+| `CONTRACT_ORDER_FLOW_ARCHIVE_BASE_URL` | `https://data.binance.vision/data/futures/um/daily/aggTrades` | **訂單流足跡**過完的日子從這裡的逐筆成交每日檔串流整理。**訂單流不存進資料庫**，只有宣告了訂單流價位寬度的合約策略腳本會用到 |
+| `CONTRACT_ORDER_FLOW_ARCHIVE_TIMEOUT_SECONDS` | `180` | 下載一天逐筆成交檔的時限；熱門標的一天可達上百 MB |
+| `CONTRACT_ORDER_FLOW_CONCURRENT_ARCHIVE_DOWNLOADS` | `2` | 同時最多幾份逐筆成交檔在下載，其餘排隊。與歷史檔主機共用持倉統計歷史資料庫那份節奏 |
+| `CONTRACT_ORDER_FLOW_TRADES_URL` | `https://fapi.binance.com/fapi/v1/aggTrades` | 今天（與每日檔還沒出現的昨天）的逐筆成交即時查詢 |
+| `CONTRACT_ORDER_FLOW_REQUESTS_PER_MINUTE` | `40` | 即時查詢的節奏，自己一份。每一頁在來源算 20 的權重，40 次只用掉來源每分鐘額度的三分之一，不擠掉合約 K 線 |
+| `CONTRACT_ORDER_FLOW_MEMORY_MEGABYTES` | `256` | 整理好的訂單流在記憶中暫留的上限，滿了先丟最久沒用的。改了它，部署的記憶體上限要一起重算 |
+| `CONTRACT_ORDER_FLOW_BOT_PREPARATION_SECONDS` | `40` | 合約機器人一輪最多花多久備齊訂單流；來不及就跳過這一輪，已拿到的留著下一輪接著補 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
 | `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/ws` | 合約即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |

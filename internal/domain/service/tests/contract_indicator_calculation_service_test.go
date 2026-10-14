@@ -92,7 +92,7 @@ func newContractCalculationUnderTest(t *testing.T) contractCalculationUnderTest 
 	return contractCalculationUnderTest{
 		contractIndicatorCalculationService: service.NewContractIndicatorCalculationService(
 			kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
-			contractIndicatorScriptProxy, clockProxy,
+			contractIndicatorScriptProxy, noOrderFlowService(t), clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), maxCandleCount),
 		kCandleContractRepository:               kCandleContractRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,

@@ -72,6 +72,10 @@ func NewTradingStrategyReplaySourcesDomain(
 				"%w: %w", ErrBacktestValidation, applyError)
 		}
 
+		if kindError := parameters.RequireMarketDataKind(replayedMarketDataKind); kindError != nil {
+			return TradingStrategyReplaySourcesDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, kindError)
+		}
+
 		sources = append(sources, resolvedSignalSource{
 			label:      label,
 			script:     signalSource.Script,

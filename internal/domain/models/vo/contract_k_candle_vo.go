@@ -21,4 +21,6 @@ type ContractKCandleVo struct {
 	TopTraderPositionLongShare      float64
 	TopTraderPositionShortShare     float64
 	TopTraderPositionLongShortRatio float64
+	// Footprint is this bar's trades by price level; empty unless the script declared an order flow price step.
+	Footprint OrderFlowFootprintVo
 }

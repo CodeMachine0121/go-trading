@@ -36,10 +36,13 @@ func NewBacktestService(
 
 // ValidateBacktest judges a request exactly as a replay would before reading any candle, so nothing invalid is ever queued.
 func (backtestService *BacktestService) ValidateBacktest(requestDto dto.BacktestRequestDto) error {
-	_, validationError := domains.NewBacktestDomain(
+	backtestDomain, validationError := domains.NewBacktestDomain(
 		requestDto, backtestService.maxCandleCount, backtestService.clockProxy.Now())
+	if validationError != nil {
+		return validationError
+	}
 
-	return validationError
+	return backtestDomain.RequireSpotParameters()
 }
 
 func (backtestService *BacktestService) ValidateTradingStrategyBacktest(
@@ -68,6 +71,9 @@ func (backtestService *BacktestService) RunBacktest(
 		requestDto, backtestService.maxCandleCount, backtestService.clockProxy.Now())
 	if validationError != nil {
 		return dto.BacktestResultDto{}, validationError
+	}
+	if kindError := backtestDomain.RequireSpotParameters(); kindError != nil {
+		return dto.BacktestResultDto{}, kindError
 	}
 
 	kCandles, findError := backtestService.kCandleRepository.FindInRange(

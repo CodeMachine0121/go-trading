@@ -67,6 +67,30 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedToHalt: false,
 		},
 		{
+			// The same stretch is refused again every round, so waiting achieves nothing.
+			name:               "order flow reaching back more days than one run may hold stops the bot",
+			roundError:         fmt.Errorf("%w: 訂單流一次至多涵蓋 31 天", domains.ErrContractOrderFlowRefused),
+			expectedToHalt:     true,
+			expectedHaltReason: vo.StrategyBotHaltOrderFlowRefused,
+		},
+		{
+			// A step too fine for the symbol would otherwise skip every round without the owner hearing why.
+			name:               "a bar holding too many price levels stops the bot too",
+			roundError:         fmt.Errorf("%w: 一格至多 1000 個價位", domains.ErrContractOrderFlowRefused),
+			expectedToHalt:     true,
+			expectedHaltReason: vo.StrategyBotHaltOrderFlowRefused,
+		},
+		{
+			name:           "order flow not gathered in time only skips the round",
+			roundError:     fmt.Errorf("%w：40 秒內沒能備齊", domains.ErrContractOrderFlowNotReady),
+			expectedToHalt: false,
+		},
+		{
+			name:           "order flow the venue would not give only skips the round",
+			roundError:     fmt.Errorf("%w：archive answered 503", domains.ErrContractOrderFlowUnavailable),
+			expectedToHalt: false,
+		},
+		{
 			// Unknown failures only skip the round, since halting is the destructive answer.
 			name:           "a failure nobody recognises only skips the round",
 			roundError:     errors.New("the database went away"),

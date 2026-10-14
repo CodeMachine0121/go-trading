@@ -80,7 +80,7 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockIKCandleContractRepository(mockController),
 				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 				mocks.NewMockIContractPositionStatisticRepository(mockController),
-				mocks.NewMockIContractIndicatorScriptProxy(mockController), clockProxy,
+				mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewKCandleService(
@@ -97,6 +97,7 @@ func newStrategyBotScanJobUnderTest(
 			"replica-under-test",
 			4,
 			time.Minute,
+			0,
 		),
 		scanInterval)
 }

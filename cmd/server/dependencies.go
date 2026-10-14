@@ -360,11 +360,27 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
+	// One memory for every contract calculation, replay and bot round, so a day gathered by one is there for the others.
+	contractOrderFlowService := service.NewContractOrderFlowService(
+		marketdata.NewBinanceContractTradeHistoryProxy(
+			applicationConfig.ContractOrderFlow.ArchiveBaseUrl,
+			applicationConfig.ContractOrderFlow.LiveTradesUrl,
+			applicationConfig.ContractOrderFlow.ArchiveTimeout,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContractArchive,
+			venuePacers.cryptoContractTrades,
+			applicationConfig.ContractOrderFlow.ConcurrentArchiveDownloads,
+		),
+		clock.NewSystemClockProxy(),
+		service.NewContractOrderFlowMemory(applicationConfig.ContractOrderFlow.MemoryBytes),
+	)
+
 	contractIndicatorCalculationService := service.NewContractIndicatorCalculationService(
 		contractKCandleRepository,
 		persistence.NewContractFundingRateSettlementRepository(database),
 		persistence.NewContractPositionStatisticRepository(database),
 		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
+		contractOrderFlowService,
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,
@@ -396,6 +412,7 @@ func registerRoutes(
 		contractTradingSymbolRepository,
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
+		contractOrderFlowService,
 		clock.NewSystemClockProxy(),
 		applicationConfig.BacktestMaxCandleCount,
 		applicationConfig.BacktestDefaultWarmupBarCount,
@@ -759,6 +776,7 @@ func registerRoutes(
 			persistence.NewContractFundingRateSettlementRepository(database),
 			persistence.NewContractPositionStatisticRepository(database),
 			script.NewYaegiContractIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
+			contractOrderFlowService,
 			clock.NewSystemClockProxy(),
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
@@ -774,6 +792,7 @@ func registerRoutes(
 		applicationConfig.Replica.Name,
 		applicationConfig.StrategyBot.MaxConcurrentRounds,
 		applicationConfig.StrategyBot.RoundTimeout,
+		applicationConfig.ContractOrderFlow.BotPreparationAllowance,
 	)
 
 	// Every replica sends queued messages; the queue hands each one to a single replica at a time.
@@ -1030,7 +1049,9 @@ type venuePacers struct {
 	cryptoContractStatistics marketdata.RequestPacer
 	// cryptoContractArchive is a separate file host with its own allowance.
 	cryptoContractArchive marketdata.RequestPacer
-	taiwanStock           marketdata.RequestPacer
+	// cryptoContractTrades keeps gathering footprints from ever spending the allowance candle ingestion needs.
+	cryptoContractTrades marketdata.RequestPacer
+	taiwanStock          marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
@@ -1043,6 +1064,8 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.ContractIngestion.StatisticsRequestsPerMinute),
 		cryptoContractArchive: marketdata.NewRequestPacer(
 			applicationConfig.ContractIngestion.PositionStatisticArchiveRequestsPerMinute),
+		cryptoContractTrades: marketdata.NewRequestPacer(
+			applicationConfig.ContractOrderFlow.LiveRequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
 	}

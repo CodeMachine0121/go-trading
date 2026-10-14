@@ -116,6 +116,11 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 		})
 		return
 	}
+	// Asking for too much order flow is the caller's to fix (a shorter stretch, a wider price step), not the venue's.
+	if errors.Is(err, domains.ErrContractOrderFlowRefused) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
 	if errors.Is(err, domains.ErrIndicatorCalculationValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return

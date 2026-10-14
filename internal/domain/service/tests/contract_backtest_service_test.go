@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -30,6 +31,7 @@ type contractBacktestServiceMocks struct {
 	tradingSymbolRepository      *mocks.MockIContractTradingSymbolRepository
 	tierRepository               *mocks.MockIContractMaintenanceMarginTierRepository
 	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
+	tradeHistoryProxy            *mocks.MockIContractTradeHistoryProxy
 }
 
 type contractBacktestServiceFailure struct {
@@ -40,6 +42,13 @@ type contractBacktestServiceFailure struct {
 func newContractBacktestServiceUnderTest(
 	t *testing.T, failure func(contractBacktestServiceMocks),
 ) *service.ContractBacktestService {
+	return newContractBacktestServiceWarmingUp(t, failure, 0)
+}
+
+// newContractBacktestServiceWarmingUp adds that many bars of warm-up to every replay that names none, as the server does.
+func newContractBacktestServiceWarmingUp(
+	t *testing.T, failure func(contractBacktestServiceMocks), defaultWarmupBarCount int,
+) *service.ContractBacktestService {
 	controller := gomock.NewController(t)
 	boundaries := contractBacktestServiceMocks{
 		kCandleContractRepository:    mocks.NewMockIKCandleContractRepository(controller),
@@ -48,6 +57,7 @@ func newContractBacktestServiceUnderTest(
 		tradingSymbolRepository:      mocks.NewMockIContractTradingSymbolRepository(controller),
 		tierRepository:               mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
 		contractIndicatorScriptProxy: mocks.NewMockIContractIndicatorScriptProxy(controller),
+		tradeHistoryProxy:            mocks.NewMockIContractTradeHistoryProxy(controller),
 	}
 	failure(boundaries)
 
@@ -97,9 +107,10 @@ func newContractBacktestServiceUnderTest(
 		boundaries.tradingSymbolRepository,
 		boundaries.tierRepository,
 		boundaries.contractIndicatorScriptProxy,
+		service.NewContractOrderFlowService(boundaries.tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
 		clockProxy,
 		1000,
-		0,
+		defaultWarmupBarCount,
 	)
 }
 
@@ -244,4 +255,169 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, decimal.Zero.Equal(resultDto.Summary.TotalFundingFee))
 	})
+}
+
+// orderFlowWidth declares an order flow price step on a replayed script.
+func orderFlowWidth(defaultValue float64) []dto.StrategyScriptParameterWriteDto {
+	return []dto.StrategyScriptParameterWriteDto{{Name: "寬", Kind: "orderFlowPriceStep", DefaultValue: defaultValue}}
+}
+
+// archivedTrade is one buyer-initiated trade the day's archive hands over.
+func archivedTrade(at time.Time, price int64) func(context.Context, string, time.Time, func(vo.ContractAggregatedTradeVo)) (bool, error) {
+	return func(_ context.Context, _ string, _ time.Time, visit func(vo.ContractAggregatedTradeVo)) (bool, error) {
+		visit(vo.ContractAggregatedTradeVo{Price: decimal.NewFromInt(price), Quantity: 1, TradeCount: 1, TradeTime: at, BuyerIsTaker: true})
+
+		return true, nil
+	}
+}
+
+func TestAContractReplayHandsEveryBarItsFootprint(t *testing.T) {
+	replayedBars := []vo.ContractKCandleVo{}
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+		boundaries.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", contractBacktestServiceStart, gomock.Any()).
+			DoAndReturn(archivedTrade(contractBacktestServiceStart.Add(30*time.Minute), 104))
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+				_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
+				replayedBars = bars
+
+				return []map[string]vo.IndicatorValueVo{
+					{vo.SignalIndicatorKey: {Signal: vo.SignalHold}}, {vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+				}, nil
+			})
+	})
+	requestDto := contractBacktestServiceRequest()
+	requestDto.Parameters = orderFlowWidth(10)
+
+	_, err := contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
+
+	require.NoError(t, err)
+	require.Len(t, replayedBars, 2)
+	assert.Equal(t, vo.OrderFlowFootprintVo{
+		PriceStep: 10, Levels: []vo.OrderFlowPriceLevelVo{{Price: 100, BuyVolume: 1, TradeCount: 1}},
+		Delta: 1, PointOfControl: 100,
+	}, replayedBars[0].Footprint)
+	assert.Equal(t, 10.0, replayedBars[1].Footprint.PriceStep)
+	assert.Empty(t, replayedBars[1].Footprint.Levels)
+}
+
+// replayingWith captures the bars each replay of a source is handed, holding every bar.
+func replayingWith(captured *[][]vo.ContractKCandleVo) func(context.Context, string, domains.IndicatorResultTypeDomain,
+	[]vo.ContractKCandleVo, domains.StrategyScriptParametersDomain, domaininterface.IReplayProgressSink,
+) ([]map[string]vo.IndicatorValueVo, error) {
+	return func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+		_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+	) ([]map[string]vo.IndicatorValueVo, error) {
+		*captured = append(*captured, bars)
+
+		return []map[string]vo.IndicatorValueVo{
+			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}}, {vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+		}, nil
+	}
+}
+
+func TestEachTradingStrategySourceReadsFootprintsAtItsOwnPriceStep(t *testing.T) {
+	captured := [][]vo.ContractKCandleVo{}
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+		boundaries.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", contractBacktestServiceStart, gomock.Any()).
+			DoAndReturn(archivedTrade(contractBacktestServiceStart.Add(30*time.Minute), 104)).Times(2)
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(replayingWith(&captured)).Times(2)
+	})
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.SignalSources = []dto.ResolvedSignalSourceDto{
+		{Label: "A", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle",
+			Parameters: orderFlowWidth(10)},
+		{Label: "B", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle",
+			Parameters: orderFlowWidth(10), ParameterValues: []dto.StrategyScriptParameterValueDto{{Name: "寬", Value: 50}}},
+	}
+
+	_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
+
+	require.NoError(t, err)
+	require.Len(t, captured, 2)
+	assert.Equal(t, 10.0, captured[0][0].Footprint.PriceStep)
+	assert.Equal(t, 100.0, captured[0][0].Footprint.Levels[0].Price)
+	assert.Equal(t, 50.0, captured[1][0].Footprint.PriceStep)
+	assert.Equal(t, 100.0, captured[1][0].Footprint.Levels[0].Price)
+}
+
+func TestAContractReplayWhoseOrderFlowCannotBeReadFails(t *testing.T) {
+	for _, replay := range []struct {
+		name string
+		run  func(*service.ContractBacktestService) error
+	}{
+		{name: "a script", run: func(contractBacktestService *service.ContractBacktestService) error {
+			requestDto := contractBacktestServiceRequest()
+			requestDto.Parameters = orderFlowWidth(10)
+			_, err := contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
+
+			return err
+		}},
+		{name: "a trading strategy", run: func(contractBacktestService *service.ContractBacktestService) error {
+			requestDto := contractTradingStrategyBacktestServiceRequest()
+			requestDto.SignalSources[0].Parameters = orderFlowWidth(10)
+			_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
+
+			return err
+		}},
+	} {
+		t.Run(replay.name, func(t *testing.T) {
+			contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+				boundaries.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(false, errStorageUnavailable)
+			})
+
+			err := replay.run(contractBacktestService)
+
+			require.ErrorIs(t, err, domains.ErrContractOrderFlowUnavailable)
+			assert.Contains(t, err.Error(), "讀不到訂單流")
+		})
+	}
+}
+
+func TestAContractReplayReachingPastThirtyOneDaysOfOrderFlowIsRefusedWhenSubmitted(t *testing.T) {
+	longScriptRequest := contractBacktestServiceRequest()
+	longScriptRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	longScriptRequest.Parameters = orderFlowWidth(10)
+	longStrategyRequest := contractTradingStrategyBacktestServiceRequest()
+	longStrategyRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	longStrategyRequest.SignalSources[0].Parameters = orderFlowWidth(10)
+	shortScriptRequest := contractBacktestServiceRequest()
+	shortScriptRequest.Parameters = orderFlowWidth(10)
+	noOrderFlowRequest := contractBacktestServiceRequest()
+	noOrderFlowRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -40)
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(contractBacktestServiceMocks) {})
+
+	scriptError := contractBacktestService.ValidateContractBacktest(context.Background(), longScriptRequest)
+	strategyError := contractBacktestService.ValidateContractTradingStrategyBacktest(context.Background(), longStrategyRequest)
+
+	require.ErrorIs(t, scriptError, domains.ErrBacktestValidation)
+	assert.Contains(t, scriptError.Error(), "訂單流一次至多涵蓋 31 天")
+	require.ErrorIs(t, strategyError, domains.ErrBacktestValidation)
+	assert.Contains(t, strategyError.Error(), "訂單流一次至多涵蓋 31 天")
+	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), shortScriptRequest))
+	assert.NoError(t, contractBacktestService.ValidateContractBacktest(context.Background(), noOrderFlowRequest),
+		"沒宣告訂單流的不受 31 天限制")
+}
+
+func TestTheUpFrontOrderFlowCheckCountsTheDefaultWarmUpTheReplayWillAdd(t *testing.T) {
+	// Twenty-five days asked for, plus two hundred hourly bars of default warm-up, reaches past thirty-one days.
+	requestDto := contractBacktestServiceRequest()
+	requestDto.StartTime = contractBacktestServiceStart.AddDate(0, 0, -25)
+	requestDto.Parameters = orderFlowWidth(10)
+	strategyRequest := contractTradingStrategyBacktestServiceRequest()
+	strategyRequest.StartTime = contractBacktestServiceStart.AddDate(0, 0, -25)
+	strategyRequest.SignalSources[0].Parameters = orderFlowWidth(10)
+	warmingUp := newContractBacktestServiceWarmingUp(t, func(contractBacktestServiceMocks) {}, 200)
+
+	scriptError := warmingUp.ValidateContractBacktest(context.Background(), requestDto)
+	strategyError := warmingUp.ValidateContractTradingStrategyBacktest(context.Background(), strategyRequest)
+
+	require.ErrorIs(t, scriptError, domains.ErrBacktestValidation)
+	assert.Contains(t, scriptError.Error(), "訂單流一次至多涵蓋 31 天")
+	require.ErrorIs(t, strategyError, domains.ErrBacktestValidation)
+	assert.Contains(t, strategyError.Error(), "訂單流一次至多涵蓋 31 天")
 }

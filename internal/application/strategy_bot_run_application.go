@@ -37,6 +37,8 @@ type StrategyBotRunApplication struct {
 	replicaName         string
 	maxConcurrentRounds int
 	roundTimeout        time.Duration
+	// orderFlowPreparationAllowance bounds gathering footprints within a round, so a slow first gather skips the round instead of overrunning it.
+	orderFlowPreparationAllowance time.Duration
 }
 
 func NewStrategyBotRunApplication(
@@ -52,6 +54,7 @@ func NewStrategyBotRunApplication(
 	replicaName string,
 	maxConcurrentRounds int,
 	roundTimeout time.Duration,
+	orderFlowPreparationAllowance time.Duration,
 ) *StrategyBotRunApplication {
 	return &StrategyBotRunApplication{
 		strategyBotService:                  strategyBotService,
@@ -66,6 +69,7 @@ func NewStrategyBotRunApplication(
 		replicaName:                         replicaName,
 		maxConcurrentRounds:                 maxConcurrentRounds,
 		roundTimeout:                        roundTimeout,
+		orderFlowPreparationAllowance:       orderFlowPreparationAllowance,
 	}
 }
 
@@ -356,6 +360,8 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 					ResultType:      string(vo.IndicatorResultTypeSignal),
 					Parameters:      runnableStrategyScript.Parameters,
 					ParameterValues: signalSource.ParameterValues,
+					// Only contract scripts may declare order flow, so a spot calculation never reads it.
+					OrderFlowPreparationAllowance: strategyBotRunApplication.orderFlowPreparationAllowance,
 				})
 			if calculateError != nil {
 				sourceErrors[resultIndex] = calculateError

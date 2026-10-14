@@ -19,6 +19,7 @@ type ContractBacktestService struct {
 	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
 	contractIndicatorScriptProxy            domaininterface.IContractIndicatorScriptProxy
+	contractOrderFlowService                *ContractOrderFlowService
 	clockProxy                              domaininterface.IClockProxy
 	maxCandleCount                          int
 	defaultWarmupBarCount                   int
@@ -31,6 +32,7 @@ func NewContractBacktestService(
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	contractIndicatorScriptProxy domaininterface.IContractIndicatorScriptProxy,
+	contractOrderFlowService *ContractOrderFlowService,
 	clockProxy domaininterface.IClockProxy,
 	maxCandleCount int,
 	defaultWarmupBarCount int,
@@ -42,6 +44,7 @@ func NewContractBacktestService(
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractIndicatorScriptProxy:            contractIndicatorScriptProxy,
+		contractOrderFlowService:                contractOrderFlowService,
 		clockProxy:                              clockProxy,
 		maxCandleCount:                          maxCandleCount,
 		defaultWarmupBarCount:                   defaultWarmupBarCount,
@@ -56,6 +59,7 @@ func (contractBacktestService *ContractBacktestService) ValidateContractBacktest
 	if rulesError != nil {
 		return rulesError
 	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	_, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 
@@ -69,6 +73,7 @@ func (contractBacktestService *ContractBacktestService) ValidateContractTradingS
 	if rulesError != nil {
 		return rulesError
 	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	_, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 
@@ -90,19 +95,23 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	contractBacktestDomain, validationError := domains.NewContractBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {
 		return dto.ContractBacktestResultDto{}, validationError
 	}
 
-	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
+	alignment, alignedBars, settlements, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
+	}
+
+	contractKCandles, attachError := contractBacktestService.contractOrderFlowService.AttachFootprints(
+		replayContext, alignment, alignedBars, contractBacktestDomain.Parameters(), 0)
+	if attachError != nil {
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, attachError)
 	}
 
 	perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
@@ -135,9 +144,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
-	if requestDto.DefaultWarmupBarCount == 0 {
-		requestDto.DefaultWarmupBarCount = contractBacktestService.defaultWarmupBarCount
-	}
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
 	strategyBacktestDomain, validationError := domains.NewContractTradingStrategyBacktestDomain(
 		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
 	if validationError != nil {
@@ -154,11 +161,18 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	sourceCount := strategyBacktestDomain.SourceCount()
 	signalsBySource := make([][]domains.SignalDomain, 0, sourceCount)
 	for sourceIndex := range sourceCount {
+		// Each source gets footprints at its own price step; sources sharing a step share remembered days.
+		sourceBars, attachError := contractBacktestService.contractOrderFlowService.AttachFootprints(
+			replayContext, alignment, contractKCandles, strategyBacktestDomain.SourceParameters(sourceIndex), 0)
+		if attachError != nil {
+			return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, attachError)
+		}
+
 		perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
 			replayContext,
 			strategyBacktestDomain.SourceScript(sourceIndex),
 			contractBacktestDomain.ResultType(),
-			contractKCandles,
+			sourceBars,
 			strategyBacktestDomain.SourceParameters(sourceIndex),
 			newSourceReplayProgress(progress, sourceIndex, sourceCount))
 		// One failing source ends the replay; missing signals would silently make conditions false.

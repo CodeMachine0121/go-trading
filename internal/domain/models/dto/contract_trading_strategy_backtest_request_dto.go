@@ -66,3 +66,12 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRe
 		DefaultWarmupBarCount: requestDto.DefaultWarmupBarCount,
 	}
 }
+
+// WarmingUpByDefault fills in the server's default warm-up when the request names none, so judging a replay and running it read the same stretch.
+func (requestDto ContractTradingStrategyBacktestRequestDto) WarmingUpByDefault(defaultWarmupBarCount int) ContractTradingStrategyBacktestRequestDto {
+	if requestDto.DefaultWarmupBarCount == 0 {
+		requestDto.DefaultWarmupBarCount = defaultWarmupBarCount
+	}
+
+	return requestDto
+}

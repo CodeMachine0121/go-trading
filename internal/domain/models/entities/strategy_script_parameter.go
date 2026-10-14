@@ -33,6 +33,11 @@ func (strategyScriptParameter StrategyScriptParameter) IsLookbackCount() bool {
 	return vo.StrategyScriptParameterKindVo(strategyScriptParameter.Kind) == vo.StrategyScriptParameterKindLookbackCount
 }
 
+// IsOrderFlowPriceStep reports whether this parameter asks for order flow footprints at its width.
+func (strategyScriptParameter StrategyScriptParameter) IsOrderFlowPriceStep() bool {
+	return vo.StrategyScriptParameterKindVo(strategyScriptParameter.Kind) == vo.StrategyScriptParameterKindOrderFlowPriceStep
+}
+
 func (strategyScriptParameter StrategyScriptParameter) IsBoolean() bool {
 	return vo.StrategyScriptParameterKindVo(strategyScriptParameter.Kind) == vo.StrategyScriptParameterKindBoolean
 }

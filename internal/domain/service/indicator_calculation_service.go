@@ -60,6 +60,9 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	if validationError != nil {
 		return dto.IndicatorCalculationResultDto{}, validationError
 	}
+	if kindError := calculationDomain.RequireSpotParameters(); kindError != nil {
+		return dto.IndicatorCalculationResultDto{}, kindError
+	}
 
 	newestFirstKCandles, findError := indicatorCalculationService.kCandleRepository.FindLatestBefore(
 		executionContext,

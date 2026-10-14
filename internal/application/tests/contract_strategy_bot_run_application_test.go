@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -383,4 +384,132 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	require.NoError(t, runError)
+}
+
+// expectOrderFlowSources makes both scripts contract scripts declaring an order flow price step, read over the given stored bars at the given coarseness.
+func (underTest strategyBotRunUnderTest) expectOrderFlowSources(
+	interval string, storedOpenTimes []time.Time, extraParameters ...entities.StrategyScriptParameter,
+) {
+	for index := range underTest.tradingStrategy.SignalSources {
+		underTest.tradingStrategy.SignalSources[index].AggregationInterval = interval
+	}
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
+				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id),
+				ResultType: "signal", MarketDataKind: string(vo.MarketDataKindContractKCandle),
+				Parameters: append([]entities.StrategyScriptParameter{
+					{Name: "寬", Kind: "orderFlowPriceStep", DefaultValue: 10},
+				}, extraParameters...),
+			}, nil
+		}).AnyTimes()
+	newestFirst := []entities.KCandleContract{}
+	for index := len(storedOpenTimes) - 1; index >= 0; index-- {
+		newestFirst = append(newestFirst, storedContractCandlesAt(storedOpenTimes[index])...)
+	}
+	underTest.kCandleContractRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		Return(newestFirst, nil).AnyTimes()
+}
+
+func (underTest strategyBotRunUnderTest) expectOneDueContractBotRound(t *testing.T, check func(entities.StrategyBot)) {
+	dueBot := aDueContractBot(string(vo.SignalBuy))
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
+		Return([]entities.StrategyBot{dueBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(dueBot, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			check(bot)
+
+			return nil
+		})
+}
+
+func TestAContractBotWhoseOrderFlowIsNotGatheredInTimeSkipsTheRound(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectTheContractsLatestCandle("100")
+	underTest.expectOrderFlowSources("5m", []time.Time{at(9, 5)})
+	// Today's trades come live, and this venue never finishes answering.
+	underTest.tradeHistoryProxy.EXPECT().VisitTradesBetween(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, _ string, _ time.Time, _ time.Time, _ func(vo.ContractAggregatedTradeVo)) error {
+			<-executionContext.Done()
+
+			return executionContext.Err()
+		}).AnyTimes()
+	underTest.expectNoRoundMessage()
+	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
+		assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
+		assert.Empty(t, bot.HaltReason)
+		assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+	})
+
+	startedAt := time.Now()
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	assert.Less(t, time.Since(startedAt), 10*time.Second, "這一輪在備齊時間到時就放棄，不等到整輪逾時")
+}
+
+func TestAContractBotAskingForOrderFlowPastThirtyOneDaysIsHalted(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectTheContractsLatestCandle("100")
+	dailyBars := []time.Time{}
+	for daysBack := 40; daysBack >= 1; daysBack-- {
+		dailyBars = append(dailyBars, at(0, 0).AddDate(0, 0, -daysBack))
+	}
+	underTest.expectOrderFlowSources("1d", dailyBars,
+		entities.StrategyScriptParameter{Name: "期數", Kind: "lookbackCount", DefaultValue: 40})
+	underTest.expectNoRoundMessage()
+	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
+		assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
+		assert.Equal(t, string(vo.StrategyBotHaltOrderFlowRefused), bot.HaltReason)
+	})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}
+
+func TestAContractBotWhoseOrderFlowIsReadyConcludesAsUsual(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectTheContractsLatestCandle("100")
+	underTest.expectOrderFlowSources("5m", []time.Time{at(9, 5)})
+	underTest.tradeHistoryProxy.EXPECT().VisitTradesBetween(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ time.Time, _ time.Time, visit func(vo.ContractAggregatedTradeVo)) error {
+			visit(vo.ContractAggregatedTradeVo{Price: decimal.NewFromInt(100), Quantity: 1, TradeCount: 1,
+				TradeTime: at(9, 6), BuyerIsTaker: true})
+
+			return nil
+		})
+	// The two sources run at once, so what they saw is collected under a lock.
+	footprintsSeen := []vo.OrderFlowFootprintVo{}
+	footprintsLock := sync.Mutex{}
+	underTest.contractIndicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+			_ domains.StrategyScriptParametersDomain) (map[string]vo.IndicatorValueVo, error) {
+			footprintsLock.Lock()
+			defer footprintsLock.Unlock()
+			footprintsSeen = append(footprintsSeen, bars[len(bars)-1].Footprint)
+
+			return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalSell}}, nil
+		}).Times(2)
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "合約突破 · BTCUSDT 永續合約")
+	})
+	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
+		assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
+		assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+	})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	require.Len(t, footprintsSeen, 2)
+	for _, footprint := range footprintsSeen {
+		assert.Equal(t, 100.0, footprint.PointOfControl, "兩個信號來源都讀到同一份備齊的足跡")
+	}
 }

@@ -6806,6 +6806,94 @@
           ]
         },
         {
+          "name": "建立宣告訂單流價位寬度的合約策略腳本",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{contractStrategyScriptId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{contractStrategyScriptId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"訂單流足跡 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"parameters\": [\n    {\n      \"name\": \"價位寬度\",\n      \"kind\": \"orderFlowPriceStep\",\n      \"defaultValue\": 10\n    }\n  ],\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.ContractKCandle) map[string]float64 {\\n\\tfootprint := data[len(data)-1].Footprint\\n\\tbuy := 0.0\\n\\tfor _, level := range footprint.Levels {\\n\\t\\tbuy += level.BuyVolume\\n\\t}\\n\\treturn map[string]float64{\\\"delta\\\": footprint.Delta, \\\"pointOfControl\\\": footprint.PointOfControl, \\\"priceStep\\\": footprint.PriceStep, \\\"buy\\\": buy}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "宣告一個 `orderFlowPriceStep` 參數（大於零，至多一個，只限 `contractKCandle`），每一格的 `Footprint` 就帶著依這個寬度整理的訂單流足跡：`PriceStep`、`Levels`（每個價位的 `Price`／`BuyVolume`／`SellVolume`／`TradeCount`，由低到高）、`Delta`、`PointOfControl`。訂單流不落地：過完的日子取交易所每日歷史檔、今天用即時查詢，一次至多 31 天、一格至多 1,000 個價位、一次至多 2,000,000 個價位。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"建立成功\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.test(\"參數種類是訂單流價位寬度\", () => pm.expect(pm.response.json().parameters[0].kind).to.eql(\"orderFlowPriceStep\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K 線策略腳本不得宣告訂單流價位寬度",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{contractStrategyScriptId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{contractStrategyScriptId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"不該存在 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"marketDataKind\": \"kCandle\",\n  \"parameters\": [\n    {\n      \"name\": \"價位寬度\",\n      \"kind\": \"orderFlowPriceStep\",\n      \"defaultValue\": 10\n    }\n  ],\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 { return nil }\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "訂單流只提供給合約行情種類的策略腳本；K 線種類宣告即拒絕。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"被拒絕\", () => pm.expect(pm.response.code).to.eql(400));",
+                  "pm.test(\"說出只提供給合約行情\", () => pm.expect(pm.response.json().message).to.include(\"訂單流價位寬度只提供給合約行情種類的策略腳本\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "收尾：刪掉吃合約行情的那一支",
           "request": {
             "method": "DELETE",

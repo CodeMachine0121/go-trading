@@ -10,4 +10,6 @@ const (
 	StrategyScriptParameterKindNumber StrategyScriptParameterKindVo = "number"
 	// StrategyScriptParameterKindBoolean is stored as exactly zero or one.
 	StrategyScriptParameterKindBoolean StrategyScriptParameterKindVo = "boolean"
+	// StrategyScriptParameterKindOrderFlowPriceStep is a positive price width; declaring it is what asks for order flow footprints, so the system reads it like a look-back count.
+	StrategyScriptParameterKindOrderFlowPriceStep StrategyScriptParameterKindVo = "orderFlowPriceStep"
 )

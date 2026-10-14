@@ -42,3 +42,17 @@ func (kCandleQueryDomain KCandleQueryDomain) StartTime() time.Time {
 func (kCandleQueryDomain KCandleQueryDomain) EndTime() time.Time {
 	return kCandleQueryDomain.endTime
 }
+
+// requireOrderFlowReach refuses a replay whose whole stretch, warm-up included, spans more days of order flow than one run may hold, so it is refused when submitted rather than after it was queued; a script declaring no price step is never refused.
+func (kCandleQueryDomain KCandleQueryDomain) requireOrderFlowReach(parameters StrategyScriptParametersDomain) error {
+	if _, declaresOrderFlow := parameters.OrderFlowPriceStep(); !declaresOrderFlow {
+		return nil
+	}
+
+	reachError := OrderFlowReachDomain{start: kCandleQueryDomain.startTime, end: kCandleQueryDomain.endTime}.requireWithinDays()
+	if reachError != nil {
+		return fmt.Errorf("%w: %w", ErrBacktestValidation, reachError)
+	}
+
+	return nil
+}

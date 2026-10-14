@@ -29,6 +29,10 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}
 
+	// Halted rather than skipped, both for reaching past 31 days and for too many price levels: a price step too fine for the symbol would otherwise skip every round without the owner ever hearing why. A source not answering or not ready in time skips.
+	case errors.Is(roundError, ErrContractOrderFlowRefused):
+		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltOrderFlowRefused}
+
 	default:
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltNone}
 	}

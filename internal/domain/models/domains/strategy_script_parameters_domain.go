@@ -26,6 +26,7 @@ func NewStrategyScriptParametersDomain(
 ) (StrategyScriptParametersDomain, error) {
 	settledParameters := make([]entities.StrategyScriptParameter, 0, len(declaredParameters))
 	takenNames := make(map[string]struct{}, len(declaredParameters))
+	declaresOrderFlowPriceStep := false
 
 	for _, declaredParameter := range declaredParameters {
 		settledParameter, settleError := settleStrategyScriptParameter(declaredParameter)
@@ -39,6 +40,15 @@ func NewStrategyScriptParametersDomain(
 				ErrStrategyScriptParameterValidation, settledParameter.Name)
 		}
 		takenNames[settledParameter.Name] = struct{}{}
+
+		// One width per script: two would ask for two different footprints on the same bar, and the bar has room for one.
+		if settledParameter.IsOrderFlowPriceStep() {
+			if declaresOrderFlowPriceStep {
+				return StrategyScriptParametersDomain{}, fmt.Errorf(
+					"%w: 訂單流價位寬度至多宣告一個", ErrStrategyScriptParameterValidation)
+			}
+			declaresOrderFlowPriceStep = true
+		}
 
 		settledParameters = append(settledParameters, settledParameter)
 	}
@@ -89,6 +99,32 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) MaximumLook
 	}
 
 	return maximumLookbackCount
+}
+
+// OrderFlowPriceStep is the width footprints are tallied at; false means the script asked for no order flow.
+func (strategyScriptParametersDomain StrategyScriptParametersDomain) OrderFlowPriceStep() (OrderFlowPriceStepDomain, bool) {
+	for _, parameter := range strategyScriptParametersDomain.parameters {
+		if parameter.IsOrderFlowPriceStep() {
+			// Values are validated positive on settling and on applying, so this cannot fail.
+			priceStep, _ := NewOrderFlowPriceStepDomain(parameter.DefaultValue)
+
+			return priceStep, true
+		}
+	}
+
+	return OrderFlowPriceStepDomain{}, false
+}
+
+// RequireMarketDataKind refuses order flow on K candle scripts: spot bars have no footprint to give, and ignoring the declaration would let the author believe it did something.
+func (strategyScriptParametersDomain StrategyScriptParametersDomain) RequireMarketDataKind(
+	marketDataKind MarketDataKindDomain,
+) error {
+	if _, declaresOrderFlow := strategyScriptParametersDomain.OrderFlowPriceStep(); declaresOrderFlow &&
+		!marketDataKind.IsContract() {
+		return fmt.Errorf("%w: 訂單流價位寬度只提供給合約行情種類的策略腳本", ErrStrategyScriptParameterValidation)
+	}
+
+	return nil
 }
 
 // LookbackCountOf's second result distinguishes an undeclared name from a broken algorithm.
@@ -188,8 +224,16 @@ func settleStrategyScriptParameter(
 	return settledParameter, nil
 }
 
-// validateStrategyScriptParameterValue requires look-back counts to be positive integers; plain numbers are never judged.
+// validateStrategyScriptParameterValue requires look-back counts to be positive integers and order flow price steps to be positive; plain numbers are never judged.
 func validateStrategyScriptParameterValue(parameter entities.StrategyScriptParameter) error {
+	if parameter.IsOrderFlowPriceStep() {
+		if _, priceStepError := NewOrderFlowPriceStepDomain(parameter.DefaultValue); priceStepError != nil {
+			return fmt.Errorf("%w: 參數 %q %w", ErrStrategyScriptParameterValidation, parameter.Name, priceStepError)
+		}
+
+		return nil
+	}
+
 	if !parameter.IsLookbackCount() {
 		return nil
 	}
