@@ -549,7 +549,7 @@ func loadAsWritten() ApplicationConfig {
 			MarketDataStreamUrl: stringWithDefault(
 				"MARKET_DATA_STREAM_URL", "wss://stream.binance.com:9443/ws"),
 			ContractMarketDataStreamUrl: stringWithDefault(
-				"CONTRACT_MARKET_DATA_STREAM_URL", "wss://fstream.binance.com/ws"),
+				"CONTRACT_MARKET_DATA_STREAM_URL", "wss://fstream.binance.com/market/ws"),
 		},
 		Assistant: AssistantConfig{
 			ApiKey: stringWithDefault("ANTHROPIC_API_KEY", ""),

@@ -191,7 +191,7 @@ curl localhost:8080/health
 | `CONTRACT_ORDER_FLOW_MEMORY_MEGABYTES` | `256` | 整理好的訂單流在記憶中暫留的上限，滿了先丟最久沒用的。改了它，部署的記憶體上限要一起重算 |
 | `CONTRACT_ORDER_FLOW_BOT_PREPARATION_SECONDS` | `40` | 合約機器人一輪最多花多久備齊訂單流；來不及就跳過這一輪，已拿到的留著下一輪接著補 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
-| `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/ws` | 合約即時跟盤的行情來源位址 |
+| `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/market/ws` | 合約即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
 | `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
 | `LIVE_FEED_MAX_RETRY_DELAY_SECONDS` | `30` | 重連間隔逐次加倍的上限；系統不放棄重試 |
@@ -1313,7 +1313,7 @@ data: {"symbol":"BTCUSDT","status":"stalled","kCandle":{...}}
   所以走完的那一根**只給看**，由每分鐘那一輪以四份齊全存入（一分鐘內）。
 - 合約永不休市、沒有名額，所以只會出現 `forming`、`closed`、`stalled` 三種。
 - 節流（十秒）、靜默逾時、最長重試間隔與現貨共用 `LIVE_*` 三個設定；
-  來源連線位址是合約自己的 `CONTRACT_MARKET_DATA_STREAM_URL`（預設 `wss://fstream.binance.com/ws`）。
+  來源連線位址是合約自己的 `CONTRACT_MARKET_DATA_STREAM_URL`（預設 `wss://fstream.binance.com/market/ws`）。
 
 ## 策略腳本自己的旋鈕
 

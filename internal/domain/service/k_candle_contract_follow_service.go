@@ -44,7 +44,7 @@ func NewKCandleContractFollowService(
 		channels:                        make(map[string]*kCandleFollowChannel),
 	}
 	kCandleContractFollowService.feed = newKCandleFollowFeed(
-		liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay,
+		"contract", liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay,
 		kCandleContractFollowService.report)
 
 	return kCandleContractFollowService
