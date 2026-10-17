@@ -10,6 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -163,4 +164,48 @@ func TestBackgroundRoundReportsAContractThatFails(t *testing.T) {
 
 	assert.ErrorIs(t, roundError, readFailure)
 	assert.ErrorContains(t, roundError, "ETHUSDT")
+}
+
+func TestBackgroundRoundStoresTheFinishedDayWithEachOfItsHours(t *testing.T) {
+	underTest := newSummaryServiceUnderTest(t,
+		[]entities.TradingSymbol{{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)}}, nil)
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(16), octoberDay(18)).
+		Return([]entities.KCandleSummaryDay{{Symbol: "BTCUSDT", Day: octoberDay(16), Summarized: true}}, nil)
+	underTest.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(17).Add(lastNanosecondOfADay)), minutesInADay).
+		Return([]entities.KCandle{
+			{Symbol: "BTCUSDT", OpenTime: octoberDay(17).Add(9 * time.Hour), Volume: decimal.RequireFromString("1")},
+			{Symbol: "BTCUSDT", OpenTime: octoberDay(17).Add(15 * time.Hour), Volume: decimal.RequireFromString("2")},
+		}, nil)
+	underTest.summaryDayRepository.EXPECT().
+		SaveSummarized(gomock.Any(), gomock.Cond(func(summaryDay entities.KCandleSummaryDay) bool {
+			intervals := map[string]int{}
+			for _, summary := range summaryDay.Summaries {
+				intervals[summary.Interval]++
+			}
+
+			return summaryDay.Day.Equal(octoberDay(17)) && intervals["1h"] == 2 && intervals["1d"] == 1
+		})).
+		Return(true, nil)
+
+	require.NoError(t, underTest.service.SummarizeRecentDays(t.Context()))
+}
+
+func TestBackgroundRoundNeverSummarizesASymbolOnNoList(t *testing.T) {
+	underTest := newSummaryServiceUnderTest(t,
+		[]entities.TradingSymbol{{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)}}, nil)
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandleSummaryDay{
+			{Symbol: "BTCUSDT", Day: octoberDay(16), Summarized: true},
+			{Symbol: "BTCUSDT", Day: octoberDay(17), Summarized: true},
+		}, nil)
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "ETHUSDT", gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.contractSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "ETHUSDT", gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Times(0)
+
+	require.NoError(t, underTest.service.SummarizeRecentDays(t.Context()))
 }

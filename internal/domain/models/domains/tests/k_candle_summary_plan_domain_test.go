@@ -169,3 +169,30 @@ func TestSummaryPlanMergesAMissingDayFromEveryMinuteOfIt(t *testing.T) {
 	assert.Equal(t, summaryMoment("2026-10-11T23:59:59.999999999Z"), dayStretch.EndTime())
 	assert.Equal(t, 1440, dayStretch.MinuteCapacity())
 }
+
+func TestSummaryPlanNeverReadsMoreThanADayOfMinutesPerStretch(t *testing.T) {
+	testCases := []struct {
+		name      string
+		interval  string
+		startTime string
+		endTime   string
+	}{
+		{"nine hundred days ending inside a day", "1d", "2024-04-25T16:17:48.450Z", "2026-10-12T16:17:48.450Z"},
+		{"four hours up to now", "4h", "2026-09-01T03:10:00Z", "2026-10-18T10:20:00Z"},
+		{"hours reaching into the future", "1h", "2026-10-01T00:00:00Z", "2026-11-05T00:00:00Z"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			planDomain := summaryPlanAt(t, testCase.interval, summaryMoment(testCase.startTime), summaryMoment(testCase.endTime))
+
+			for _, stretch := range planDomain.MinuteStretches() {
+				stretchEnd := stretch.EndTime()
+				if stretchEnd.After(summaryPlanNow) {
+					stretchEnd = summaryPlanNow
+				}
+				assert.LessOrEqual(t, int(stretchEnd.Sub(stretch.StartTime())/time.Minute)+1, 1440)
+			}
+		})
+	}
+}

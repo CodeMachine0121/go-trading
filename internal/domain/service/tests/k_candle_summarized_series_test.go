@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -432,4 +433,110 @@ func TestSpotCoarseSeriesReportsWhicheverReadFails(t *testing.T) {
 			assert.ErrorIs(t, seriesError, failure)
 		})
 	}
+}
+
+func TestNineHundredSummarizedDaysAnswerEveryFigureOfEachDaysSummary(t *testing.T) {
+	underTest := newSummarizedContractSeriesUnderTest(t)
+	firstDay := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
+	lastDayEnd := firstDay.Add(900 * domains.KCandleSummaryDayLength)
+	summaryDays := make([]entities.KCandleContractSummaryDay, 0, 900)
+	for dayIndex := range 900 {
+		day := firstDay.Add(time.Duration(dayIndex) * domains.KCandleSummaryDayLength)
+		summary := entities.KCandleContractSummary{
+			Symbol: "BTCUSDT", Interval: string(vo.AggregationIntervalOneDay), OpenTime: day,
+			Open: decimal.NewFromInt(int64(1000 + dayIndex)), High: decimal.NewFromInt(int64(2000 + dayIndex)),
+			Low: decimal.NewFromInt(int64(500 + dayIndex)), Close: decimal.NewFromInt(int64(1001 + dayIndex)),
+			Volume: decimal.NewFromInt(int64(dayIndex + 1)), QuoteVolume: decimal.NewFromInt(int64(dayIndex + 2)),
+			TakerBuyBaseVolume: decimal.NewFromInt(int64(dayIndex + 3)), TakerBuyQuoteVolume: decimal.NewFromInt(int64(dayIndex + 4)),
+			TradeCount: int64(dayIndex + 5),
+			MarkOpen:   decimal.NewFromInt(int64(1100 + dayIndex)), MarkHigh: decimal.NewFromInt(int64(2100 + dayIndex)),
+			MarkLow: decimal.NewFromInt(int64(600 + dayIndex)), MarkClose: decimal.NewFromInt(int64(1101 + dayIndex)),
+			IndexOpen:         decimal.NewNullDecimal(decimal.NewFromInt(int64(1200 + dayIndex))),
+			IndexHigh:         decimal.NewNullDecimal(decimal.NewFromInt(int64(2200 + dayIndex))),
+			IndexLow:          decimal.NewNullDecimal(decimal.NewFromInt(int64(700 + dayIndex))),
+			IndexClose:        decimal.NewNullDecimal(decimal.NewFromInt(int64(1201 + dayIndex))),
+			PremiumIndexOpen:  decimal.NewNullDecimal(decimal.RequireFromString("0.1")),
+			PremiumIndexHigh:  decimal.NewNullDecimal(decimal.RequireFromString("0.3")),
+			PremiumIndexLow:   decimal.NewNullDecimal(decimal.RequireFromString("-0.1")),
+			PremiumIndexClose: decimal.NewNullDecimal(decimal.RequireFromString("0.2")),
+		}
+		summaryDays = append(summaryDays, summarizedContractDay(day, summary))
+	}
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, firstDay, lastDayEnd).
+		Return(summaryDays, nil)
+	underTest.expectMinutes(lastDayEnd, lastDayEnd, 1, nil, nil)
+
+	series, seriesError := underTest.series(t, "1d", firstDay, lastDayEnd)
+	require.NoError(t, seriesError)
+
+	require.Len(t, series.KCandles, 900)
+	for dayIndex, summaryDay := range summaryDays {
+		// A day merged from its own single summary must read exactly as that summary.
+		assert.Equal(t, summaryDay.Summaries[0].ToKCandleContract().ToDto(), series.KCandles[dayIndex])
+	}
+}
+
+func TestFourHourBucketWithOneHourMissingThePremiumHasNoPremium(t *testing.T) {
+	underTest := newSummarizedContractSeriesUnderTest(t)
+	hourlySummaries := make([]entities.KCandleContractSummary, 0, 24)
+	for hour := range 24 {
+		price := decimal.NewFromInt(int64(100 + hour)).String()
+		summary := contractSummaryAt(vo.AggregationIntervalOneHour,
+			octoberDay(10).Add(time.Duration(hour)*time.Hour), price, price, "1")
+		if hour != 1 {
+			summary.PremiumIndexOpen = decimal.NewNullDecimal(decimal.RequireFromString("0.1"))
+			summary.PremiumIndexHigh = decimal.NewNullDecimal(decimal.RequireFromString("0.2"))
+			summary.PremiumIndexLow = decimal.NewNullDecimal(decimal.RequireFromString("0.0"))
+			summary.PremiumIndexClose = decimal.NewNullDecimal(decimal.RequireFromString("0.1"))
+		}
+		hourlySummaries = append(hourlySummaries, summary)
+	}
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneHour, octoberDay(10), octoberDay(11)).
+		Return([]entities.KCandleContractSummaryDay{summarizedContractDay(octoberDay(10), hourlySummaries...)}, nil)
+	underTest.expectMinutes(octoberDay(11), octoberDay(11), 1, nil, nil)
+
+	series, seriesError := underTest.series(t, "4h", octoberDay(10), octoberDay(11))
+	require.NoError(t, seriesError)
+
+	require.Len(t, series.KCandles, 6)
+	assert.False(t, series.KCandles[0].PremiumIndexOpen.Valid, "the 01:00 hour has no premium index")
+	assert.True(t, series.KCandles[0].MarkClose.Equal(decimal.RequireFromString("103")))
+	assert.True(t, series.KCandles[0].Volume.Equal(decimal.RequireFromString("4")))
+	assert.True(t, series.KCandles[1].PremiumIndexClose.Valid, "04:00–08:00 has every hour's premium index")
+}
+
+func TestWeekWithTwoDaysWithoutMinutesHasFiveDailyCandles(t *testing.T) {
+	underTest := newSummarizedContractSeriesUnderTest(t)
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(10), octoberDay(17)).
+		Return(nil, nil)
+	for day := 10; day < 17; day++ {
+		minutes := []entities.KCandleContract{contractMinuteAt(octoberDay(day).Add(time.Hour), "100", "1")}
+		if day == 11 || day == 12 {
+			minutes = nil
+		}
+		underTest.expectMinutes(octoberDay(day), octoberDay(day).Add(lastNanosecondOfADay), minutesInADay, minutes, nil)
+	}
+	storedEmptyDays := 0
+	underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, summaryDay entities.KCandleContractSummaryDay) (bool, error) {
+			if len(summaryDay.Summaries) == 0 {
+				storedEmptyDays++
+			}
+
+			return true, nil
+		}).Times(7)
+	underTest.expectMinutes(octoberDay(17), octoberDay(17), 1, nil, nil)
+
+	series, seriesError := underTest.series(t, "1d", octoberDay(10), octoberDay(17))
+	require.NoError(t, seriesError)
+
+	require.Len(t, series.KCandles, 5)
+	for _, kCandle := range series.KCandles {
+		assert.NotEqual(t, octoberDay(11), kCandle.OpenTime)
+		assert.NotEqual(t, octoberDay(12), kCandle.OpenTime)
+	}
+	assert.Equal(t, 2, storedEmptyDays, "the two empty days hold no summary candle")
 }
