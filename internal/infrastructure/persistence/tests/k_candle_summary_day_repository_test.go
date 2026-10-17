@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -263,4 +264,160 @@ func TestInvalidatedDaySummarizedAgainCarriesTheNewFigures(t *testing.T) {
 	assert.True(t, isStored)
 	require.Len(t, storedSpotDay(t, database, firstOfMarch).Summaries, 1)
 	assert.True(t, storedSpotDay(t, database, firstOfMarch).Summaries[0].Volume.Equal(decimal.RequireFromString("61")))
+}
+
+func TestSummaryAndMinuteWritesReportAStorageThatCannotBeReached(t *testing.T) {
+	database := newTestDatabase(t)
+	kCandleRepository := persistence.NewKCandleRepository(database)
+	kCandleContractRepository := persistence.NewKCandleContractRepository(database)
+	summaryDayRepository := persistence.NewKCandleSummaryDayRepository(database)
+	contractSummaryDayRepository := persistence.NewKCandleContractSummaryDayRepository(database)
+	unreachable, cancel := context.WithCancel(t.Context())
+	cancel()
+	minute := spotMinuteAt(firstOfMarch, "100")
+	contractMinute := contractCandleAt("BTCUSDT", firstOfMarch, "100")
+
+	operations := map[string]func() error{
+		"save a minute": func() error { _, writeError := kCandleRepository.Save(unreachable, minute); return writeError },
+		"save minutes if absent": func() error {
+			_, writeError := kCandleRepository.SaveAllIfAbsent(unreachable, []entities.KCandle{minute})
+			return writeError
+		},
+		"update a minute": func() error { _, writeError := kCandleRepository.Update(unreachable, minute); return writeError },
+		"delete a minute": func() error { return kCandleRepository.Delete(unreachable, "BTCUSDT", firstOfMarch) },
+		"save a contract minute": func() error {
+			_, writeError := kCandleContractRepository.Save(unreachable, contractMinute)
+			return writeError
+		},
+		"save contract minutes if absent": func() error {
+			_, writeError := kCandleContractRepository.SaveAllIfAbsent(unreachable, []entities.KCandleContract{contractMinute})
+			return writeError
+		},
+		"update a contract minute": func() error {
+			_, writeError := kCandleContractRepository.Update(unreachable, contractMinute)
+			return writeError
+		},
+		"delete a contract minute": func() error {
+			return kCandleContractRepository.Delete(unreachable, "BTCUSDT", firstOfMarch)
+		},
+		"find summary days": func() error {
+			_, readError := summaryDayRepository.FindDaysInRange(unreachable, "BTCUSDT",
+				vo.AggregationIntervalOneDay, firstOfMarch, secondOfMarch)
+			return readError
+		},
+		"summarize a day": func() error {
+			_, writeError := summaryDayRepository.SaveSummarized(unreachable, summarizedSpotDay(firstOfMarch, 0))
+			return writeError
+		},
+		"find contract summary days": func() error {
+			_, readError := contractSummaryDayRepository.FindDaysInRange(unreachable, "BTCUSDT",
+				vo.AggregationIntervalOneDay, firstOfMarch, secondOfMarch)
+			return readError
+		},
+		"summarize a contract day": func() error {
+			_, writeError := contractSummaryDayRepository.SaveSummarized(unreachable,
+				entities.KCandleContractSummaryDay{Symbol: "BTCUSDT", Day: firstOfMarch})
+			return writeError
+		},
+	}
+
+	for name, operation := range operations {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, operation())
+		})
+	}
+}
+
+func TestDaySummarizedWithTwoCandlesForOneHourIsNotStored(t *testing.T) {
+	database := newTestDatabase(t)
+	duplicatedHour := summarizedSpotDay(firstOfMarch, 0)
+	duplicatedHour.Summaries = append(duplicatedHour.Summaries, duplicatedHour.Summaries[0])
+	contractDuplicatedHour := entities.KCandleContractSummaryDay{Symbol: "BTCUSDT", Day: firstOfMarch,
+		Summaries: []entities.KCandleContractSummary{
+			{Symbol: "BTCUSDT", Interval: "1h", OpenTime: firstOfMarch},
+			{Symbol: "BTCUSDT", Interval: "1h", OpenTime: firstOfMarch},
+		}}
+
+	_, spotError := persistence.NewKCandleSummaryDayRepository(database).SaveSummarized(t.Context(), duplicatedHour)
+	_, contractError := persistence.NewKCandleContractSummaryDayRepository(database).
+		SaveSummarized(t.Context(), contractDuplicatedHour)
+
+	assert.Error(t, spotError)
+	assert.Error(t, contractError)
+	summaryDays, findError := persistence.NewKCandleSummaryDayRepository(database).FindDaysInRange(
+		t.Context(), "BTCUSDT", vo.AggregationIntervalOneDay, firstOfMarch, secondOfMarch)
+	require.NoError(t, findError)
+	assert.Empty(t, summaryDays, "the claim rolls back with the failed summaries")
+}
+
+func TestMinuteWritesTheStorageRefusesLeaveTheDaySummarized(t *testing.T) {
+	database := newTestDatabase(t)
+	kCandleRepository := persistence.NewKCandleRepository(database)
+	kCandleContractRepository := persistence.NewKCandleContractRepository(database)
+	_, seedError := kCandleRepository.Save(t.Context(), spotMinuteAt(firstOfMarch, "100"))
+	require.NoError(t, seedError)
+	_, contractSeedError := kCandleContractRepository.Save(t.Context(), contractCandleAt("BTCUSDT", firstOfMarch, "100"))
+	require.NoError(t, contractSeedError)
+	_, summarizeError := persistence.NewKCandleSummaryDayRepository(database).SaveSummarized(
+		t.Context(), summarizedSpotDay(firstOfMarch, storedSpotDay(t, database, firstOfMarch).Revision))
+	require.NoError(t, summarizeError)
+	// Twenty-one integer digits overflow numeric(38,18), so the storage refuses the minute itself.
+	overflowing := decimal.RequireFromString("123456789012345678901")
+	spotMinute := spotMinuteAt(firstOfMarch, "100")
+	spotMinute.Close = overflowing
+	contractMinute := contractCandleAt("BTCUSDT", firstOfMarch, "100")
+	contractMinute.Close = overflowing
+
+	refusedWrites := map[string]func() error{
+		"save a minute": func() error { _, writeError := kCandleRepository.Save(t.Context(), spotMinute); return writeError },
+		"save new minutes": func() error {
+			_, writeError := kCandleRepository.SaveAllIfAbsent(t.Context(),
+				[]entities.KCandle{spotMinuteAt(firstOfMarch.Add(time.Hour), "123456789012345678901")})
+			return writeError
+		},
+		"update a minute": func() error { _, writeError := kCandleRepository.Update(t.Context(), spotMinute); return writeError },
+		"save a contract minute": func() error {
+			_, writeError := kCandleContractRepository.Save(t.Context(), contractMinute)
+			return writeError
+		},
+		"save new contract minutes": func() error {
+			overflowingNew := contractCandleAt("BTCUSDT", firstOfMarch.Add(time.Hour), "100")
+			overflowingNew.Close = overflowing
+			_, writeError := kCandleContractRepository.SaveAllIfAbsent(t.Context(), []entities.KCandleContract{overflowingNew})
+			return writeError
+		},
+		"update a contract minute": func() error {
+			_, writeError := kCandleContractRepository.Update(t.Context(), contractMinute)
+			return writeError
+		},
+	}
+
+	for name, refusedWrite := range refusedWrites {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, refusedWrite())
+			assert.True(t, storedSpotDay(t, database, firstOfMarch).Summarized)
+		})
+	}
+}
+
+func TestContractMergeReadBeforeAMinuteChangedIsNotStored(t *testing.T) {
+	database := newTestDatabase(t)
+	kCandleContractRepository := persistence.NewKCandleContractRepository(database)
+	contractSummaryDayRepository := persistence.NewKCandleContractSummaryDayRepository(database)
+	_, firstWriteError := kCandleContractRepository.Save(t.Context(), contractCandleAt("BTCUSDT", firstOfMarch, "100"))
+	require.NoError(t, firstWriteError)
+	_, laterWriteError := kCandleContractRepository.Save(t.Context(), contractCandleAt("BTCUSDT", firstOfMarch.Add(time.Hour), "101"))
+	require.NoError(t, laterWriteError)
+
+	isStored, saveError := contractSummaryDayRepository.SaveSummarized(t.Context(),
+		entities.KCandleContractSummaryDay{Symbol: "BTCUSDT", Day: firstOfMarch, Revision: 1})
+	require.NoError(t, saveError)
+
+	assert.False(t, isStored, "two writes moved the revision past the one the merge read")
+	summaryDays, findError := contractSummaryDayRepository.FindDaysInRange(t.Context(), "BTCUSDT",
+		vo.AggregationIntervalOneDay, firstOfMarch, secondOfMarch)
+	require.NoError(t, findError)
+	require.Len(t, summaryDays, 1)
+	assert.False(t, summaryDays[0].Summarized)
+	assert.Equal(t, int64(2), summaryDays[0].Revision)
 }

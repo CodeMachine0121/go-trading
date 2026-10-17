@@ -150,3 +150,17 @@ func TestBackgroundRoundReportsAnUnreadableWatchlist(t *testing.T) {
 		})
 	}
 }
+
+func TestBackgroundRoundReportsAContractThatFails(t *testing.T) {
+	readFailure := errors.New("database unreachable")
+	underTest := newSummaryServiceUnderTest(t, nil,
+		[]entities.ContractTradingSymbol{{Symbol: "ETHUSDT", IsWatched: true}})
+	underTest.contractSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "ETHUSDT", vo.AggregationIntervalOneDay, octoberDay(16), octoberDay(18)).
+		Return(nil, readFailure)
+
+	roundError := underTest.service.SummarizeRecentDays(t.Context())
+
+	assert.ErrorIs(t, roundError, readFailure)
+	assert.ErrorContains(t, roundError, "ETHUSDT")
+}

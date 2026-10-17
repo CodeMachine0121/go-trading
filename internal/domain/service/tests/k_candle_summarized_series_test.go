@@ -354,3 +354,82 @@ func TestSpotDailySeriesKeepsFiguresNoMinuteReportedUnreported(t *testing.T) {
 	assert.False(t, series.KCandles[0].QuoteVolume.Valid)
 	assert.True(t, series.KCandles[0].Volume.Equal(decimal.RequireFromString("1")))
 }
+
+func TestCoarseSeriesReportsWhicheverReadFails(t *testing.T) {
+	failure := errors.New("storage unreachable")
+	testCases := []struct {
+		name    string
+		arrange func(underTest summarizedContractSeriesUnderTest)
+	}{
+		{"reading the day states", func(underTest summarizedContractSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, failure)
+		}},
+		{"storing a merged day", func(underTest summarizedContractSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay), minutesInADay, nil, nil)
+			underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(false, failure)
+		}},
+		{"reading the partial end", func(underTest summarizedContractSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]entities.KCandleContractSummaryDay{{Day: octoberDay(11), Summarized: true}}, nil)
+			underTest.expectMinutes(octoberDay(12), octoberDay(12), 1, nil, failure)
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSummarizedContractSeriesUnderTest(t)
+			testCase.arrange(underTest)
+
+			_, seriesError := underTest.series(t, "1d", octoberDay(11), octoberDay(12))
+
+			assert.ErrorIs(t, seriesError, failure)
+		})
+	}
+}
+
+func TestSpotCoarseSeriesReportsWhicheverReadFails(t *testing.T) {
+	failure := errors.New("storage unreachable")
+	testCases := []struct {
+		name    string
+		arrange func(underTest summarizedSpotSeriesUnderTest)
+	}{
+		{"reading the day states", func(underTest summarizedSpotSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, failure)
+		}},
+		{"reading a missing day", func(underTest summarizedSpotSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), minutesInADay).Return(nil, failure)
+		}},
+		{"storing a merged day", func(underTest summarizedSpotSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), minutesInADay).Return(nil, nil)
+			underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(false, failure)
+		}},
+		{"reading the partial end", func(underTest summarizedSpotSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]entities.KCandleSummaryDay{{Day: octoberDay(11), Revision: 2, Summarized: true,
+					Summaries: []entities.KCandleSummary{{Symbol: "BTCUSDT", Interval: "1d", OpenTime: octoberDay(11)}}}}, nil)
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), stretchOf(octoberDay(12), octoberDay(12)), 1).
+				Return(nil, failure)
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSummarizedSpotSeriesUnderTest(t)
+			testCase.arrange(underTest)
+
+			_, seriesError := underTest.service.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
+				Symbol: "BTCUSDT", StartTime: octoberDay(11), EndTime: octoberDay(12), Interval: "1d",
+			})
+
+			assert.ErrorIs(t, seriesError, failure)
+		})
+	}
+}
