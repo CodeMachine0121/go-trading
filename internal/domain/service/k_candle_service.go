@@ -103,23 +103,13 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 		return dto.KCandleSeriesDto{}, validationError
 	}
 
-	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, kCandleService.clockProxy.Now())
-	if planDomain.UsesSummaries() {
-		sourceCandles, readError := kCandleService.summarizedSeriesReader.read(executionContext, planDomain)
-		if readError != nil {
-			return dto.KCandleSeriesDto{}, readError
-		}
-
-		return seriesQueryDomain.SeriesOf(sourceCandles).ToDto(), nil
+	sourceCandles, readError := kCandleService.summarizedSeriesReader.read(
+		executionContext, seriesQueryDomain, kCandleService.clockProxy.Now())
+	if readError != nil {
+		return dto.KCandleSeriesDto{}, readError
 	}
 
-	kCandles, findError := kCandleService.kCandleRepository.FindInRange(
-		executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
-	if findError != nil {
-		return dto.KCandleSeriesDto{}, findError
-	}
-
-	return seriesQueryDomain.SeriesOf(kCandles).ToDto(), nil
+	return seriesQueryDomain.SeriesOf(sourceCandles).ToDto(), nil
 }
 
 func (kCandleService *KCandleService) GetKCandle(

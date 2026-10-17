@@ -15,7 +15,7 @@ import (
 // recentSummaryWindow is how far back each round looks: the last two finished days, so yesterday is summarized again after late corrections to its final minutes voided it.
 const recentSummaryWindow = 48 * time.Hour
 
-// KCandleSummaryService fills the recently finished days of every watched spot symbol and contract, so viewers of those rarely wait for a day to be merged; older gaps are filled when someone looks at them.
+// KCandleSummaryService fills watched symbols' recently finished days ahead of viewers; older gaps are filled when someone looks at them.
 type KCandleSummaryService struct {
 	summarizedSeriesReader          kCandleSummarizedSeriesReader
 	contractSummarizedSeriesReader  kCandleContractSummarizedSeriesReader

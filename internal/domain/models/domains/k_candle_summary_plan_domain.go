@@ -9,7 +9,7 @@ import (
 // KCandleSummaryDayLength is the unit summaries are filled, invalidated and versioned in: one UTC day, the coarsest bucket, so every hour belongs to exactly one day.
 const KCandleSummaryDayLength = 24 * time.Hour
 
-// KCandleSummaryPlanDomain splits one coarse series request into whole buckets taken from finished days' summaries and minutes merged live at both ends, so a request never holds much more than a day of minutes however long it is.
+// KCandleSummaryPlanDomain splits a coarse series request into finished days' summaries and live-merged minutes at both ends, so a request holds about a day of minutes at most.
 type KCandleSummaryPlanDomain struct {
 	rangeQuery      KCandleQueryDomain
 	summaryInterval AggregationIntervalDomain

@@ -9,8 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// kCandleSummaryInvalidation voids the summaries of every day a minute write touched, inside that write's transaction, so no reader can see a changed minute next to a summary that predates it.
-// It lives with the minute repositories because every one of the minute write paths ends in them; a summary state row is created here when a day has never been summarized, so a merge already under way still sees its revision move.
+// kCandleSummaryInvalidation voids the days a minute write touched inside that write's transaction; it sits with the minute repositories because every minute write path ends in them.
 type kCandleSummaryInvalidation[TSummaryDay any, TSummary any] struct{}
 
 func (kCandleSummaryInvalidation[TSummaryDay, TSummary]) invalidate(

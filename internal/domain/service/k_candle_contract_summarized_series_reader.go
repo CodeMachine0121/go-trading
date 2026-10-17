@@ -26,8 +26,14 @@ func newKCandleContractSummarizedSeriesReader(
 }
 
 func (reader kCandleContractSummarizedSeriesReader) read(
-	executionContext context.Context, planDomain domains.KCandleSummaryPlanDomain,
+	executionContext context.Context, seriesQueryDomain domains.KCandleSeriesQueryDomain, now time.Time,
 ) ([]entities.KCandleContract, error) {
+	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, now)
+	if !planDomain.UsesSummaries() {
+		return reader.kCandleContractRepository.FindInRange(
+			executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
+	}
+
 	summaries, summariesError := reader.summaries(executionContext, planDomain)
 	if summariesError != nil {
 		return nil, summariesError

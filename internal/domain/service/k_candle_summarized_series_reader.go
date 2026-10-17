@@ -10,7 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// kCandleSummarizedSeriesReader gathers a coarse spot series' source candles: minutes for the partial ends and stored summaries for whole finished days, merging missing days one at a time so at most a day of minutes is held.
+// kCandleSummarizedSeriesReader gathers a spot series' source candles, merging missing days one at a time so at most a day of minutes is held.
 type kCandleSummarizedSeriesReader struct {
 	kCandleRepository    domaininterface.IKCandleRepository
 	summaryDayRepository domaininterface.IKCandleSummaryDayRepository
@@ -25,10 +25,16 @@ func newKCandleSummarizedSeriesReader(
 	}
 }
 
-// read returns candles in the shape of stored minutes, so the series merges summaries exactly as it merges minutes.
+// read returns candles in the shape of stored minutes for any interval, so the series merges summaries exactly as it merges minutes.
 func (reader kCandleSummarizedSeriesReader) read(
-	executionContext context.Context, planDomain domains.KCandleSummaryPlanDomain,
+	executionContext context.Context, seriesQueryDomain domains.KCandleSeriesQueryDomain, now time.Time,
 ) ([]entities.KCandle, error) {
+	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, now)
+	if !planDomain.UsesSummaries() {
+		return reader.kCandleRepository.FindInRange(
+			executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
+	}
+
 	summaries, summariesError := reader.summaries(executionContext, planDomain)
 	if summariesError != nil {
 		return nil, summariesError

@@ -49,23 +49,13 @@ func (kCandleContractService *KCandleContractService) GetKCandleContractSeries(
 			"%w: %w", domains.ErrKCandleContractValidation, validationError)
 	}
 
-	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, kCandleContractService.clockProxy.Now())
-	if planDomain.UsesSummaries() {
-		sourceCandles, readError := kCandleContractService.summarizedSeriesReader.read(executionContext, planDomain)
-		if readError != nil {
-			return dto.KCandleContractSeriesDto{}, readError
-		}
-
-		return seriesQueryDomain.ContractSeriesOf(sourceCandles).ToDto(), nil
+	sourceCandles, readError := kCandleContractService.summarizedSeriesReader.read(
+		executionContext, seriesQueryDomain, kCandleContractService.clockProxy.Now())
+	if readError != nil {
+		return dto.KCandleContractSeriesDto{}, readError
 	}
 
-	kCandleContracts, findError := kCandleContractService.kCandleContractRepository.FindInRange(
-		executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
-	if findError != nil {
-		return dto.KCandleContractSeriesDto{}, findError
-	}
-
-	return seriesQueryDomain.ContractSeriesOf(kCandleContracts).ToDto(), nil
+	return seriesQueryDomain.ContractSeriesOf(sourceCandles).ToDto(), nil
 }
 
 // SaveKCandleContract upserts a candle by symbol and open time without requiring the symbol to be watched, so hand-placed test data needs no watchlist entry.
