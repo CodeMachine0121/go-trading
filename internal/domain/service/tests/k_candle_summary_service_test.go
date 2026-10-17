@@ -65,11 +65,14 @@ func TestBackgroundRoundSummarizesTheLastTwoFinishedDaysOfAWatchedSymbol(t *test
 		Return(nil, nil)
 	gomock.InOrder(
 		underTest.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(16).Add(lastNanosecondOfADay)), minutesInADay).
+			FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(18).Add(-time.Microsecond)), 1).
+			Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: octoberDay(16)}}, nil),
+		underTest.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(16).Add(lastMicrosecondOfADay)), minutesInADay).
 			Return(nil, nil),
 		underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), summaryDayOn(octoberDay(16))).Return(true, nil),
 		underTest.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(17).Add(lastNanosecondOfADay)), minutesInADay).
+			FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(17).Add(lastMicrosecondOfADay)), minutesInADay).
 			Return(nil, nil),
 		underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), summaryDayOn(octoberDay(17))).Return(true, nil),
 	)
@@ -84,7 +87,10 @@ func TestBackgroundRoundSkipsDaysAlreadySummarizedForAWatchedContract(t *testing
 		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(16), octoberDay(18)).
 		Return([]entities.KCandleContractSummaryDay{{Symbol: "BTCUSDT", Day: octoberDay(17), Revision: 1, Summarized: true}}, nil)
 	underTest.kCandleContractRepository.EXPECT().
-		FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(16).Add(lastNanosecondOfADay)), minutesInADay).
+		FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(18).Add(-time.Microsecond)), 1).
+		Return([]entities.KCandleContract{contractMinuteAt(octoberDay(16), "100", "1")}, nil)
+	underTest.kCandleContractRepository.EXPECT().
+		FindInRange(gomock.Any(), stretchOf(octoberDay(16), octoberDay(16).Add(lastMicrosecondOfADay)), minutesInADay).
 		Return([]entities.KCandleContract{contractMinuteAt(octoberDay(16).Add(time.Hour), "100", "1")}, nil)
 	underTest.contractSummaryDayRepository.EXPECT().
 		SaveSummarized(gomock.Any(), gomock.Cond(func(summaryDay entities.KCandleContractSummaryDay) bool {
@@ -173,7 +179,10 @@ func TestBackgroundRoundStoresTheFinishedDayWithEachOfItsHours(t *testing.T) {
 		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(16), octoberDay(18)).
 		Return([]entities.KCandleSummaryDay{{Symbol: "BTCUSDT", Day: octoberDay(16), Summarized: true}}, nil)
 	underTest.kCandleRepository.EXPECT().
-		FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(17).Add(lastNanosecondOfADay)), minutesInADay).
+		FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(18).Add(-time.Microsecond)), 1).
+		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: octoberDay(17)}}, nil)
+	underTest.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), stretchOf(octoberDay(17), octoberDay(17).Add(lastMicrosecondOfADay)), minutesInADay).
 		Return([]entities.KCandle{
 			{Symbol: "BTCUSDT", OpenTime: octoberDay(17).Add(9 * time.Hour), Volume: decimal.RequireFromString("1")},
 			{Symbol: "BTCUSDT", OpenTime: octoberDay(17).Add(15 * time.Hour), Volume: decimal.RequireFromString("2")},

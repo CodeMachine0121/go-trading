@@ -77,7 +77,20 @@ func (reader kCandleSummarizedSeriesReader) summaries(
 		}
 	}
 
-	for _, day := range planDomain.DaysToSummarize(summarizedDays) {
+	daysToSummarize := planDomain.DaysToSummarize(summarizedDays)
+	if len(daysToSummarize) > 0 {
+		probeStretch := planDomain.StretchFromDay(daysToSummarize[0])
+		anyMinute, probeError := reader.kCandleRepository.FindInRange(executionContext, probeStretch, 1)
+		if probeError != nil {
+			return nil, probeError
+		}
+		// Nothing stored there yet (a mistyped symbol, or history not synced): leave the days for when minutes exist.
+		if len(anyMinute) == 0 {
+			daysToSummarize = nil
+		}
+	}
+
+	for _, day := range daysToSummarize {
 		dayQuery := planDomain.DayStretch(day)
 		minutes, minutesError := reader.kCandleRepository.FindInRange(
 			executionContext, dayQuery, dayQuery.MinuteCapacity())

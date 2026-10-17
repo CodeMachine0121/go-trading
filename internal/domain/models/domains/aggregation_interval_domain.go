@@ -95,6 +95,16 @@ func coarsestSelectableAggregationInterval() selectableAggregationInterval {
 	return coarsestInterval
 }
 
+// KCandleSummaryIntervalValues lets storage drop exactly the summary rows a day holds without knowing which lengths are stored.
+func KCandleSummaryIntervalValues() []vo.AggregationIntervalVo {
+	values := make([]vo.AggregationIntervalVo, 0, 2)
+	for _, interval := range summaryIntervals() {
+		values = append(values, interval.value)
+	}
+
+	return values
+}
+
 // summaryIntervals are the lengths summaries are stored at, finest first: the intervals that are their own summary.
 func summaryIntervals() []AggregationIntervalDomain {
 	storedIntervals := make([]AggregationIntervalDomain, 0, 2)

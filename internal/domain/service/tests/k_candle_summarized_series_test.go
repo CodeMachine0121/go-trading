@@ -64,6 +64,12 @@ func (underTest summarizedContractSeriesUnderTest) expectMinutes(
 		Return(minutes, readError)
 }
 
+// expectProbe answers the one-row look for any stored minute from the first missing day to the summarized end.
+func (underTest summarizedContractSeriesUnderTest) expectProbe(firstMissingDay time.Time, summarizedEnd time.Time) *gomock.Call {
+	return underTest.expectMinutes(firstMissingDay, summarizedEnd.Add(-time.Microsecond), 1,
+		[]entities.KCandleContract{contractMinuteAt(firstMissingDay, "100", "1")}, nil)
+}
+
 type stretchMatcher struct{ startTime, endTime time.Time }
 
 func stretchOf(startTime time.Time, endTime time.Time) gomock.Matcher {
@@ -107,8 +113,8 @@ func contractMinuteAt(openTime time.Time, closePrice string, volume string) enti
 }
 
 const (
-	minutesInADay        = 1440
-	lastNanosecondOfADay = 24*time.Hour - time.Nanosecond
+	minutesInADay         = 1440
+	lastMicrosecondOfADay = 24*time.Hour - time.Microsecond
 )
 
 func TestDailySeriesOfSummarizedDaysIsTakenFromTheSummaries(t *testing.T) {
@@ -237,7 +243,8 @@ func TestMissingDaysAreMergedFromTheirMinutesAndStored(t *testing.T) {
 				Return(append([]entities.KCandleContractSummaryDay{
 					summarizedContractDay(octoberDay(10), contractSummaryAt(vo.AggregationIntervalOneDay, octoberDay(10), "100", "101", "10")),
 				}, testCase.missingDayState...), nil)
-			underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay), minutesInADay,
+			underTest.expectProbe(octoberDay(11), octoberDay(12))
+			underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastMicrosecondOfADay), minutesInADay,
 				[]entities.KCandleContract{
 					contractMinuteAt(octoberDay(11).Add(9*time.Hour), "105", "2"),
 					contractMinuteAt(octoberDay(11).Add(9*time.Hour+30*time.Minute), "107", "3"),
@@ -266,17 +273,41 @@ func TestMissingDaysAreMergedFromTheirMinutesAndStored(t *testing.T) {
 func TestDayWithoutMinutesIsStoredAsEmptyAndHasNoCandle(t *testing.T) {
 	underTest := newSummarizedContractSeriesUnderTest(t)
 	underTest.summaryDayRepository.EXPECT().
-		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(11), octoberDay(12)).
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(11), octoberDay(13)).
 		Return(nil, nil)
-	underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay), minutesInADay, nil, nil)
+	underTest.expectProbe(octoberDay(11), octoberDay(13))
+	underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastMicrosecondOfADay), minutesInADay, nil, nil)
+	underTest.expectMinutes(octoberDay(12), octoberDay(12).Add(lastMicrosecondOfADay), minutesInADay,
+		[]entities.KCandleContract{contractMinuteAt(octoberDay(12).Add(time.Hour), "100", "1")}, nil)
 	underTest.summaryDayRepository.EXPECT().
 		SaveSummarized(gomock.Any(), gomock.Cond(func(summaryDay entities.KCandleContractSummaryDay) bool {
-			return summaryDay.Summarized && len(summaryDay.Summaries) == 0
+			return summaryDay.Day.Equal(octoberDay(11)) && summaryDay.Summarized && len(summaryDay.Summaries) == 0
 		})).
 		Return(true, nil)
-	underTest.expectMinutes(octoberDay(12), octoberDay(12), 1, nil, nil)
+	underTest.summaryDayRepository.EXPECT().
+		SaveSummarized(gomock.Any(), gomock.Cond(func(summaryDay entities.KCandleContractSummaryDay) bool {
+			return summaryDay.Day.Equal(octoberDay(12))
+		})).
+		Return(true, nil)
+	underTest.expectMinutes(octoberDay(13), octoberDay(13), 1, nil, nil)
 
-	series, seriesError := underTest.series(t, "1d", octoberDay(11), octoberDay(12))
+	series, seriesError := underTest.series(t, "1d", octoberDay(11), octoberDay(13))
+	require.NoError(t, seriesError)
+
+	require.Len(t, series.KCandles, 1)
+	assert.Equal(t, octoberDay(12), series.KCandles[0].OpenTime)
+}
+
+func TestStretchWithNoMinutesAtAllIsNeitherMergedNorStored(t *testing.T) {
+	underTest := newSummarizedContractSeriesUnderTest(t)
+	underTest.summaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(1), octoberDay(13)).
+		Return(nil, nil)
+	underTest.expectMinutes(octoberDay(1), octoberDay(13).Add(-time.Microsecond), 1, nil, nil)
+	underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectMinutes(octoberDay(13), octoberDay(13), 1, nil, nil)
+
+	series, seriesError := underTest.series(t, "1d", octoberDay(1), octoberDay(13))
 	require.NoError(t, seriesError)
 
 	assert.Empty(t, series.KCandles)
@@ -289,12 +320,13 @@ func TestFillingStopsAtTheFirstDayThatCannotBeReadKeepingTheDaysBefore(t *testin
 		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(10), octoberDay(13)).
 		Return(nil, nil)
 	gomock.InOrder(
-		underTest.expectMinutes(octoberDay(10), octoberDay(10).Add(lastNanosecondOfADay), minutesInADay, nil, nil),
+		underTest.expectProbe(octoberDay(10), octoberDay(13)),
+		underTest.expectMinutes(octoberDay(10), octoberDay(10).Add(lastMicrosecondOfADay), minutesInADay, nil, nil),
 		underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(),
 			gomock.Cond(func(summaryDay entities.KCandleContractSummaryDay) bool {
 				return summaryDay.Day.Equal(octoberDay(10))
 			})).Return(true, nil),
-		underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay), minutesInADay, nil, readFailure),
+		underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastMicrosecondOfADay), minutesInADay, nil, readFailure),
 	)
 
 	_, seriesError := underTest.series(t, "1d", octoberDay(10), octoberDay(13))
@@ -328,6 +360,12 @@ func newSummarizedSpotSeriesUnderTest(t *testing.T) summarizedSpotSeriesUnderTes
 	}
 }
 
+func (underTest summarizedSpotSeriesUnderTest) expectSpotProbe(firstMissingDay time.Time, summarizedEnd time.Time, probeError error) *gomock.Call {
+	return underTest.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), stretchOf(firstMissingDay, summarizedEnd.Add(-time.Microsecond)), 1).
+		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: firstMissingDay}}, probeError)
+}
+
 func TestSpotDailySeriesKeepsFiguresNoMinuteReportedUnreported(t *testing.T) {
 	underTest := newSummarizedSpotSeriesUnderTest(t)
 	minuteWithoutQuoteVolume := entities.KCandle{
@@ -339,8 +377,9 @@ func TestSpotDailySeriesKeepsFiguresNoMinuteReportedUnreported(t *testing.T) {
 	underTest.summaryDayRepository.EXPECT().
 		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(11), octoberDay(12)).
 		Return(nil, nil)
+	underTest.expectSpotProbe(octoberDay(11), octoberDay(12), nil)
 	underTest.kCandleRepository.EXPECT().
-		FindInRange(gomock.Any(), stretchOf(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay)), minutesInADay).
+		FindInRange(gomock.Any(), stretchOf(octoberDay(11), octoberDay(11).Add(lastMicrosecondOfADay)), minutesInADay).
 		Return([]entities.KCandle{minuteWithoutQuoteVolume}, nil)
 	underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil)
 	underTest.kCandleRepository.EXPECT().
@@ -366,10 +405,16 @@ func TestCoarseSeriesReportsWhicheverReadFails(t *testing.T) {
 			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, failure)
 		}},
+		{"probing for any stored minute", func(underTest summarizedContractSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.expectMinutes(octoberDay(11), octoberDay(12).Add(-time.Microsecond), 1, nil, failure)
+		}},
 		{"storing a merged day", func(underTest summarizedContractSeriesUnderTest) {
 			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, nil)
-			underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastNanosecondOfADay), minutesInADay, nil, nil)
+			underTest.expectProbe(octoberDay(11), octoberDay(12))
+			underTest.expectMinutes(octoberDay(11), octoberDay(11).Add(lastMicrosecondOfADay), minutesInADay, nil, nil)
 			underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(false, failure)
 		}},
 		{"reading the partial end", func(underTest summarizedContractSeriesUnderTest) {
@@ -401,14 +446,21 @@ func TestSpotCoarseSeriesReportsWhicheverReadFails(t *testing.T) {
 			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, failure)
 		}},
+		{"probing for any stored minute", func(underTest summarizedSpotSeriesUnderTest) {
+			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.expectSpotProbe(octoberDay(11), octoberDay(12), failure)
+		}},
 		{"reading a missing day", func(underTest summarizedSpotSeriesUnderTest) {
 			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, nil)
+			underTest.expectSpotProbe(octoberDay(11), octoberDay(12), nil)
 			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), minutesInADay).Return(nil, failure)
 		}},
 		{"storing a merged day", func(underTest summarizedSpotSeriesUnderTest) {
 			underTest.summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, nil)
+			underTest.expectSpotProbe(octoberDay(11), octoberDay(12), nil)
 			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), minutesInADay).Return(nil, nil)
 			underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(false, failure)
 		}},
@@ -512,12 +564,13 @@ func TestWeekWithTwoDaysWithoutMinutesHasFiveDailyCandles(t *testing.T) {
 	underTest.summaryDayRepository.EXPECT().
 		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, octoberDay(10), octoberDay(17)).
 		Return(nil, nil)
+	underTest.expectProbe(octoberDay(10), octoberDay(17))
 	for day := 10; day < 17; day++ {
 		minutes := []entities.KCandleContract{contractMinuteAt(octoberDay(day).Add(time.Hour), "100", "1")}
 		if day == 11 || day == 12 {
 			minutes = nil
 		}
-		underTest.expectMinutes(octoberDay(day), octoberDay(day).Add(lastNanosecondOfADay), minutesInADay, minutes, nil)
+		underTest.expectMinutes(octoberDay(day), octoberDay(day).Add(lastMicrosecondOfADay), minutesInADay, minutes, nil)
 	}
 	storedEmptyDays := 0
 	underTest.summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).

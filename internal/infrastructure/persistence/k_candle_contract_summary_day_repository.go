@@ -13,7 +13,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// KCandleContractSummaryDayRepository is KCandleSummaryDayRepository for contracts.
 type KCandleContractSummaryDayRepository struct {
 	database *gorm.DB
 }

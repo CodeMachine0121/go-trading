@@ -12,7 +12,7 @@ import (
 
 // IKCandleSummaryDayRepository keeps spot summaries a whole UTC day at a time; minute writes invalidate a day on their own, inside the same transaction.
 type IKCandleSummaryDayRepository interface {
-	// FindDaysInRange returns every day state from the day of startTime up to endTime, each summarized day carrying its summaries of the interval in [startTime, endTime), read from one snapshot so an invalidation cannot leave a summarized day without its summaries.
+	// FindDaysInRange reads day states and their summaries from one snapshot, so an invalidation cannot strip a summarized day of its summaries mid-read.
 	FindDaysInRange(
 		executionContext context.Context,
 		symbol string,
@@ -20,6 +20,6 @@ type IKCandleSummaryDayRepository interface {
 		startTime time.Time,
 		endTime time.Time,
 	) ([]entities.KCandleSummaryDay, error)
-	// SaveSummarized stores the day only while its revision is still the one it was merged at, reporting false and storing nothing otherwise.
+	// SaveSummarized stores nothing and reports false once the day's revision moved past the one it was merged at.
 	SaveSummarized(executionContext context.Context, summaryDay entities.KCandleSummaryDay) (bool, error)
 }

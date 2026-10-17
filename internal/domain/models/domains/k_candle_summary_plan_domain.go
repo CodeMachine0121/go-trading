@@ -6,6 +6,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
+// Stretch ends stop one microsecond short, the storage's precision, so a boundary minute is never read twice.
 // KCandleSummaryDayLength is the unit summaries are filled, invalidated and versioned in: one UTC day, the coarsest bucket, so every hour belongs to exactly one day.
 const KCandleSummaryDayLength = 24 * time.Hour
 
@@ -74,7 +75,7 @@ func (planDomain KCandleSummaryPlanDomain) MinuteStretches() []KCandleQueryDomai
 		stretches = append(stretches, KCandleQueryDomain{
 			symbol:    planDomain.rangeQuery.symbol,
 			startTime: planDomain.rangeQuery.startTime,
-			endTime:   planDomain.summarizedStart.Add(-time.Nanosecond),
+			endTime:   planDomain.summarizedStart.Add(-time.Microsecond),
 		})
 	}
 
@@ -107,7 +108,16 @@ func (planDomain KCandleSummaryPlanDomain) DayStretch(day time.Time) KCandleQuer
 	return KCandleQueryDomain{
 		symbol:    planDomain.rangeQuery.symbol,
 		startTime: day,
-		endTime:   day.Add(KCandleSummaryDayLength - time.Nanosecond),
+		endTime:   day.Add(KCandleSummaryDayLength - time.Microsecond),
+	}
+}
+
+// StretchFromDay is everything from the day up to the summarized end, probed once so a stretch with no minutes at all is not merged day by day.
+func (planDomain KCandleSummaryPlanDomain) StretchFromDay(day time.Time) KCandleQueryDomain {
+	return KCandleQueryDomain{
+		symbol:    planDomain.rangeQuery.symbol,
+		startTime: day,
+		endTime:   planDomain.summarizedEnd.Add(-time.Microsecond),
 	}
 }
 

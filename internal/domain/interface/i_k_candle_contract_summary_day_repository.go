@@ -10,7 +10,6 @@ import (
 
 //go:generate go tool mockgen -source=i_k_candle_contract_summary_day_repository.go -destination=mocks/mock_i_k_candle_contract_summary_day_repository.go -package=mocks
 
-// IKCandleContractSummaryDayRepository is IKCandleSummaryDayRepository for contracts.
 type IKCandleContractSummaryDayRepository interface {
 	FindDaysInRange(
 		executionContext context.Context,

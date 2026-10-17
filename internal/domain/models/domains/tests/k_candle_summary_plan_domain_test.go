@@ -76,7 +76,7 @@ func TestSummaryPlanMergesThePartialEndsFromMinutes(t *testing.T) {
 		expectedStretches [][2]string
 	}{
 		{"both ends partial", "2024-04-25T16:17:48.450Z", "2026-10-12T16:17:48.450Z", [][2]string{
-			{"2024-04-25T16:17:48.450Z", "2024-04-25T23:59:59.999999999Z"},
+			{"2024-04-25T16:17:48.450Z", "2024-04-25T23:59:59.999999Z"},
 			{"2026-10-12T00:00:00Z", "2026-10-12T16:17:48.450Z"},
 		}},
 		{"start on a day edge leaves only today", "2026-10-10T00:00:00Z", "2026-10-18T10:20:00Z", [][2]string{
@@ -152,7 +152,7 @@ func TestSummaryPlanIncludesOnlySummariesOfItsIntervalInsideItsStretch(t *testin
 
 func TestMinuteCapacityCountsEveryMinuteOfTheStretch(t *testing.T) {
 	queryDomain, validationError := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{
-		Symbol: "BTCUSDT", StartTime: summaryMoment("2026-10-10T00:00:00Z"), EndTime: summaryMoment("2026-10-10T23:59:59.999999999Z"),
+		Symbol: "BTCUSDT", StartTime: summaryMoment("2026-10-10T00:00:00Z"), EndTime: summaryMoment("2026-10-10T23:59:59.999999Z"),
 	})
 	require.NoError(t, validationError)
 
@@ -166,7 +166,7 @@ func TestSummaryPlanMergesAMissingDayFromEveryMinuteOfIt(t *testing.T) {
 
 	assert.Equal(t, "BTCUSDT", dayStretch.Symbol())
 	assert.Equal(t, summaryMoment("2026-10-11T00:00:00Z"), dayStretch.StartTime())
-	assert.Equal(t, summaryMoment("2026-10-11T23:59:59.999999999Z"), dayStretch.EndTime())
+	assert.Equal(t, summaryMoment("2026-10-11T23:59:59.999999Z"), dayStretch.EndTime())
 	assert.Equal(t, 1440, dayStretch.MinuteCapacity())
 }
 
@@ -195,4 +195,18 @@ func TestSummaryPlanNeverReadsMoreThanADayOfMinutesPerStretch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSummaryPlanProbesFromAMissingDayToTheSummarizedEnd(t *testing.T) {
+	planDomain := summaryPlanAt(t, "1d", summaryMoment("2026-10-10T00:00:00Z"), summaryMoment("2026-10-14T00:00:00Z"))
+
+	probeStretch := planDomain.StretchFromDay(summaryMoment("2026-10-11T00:00:00Z"))
+
+	assert.Equal(t, summaryMoment("2026-10-11T00:00:00Z"), probeStretch.StartTime())
+	assert.Equal(t, summaryMoment("2026-10-13T23:59:59.999999Z"), probeStretch.EndTime())
+}
+
+func TestStoredSummaryLengthsAreHoursAndDays(t *testing.T) {
+	assert.Equal(t, []vo.AggregationIntervalVo{vo.AggregationIntervalOneHour, vo.AggregationIntervalOneDay},
+		domains.KCandleSummaryIntervalValues())
 }
