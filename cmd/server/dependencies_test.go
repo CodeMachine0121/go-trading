@@ -16,7 +16,7 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 		{name: "switched off leaves only the heartbeat, since the replica still serves", switchValue: "false", expectedJobCount: 1},
 		{
 			name:        "switched on assembles the work the system does on its own",
-			switchValue: "true", expectedJobCount: 14,
+			switchValue: "true", expectedJobCount: 15,
 		},
 	}
 
@@ -25,22 +25,23 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 			t.Setenv("BACKGROUND_JOBS_ENABLED", testCase.switchValue)
 
 			backgroundJobs := backgroundJobsFor(
-				config.Load(), nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
+				config.Load(), nil, nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
 
 			assert.Len(t, backgroundJobs, testCase.expectedJobCount)
 		})
 	}
 }
 
-func TestBackgroundJobsForLeavesOutAContractSeriesJobSwitchedOff(t *testing.T) {
+func TestBackgroundJobsForLeavesOutARoundSwitchedOff(t *testing.T) {
 	testCases := []struct {
 		name             string
 		switchedOff      string
 		expectedJobCount int
 	}{
-		{name: "資金費率", switchedOff: "CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", expectedJobCount: 13},
-		{name: "持倉統計", switchedOff: "CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", expectedJobCount: 13},
-		{name: "交易規格", switchedOff: "CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", expectedJobCount: 13},
+		{name: "資金費率", switchedOff: "CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", expectedJobCount: 14},
+		{name: "持倉統計", switchedOff: "CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", expectedJobCount: 14},
+		{name: "交易規格", switchedOff: "CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", expectedJobCount: 14},
+		{name: "留存彙總", switchedOff: "KCANDLE_SUMMARY_INTERVAL_MINUTES", expectedJobCount: 14},
 	}
 
 	for _, testCase := range testCases {
@@ -49,7 +50,7 @@ func TestBackgroundJobsForLeavesOutAContractSeriesJobSwitchedOff(t *testing.T) {
 			t.Setenv(testCase.switchedOff, "0")
 
 			backgroundJobs := backgroundJobsFor(
-				config.Load(), nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
+				config.Load(), nil, nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
 
 			assert.Len(t, backgroundJobs, testCase.expectedJobCount)
 		})
@@ -64,10 +65,10 @@ func TestBackgroundJobsForRefreshesTheMaintenanceMarginLadderOnlyWithAnAccount(t
 		interval         string
 		expectedJobCount int
 	}{
-		{name: "沒有帳戶金鑰", expectedJobCount: 14},
-		{name: "只有一半的金鑰", apiKey: "key", expectedJobCount: 14},
-		{name: "有帳戶金鑰", apiKey: "key", apiSecret: "secret", expectedJobCount: 15},
-		{name: "有金鑰但停用", apiKey: "key", apiSecret: "secret", interval: "0", expectedJobCount: 14},
+		{name: "沒有帳戶金鑰", expectedJobCount: 15},
+		{name: "只有一半的金鑰", apiKey: "key", expectedJobCount: 15},
+		{name: "有帳戶金鑰", apiKey: "key", apiSecret: "secret", expectedJobCount: 16},
+		{name: "有金鑰但停用", apiKey: "key", apiSecret: "secret", interval: "0", expectedJobCount: 15},
 	}
 
 	for _, testCase := range testCases {
@@ -78,7 +79,7 @@ func TestBackgroundJobsForRefreshesTheMaintenanceMarginLadderOnlyWithAnAccount(t
 			t.Setenv("CONTRACT_MAINTENANCE_MARGIN_TIER_REFRESH_INTERVAL_HOURS", testCase.interval)
 
 			backgroundJobs := backgroundJobsFor(
-				config.Load(), nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
+				config.Load(), nil, nil, nil, nil, nil, nil, strategyBotJobApplications{}, contractSeriesApplications{}, nil)
 
 			assert.Len(t, backgroundJobs, testCase.expectedJobCount)
 		})

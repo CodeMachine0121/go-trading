@@ -74,7 +74,7 @@ func newServiceUnderTest(t *testing.T) serviceUnderTest {
 
 	return serviceUnderTest{
 		kCandleService: service.NewKCandleService(
-			kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog(), queryMaxResults),
+			kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, marketCatalog(), queryMaxResults),
 		kCandleRepository: kCandleRepository,
 	}
 }
@@ -481,7 +481,7 @@ func TestGetKCandleSeriesPicksTheIntervalByTheSymbolsOwnMarket(t *testing.T) {
 		clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 
 		return service.NewKCandleService(
-			kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog(), queryMaxResults,
+			kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, marketCatalog(), queryMaxResults,
 		), kCandleRepository
 	}
 
@@ -524,7 +524,7 @@ func TestGetKCandleSeriesPicksTheIntervalByTheSymbolsOwnMarket(t *testing.T) {
 		clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 
 		kCandleService := service.NewKCandleService(
-			mocks.NewMockIKCandleRepository(controller), tradingSymbolRepository, clockProxy,
+			mocks.NewMockIKCandleRepository(controller), mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy,
 			marketCatalog(), queryMaxResults)
 
 		_, err := kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{

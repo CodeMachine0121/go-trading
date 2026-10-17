@@ -13,6 +13,7 @@ import (
 
 type KCandleContractService struct {
 	kCandleContractRepository domaininterface.IKCandleContractRepository
+	summarizedSeriesReader    kCandleContractSummarizedSeriesReader
 	clockProxy                domaininterface.IClockProxy
 	// roundTheClockMarket sizes merged series with the same bucket arithmetic as spot, since contracts never close.
 	roundTheClockMarket domains.MarketDomain
@@ -21,15 +22,18 @@ type KCandleContractService struct {
 
 func NewKCandleContractService(
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
+	kCandleContractSummaryDayRepository domaininterface.IKCandleContractSummaryDayRepository,
 	clockProxy domaininterface.IClockProxy,
 	marketCatalogDomain domains.MarketCatalogDomain,
 	queryMaxResults int,
 ) *KCandleContractService {
 	return &KCandleContractService{
 		kCandleContractRepository: kCandleContractRepository,
-		clockProxy:                clockProxy,
-		roundTheClockMarket:       marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
-		queryMaxResults:           queryMaxResults,
+		summarizedSeriesReader: newKCandleContractSummarizedSeriesReader(
+			kCandleContractRepository, kCandleContractSummaryDayRepository),
+		clockProxy:          clockProxy,
+		roundTheClockMarket: marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
+		queryMaxResults:     queryMaxResults,
 	}
 }
 
@@ -45,13 +49,13 @@ func (kCandleContractService *KCandleContractService) GetKCandleContractSeries(
 			"%w: %w", domains.ErrKCandleContractValidation, validationError)
 	}
 
-	kCandleContracts, findError := kCandleContractService.kCandleContractRepository.FindInRange(
-		executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
-	if findError != nil {
-		return dto.KCandleContractSeriesDto{}, findError
+	sourceCandles, readError := kCandleContractService.summarizedSeriesReader.read(
+		executionContext, seriesQueryDomain, kCandleContractService.clockProxy.Now())
+	if readError != nil {
+		return dto.KCandleContractSeriesDto{}, readError
 	}
 
-	return seriesQueryDomain.ContractSeriesOf(kCandleContracts).ToDto(), nil
+	return seriesQueryDomain.ContractSeriesOf(sourceCandles).ToDto(), nil
 }
 
 // SaveKCandleContract upserts a candle by symbol and open time without requiring the symbol to be watched, so hand-placed test data needs no watchlist entry.

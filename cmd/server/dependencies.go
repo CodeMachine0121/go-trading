@@ -36,6 +36,7 @@ func registerRoutes(
 	liveFollowApplications,
 	*application.KCandleIngestionApplication,
 	*application.KCandleContractIngestionApplication,
+	*application.KCandleSummaryApplication,
 	strategyBotJobApplications,
 	*application.InterruptedWorkApplication,
 	contractSeriesApplications,
@@ -79,12 +80,14 @@ func registerRoutes(
 	requiresWebSignIn := authenticationMiddleware.HandleWebSignIn
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
+	kCandleSummaryDayRepository := persistence.NewKCandleSummaryDayRepository(database)
 
 	// 每個來源一個節奏，所有打到那個來源的 proxy 共用，因為額度是照來源算的。
 	venuePacers := newVenuePacers(applicationConfig)
 
 	kCandleService := service.NewKCandleService(
 		kCandleRepository,
+		kCandleSummaryDayRepository,
 		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
@@ -147,6 +150,7 @@ func registerRoutes(
 
 	// 永續合約從來源到儲存都不與現貨共用：同一代號在兩個場所是不同商品，共用一張表會互相覆蓋。
 	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
+	contractKCandleSummaryDayRepository := persistence.NewKCandleContractSummaryDayRepository(database)
 	contractTradingSymbolRepository := persistence.NewContractTradingSymbolRepository(database)
 	// Built before candle ingestion, which fills in position statistics after a history sync.
 	contractPositionStatisticService := service.NewContractPositionStatisticService(
@@ -216,10 +220,17 @@ func registerRoutes(
 	// Shared with the contract bots, which quote the newest candle as the reference price.
 	kCandleContractService := service.NewKCandleContractService(
 		contractKCandleRepository,
+		contractKCandleSummaryDayRepository,
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,
 	)
+
+	kCandleSummaryApplication := application.NewKCandleSummaryApplication(service.NewKCandleSummaryService(
+		kCandleRepository, kCandleSummaryDayRepository,
+		contractKCandleRepository, contractKCandleSummaryDayRepository,
+		persistence.NewTradingSymbolRepository(database), contractTradingSymbolRepository,
+		clock.NewSystemClockProxy(), domains.NewMarketCatalogDomain(applicationConfig.MarketRules)))
 
 	kCandleContractController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(kCandleContractService))
@@ -863,6 +874,7 @@ func registerRoutes(
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
 		kCandleIngestionApplication,
 		kCandleContractIngestionApplication,
+		kCandleSummaryApplication,
 		strategyBotJobApplications{
 			run: strategyBotRunApplication, pendingMessageDispatch: pendingMessageDispatchApplication,
 			contractAutoOrderExecution: contractAutoOrderExecutionApplication,
@@ -956,6 +968,7 @@ func backgroundJobsFor(
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
+	kCandleSummaryApplication *application.KCandleSummaryApplication,
 	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
 	backtestRunApplication *application.BacktestRunApplication,
@@ -1013,6 +1026,11 @@ func backgroundJobsFor(
 		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 		pendingMessageDispatchJob, contractAutoOrderExecutionJob, backtestRunWorkerJob, backtestRunRetentionJob,
+	}
+
+	if applicationConfig.KCandleSummaryInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewKCandleSummaryJob(
+			kCandleSummaryApplication, jobLeadershipApplication, applicationConfig.KCandleSummaryInterval))
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.

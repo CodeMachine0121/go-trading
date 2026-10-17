@@ -39,7 +39,7 @@ func newKCandleAssistantQueriesUnderTest(t *testing.T) kCandleAssistantQueriesUn
 
 	kCandleApplication := application.NewKCandleApplication(
 		service.NewKCandleService(
-			kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults))
+			kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults))
 
 	return kCandleAssistantQueriesUnderTest{
 		seriesAssistantQuery: assistantqueries.NewKCandleSeriesAssistantQuery(

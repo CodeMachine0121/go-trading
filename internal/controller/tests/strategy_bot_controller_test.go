@@ -118,9 +118,9 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 				mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t),
 				clockProxy, marketCatalog, 1000),
 			service.NewKCandleService(
-				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository, clockProxy, marketCatalog, 1000),
 			service.NewKCandleContractService(
-				mocks.NewMockIKCandleContractRepository(mockController), clockProxy, marketCatalog, 1000),
+				mocks.NewMockIKCandleContractRepository(mockController), mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy, marketCatalog, 1000),
 			service.NewTradeJournalLinkService(
 				mocks.NewMockIOpaqueIdentifierProxy(mockController), nil, nil, "https://app.example.com"),
 			clockProxy,

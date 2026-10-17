@@ -76,6 +76,12 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 		Delete(&entities.ReplicaHeartbeat{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.LiveKCandleSnapshot{}).Error)
+	for _, summaryTable := range []any{
+		&entities.KCandleSummaryDay{}, &entities.KCandleSummary{},
+		&entities.KCandleContractSummaryDay{}, &entities.KCandleContractSummary{},
+	} {
+		require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(summaryTable).Error)
+	}
 
 	return database
 }

@@ -65,7 +65,7 @@ func newApplicationUnderTest(t *testing.T) applicationUnderTest {
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
 	kCandleService := service.NewKCandleService(
-		kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)
+		kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)
 
 	return applicationUnderTest{
 		kCandleApplication: application.NewKCandleApplication(kCandleService),

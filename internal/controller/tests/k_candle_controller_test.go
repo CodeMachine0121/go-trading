@@ -61,7 +61,7 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 
 	kCandleController := controller.NewKCandleController(application.NewKCandleApplication(
 		service.NewKCandleService(
-			kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)))
+			kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)))
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()

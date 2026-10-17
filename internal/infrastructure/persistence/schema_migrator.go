@@ -71,6 +71,8 @@ var ownerlessTables = []ownerlessTable{
 func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migratedEntities := []any{
 		&entities.KCandle{},
+		&entities.KCandleSummaryDay{},
+		&entities.KCandleSummary{},
 		&entities.TradingSymbol{},
 		&entities.StrategyScript{},
 		&entities.StrategyScriptParameter{},
@@ -95,6 +97,8 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.StrategyBotRunRecord{},
 		&entities.KCandleHistorySyncRun{},
 		&entities.KCandleContract{},
+		&entities.KCandleContractSummaryDay{},
+		&entities.KCandleContractSummary{},
 		&entities.ContractTradingSymbol{},
 		&entities.KCandleContractHistorySyncRun{},
 		&entities.ContractFundingRateSettlement{},
