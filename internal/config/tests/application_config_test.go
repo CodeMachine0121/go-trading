@@ -79,7 +79,7 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.MaximumRetryDelay)
 		assert.Equal(t, "wss://stream.binance.com:9443/ws",
 			applicationConfig.LiveFollow.MarketDataStreamUrl)
-		assert.Equal(t, "wss://fstream.binance.com/ws",
+		assert.Equal(t, "wss://fstream.binance.com/market/ws",
 			applicationConfig.LiveFollow.ContractMarketDataStreamUrl)
 	})
 
