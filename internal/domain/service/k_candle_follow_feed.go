@@ -12,6 +12,8 @@ import (
 
 // kCandleFollowFeed keeps one live line followed against a source, reconnecting with growing back-off; it is market-agnostic, so spot and contract follows share it and decide via report what a candle amounts to.
 type kCandleFollowFeed struct {
+	// feedName tells spot, relayed and contract lines apart in logs, since their channel keys can be identical.
+	feedName            string
 	liveMarketDataProxy _interface.ILiveMarketDataProxy
 	clockProxy          _interface.IClockProxy
 	quietTimeout        time.Duration
@@ -20,6 +22,7 @@ type kCandleFollowFeed struct {
 }
 
 func newKCandleFollowFeed(
+	feedName string,
 	liveMarketDataProxy _interface.ILiveMarketDataProxy,
 	clockProxy _interface.IClockProxy,
 	quietTimeout time.Duration,
@@ -27,6 +30,7 @@ func newKCandleFollowFeed(
 	report func(context.Context, *kCandleFollowSymbol, vo.LiveKCandleVo),
 ) *kCandleFollowFeed {
 	return &kCandleFollowFeed{
+		feedName:            feedName,
 		liveMarketDataProxy: liveMarketDataProxy,
 		clockProxy:          clockProxy,
 		quietTimeout:        quietTimeout,
@@ -57,8 +61,8 @@ func (kCandleFollowFeed *kCandleFollowFeed) keep(
 			healthDomain.MarkConnected(kCandleFollowFeed.clockProxy.Now())
 			kCandleFollowFeed.consume(attemptContext, openChannel, healthDomain, liveKCandles)
 		} else {
-			log.Printf("live k candle follow: %s could not be followed: %v",
-				openChannel.channel.Key, followError)
+			log.Printf("live k candle follow: %s %s could not be followed: %v",
+				kCandleFollowFeed.feedName, openChannel.channel.Key, followError)
 		}
 
 		abandonAttempt()
@@ -72,8 +76,8 @@ func (kCandleFollowFeed *kCandleFollowFeed) keep(
 
 		// Logged because the gap is the only evidence the back-off is working against a source that accepts then drops connections.
 		retryDelay := healthDomain.NextRetryDelay()
-		log.Printf("live k candle follow: %s is not delivering; trying again in %s",
-			openChannel.channel.Key, retryDelay)
+		log.Printf("live k candle follow: %s %s is not delivering; trying again in %s",
+			kCandleFollowFeed.feedName, openChannel.channel.Key, retryDelay)
 
 		if !kCandleFollowFeed.waitOrDone(executionContext, retryDelay) {
 			return
@@ -108,8 +112,8 @@ func (kCandleFollowFeed *kCandleFollowFeed) consume(
 			follow, isCarried := openChannel.followOf(liveKCandle.Symbol)
 			if !isCarried {
 				// Logged because a mismatched symbol name (case, suffix) otherwise looks exactly like a quiet market.
-				log.Printf("live k candle follow: %s carries no %s, dropping its candle",
-					openChannel.channel.Key, liveKCandle.Symbol)
+				log.Printf("live k candle follow: %s %s carries no %s, dropping its candle",
+					kCandleFollowFeed.feedName, openChannel.channel.Key, liveKCandle.Symbol)
 
 				continue
 			}

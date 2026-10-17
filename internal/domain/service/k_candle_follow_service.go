@@ -62,9 +62,9 @@ func NewKCandleFollowService(
 		channels:                      make(map[string]*kCandleFollowChannel),
 	}
 	kCandleFollowService.feed = newKCandleFollowFeed(
-		liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.report)
+		"spot", liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.report)
 	kCandleFollowService.relayFeed = newKCandleFollowFeed(
-		newKCandleSnapshotRelay(liveKCandleSnapshotRepository, clockProxy, relayInterval, quietTimeout),
+		"spot relay", newKCandleSnapshotRelay(liveKCandleSnapshotRepository, clockProxy, relayInterval, quietTimeout),
 		clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.reportRelayed)
 
 	return kCandleFollowService

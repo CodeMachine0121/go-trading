@@ -42,11 +42,11 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 
 	connection, _, dialError := websocket.Dial(executionContext, streamUrl, nil)
 	if dialError != nil {
-		return nil, fmt.Errorf("follow k candles for %s: %w", symbol, dialError)
+		return nil, fmt.Errorf("follow k candles from %s: %w", streamUrl, dialError)
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go binanceLiveMarketDataProxy.read(executionContext, connection, symbol, liveKCandles)
+	go binanceLiveMarketDataProxy.read(executionContext, connection, streamUrl, liveKCandles)
 
 	return liveKCandles, nil
 }
@@ -55,7 +55,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
-	symbol string,
+	streamUrl string,
 	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
 	defer close(liveKCandles)
@@ -66,7 +66,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 		if readError != nil {
 			// Do not log an intentional shutdown.
 			if executionContext.Err() == nil {
-				log.Printf("live market data: the feed for %s ended: %v", symbol, readError)
+				log.Printf("live market data: the feed from %s ended: %v", streamUrl, readError)
 			}
 
 			return
@@ -74,14 +74,14 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 
 		var message binanceLiveKLineMessage
 		if decodeError := json.Unmarshal(body, &message); decodeError != nil {
-			log.Printf("live market data: unreadable message: %v", decodeError)
+			log.Printf("live market data: unreadable message from %s: %v", streamUrl, decodeError)
 
 			return
 		}
 
 		liveKCandle, conversionError := message.KLine.toLiveKCandleVo()
 		if conversionError != nil {
-			log.Printf("live market data: %v", conversionError)
+			log.Printf("live market data: %s: %v", streamUrl, conversionError)
 
 			return
 		}
