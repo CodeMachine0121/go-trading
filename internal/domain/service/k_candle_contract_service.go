@@ -13,6 +13,7 @@ import (
 
 type KCandleContractService struct {
 	kCandleContractRepository domaininterface.IKCandleContractRepository
+	summarizedSeriesReader    kCandleContractSummarizedSeriesReader
 	clockProxy                domaininterface.IClockProxy
 	// roundTheClockMarket sizes merged series with the same bucket arithmetic as spot, since contracts never close.
 	roundTheClockMarket domains.MarketDomain
@@ -21,15 +22,18 @@ type KCandleContractService struct {
 
 func NewKCandleContractService(
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
+	kCandleContractSummaryDayRepository domaininterface.IKCandleContractSummaryDayRepository,
 	clockProxy domaininterface.IClockProxy,
 	marketCatalogDomain domains.MarketCatalogDomain,
 	queryMaxResults int,
 ) *KCandleContractService {
 	return &KCandleContractService{
 		kCandleContractRepository: kCandleContractRepository,
-		clockProxy:                clockProxy,
-		roundTheClockMarket:       marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
-		queryMaxResults:           queryMaxResults,
+		summarizedSeriesReader: newKCandleContractSummarizedSeriesReader(
+			kCandleContractRepository, kCandleContractSummaryDayRepository),
+		clockProxy:          clockProxy,
+		roundTheClockMarket: marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
+		queryMaxResults:     queryMaxResults,
 	}
 }
 
@@ -43,6 +47,16 @@ func (kCandleContractService *KCandleContractService) GetKCandleContractSeries(
 		// Re-badged so callers recognise the contract validation sentinel.
 		return dto.KCandleContractSeriesDto{}, fmt.Errorf(
 			"%w: %w", domains.ErrKCandleContractValidation, validationError)
+	}
+
+	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, kCandleContractService.clockProxy.Now())
+	if planDomain.UsesSummaries() {
+		sourceCandles, readError := kCandleContractService.summarizedSeriesReader.read(executionContext, planDomain)
+		if readError != nil {
+			return dto.KCandleContractSeriesDto{}, readError
+		}
+
+		return seriesQueryDomain.ContractSeriesOf(sourceCandles).ToDto(), nil
 	}
 
 	kCandleContracts, findError := kCandleContractService.kCandleContractRepository.FindInRange(

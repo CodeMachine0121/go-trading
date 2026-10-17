@@ -84,11 +84,11 @@ func newStrategyBotScanJobUnderTest(
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewKCandleService(
-				kCandleRepository, tradingSymbolRepository, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewKCandleContractService(
-				mocks.NewMockIKCandleContractRepository(mockController), clockProxy,
+				mocks.NewMockIKCandleContractRepository(mockController), mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewTradeJournalLinkService(

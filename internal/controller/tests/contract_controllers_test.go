@@ -87,7 +87,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 
 	candleController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(
-			service.NewKCandleContractService(candleRepository, clockProxy,
+			service.NewKCandleContractService(candleRepository, mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), queryMaxResults)))
 	symbolController := controller.NewContractTradingSymbolController(
 		application.NewContractTradingSymbolApplication(

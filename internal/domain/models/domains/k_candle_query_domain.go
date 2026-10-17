@@ -43,6 +43,11 @@ func (kCandleQueryDomain KCandleQueryDomain) EndTime() time.Time {
 	return kCandleQueryDomain.endTime
 }
 
+// MinuteCapacity bounds a read of the stretch's stored minutes, both ends included.
+func (kCandleQueryDomain KCandleQueryDomain) MinuteCapacity() int {
+	return int(kCandleQueryDomain.endTime.Sub(kCandleQueryDomain.startTime)/KCandleInterval) + 1
+}
+
 // requireOrderFlowReach refuses a replay whose whole stretch, warm-up included, spans more days of order flow than one run may hold, so it is refused when submitted rather than after it was queued; a script declaring no price step is never refused.
 func (kCandleQueryDomain KCandleQueryDomain) requireOrderFlowReach(parameters StrategyScriptParametersDomain) error {
 	if _, declaresOrderFlow := parameters.OrderFlowPriceStep(); !declaresOrderFlow {

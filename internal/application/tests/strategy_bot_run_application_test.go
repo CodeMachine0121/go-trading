@@ -277,9 +277,9 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				clockProxy,
 				marketCatalog, queryMaxResults),
 			service.NewKCandleService(
-				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
 			service.NewKCandleContractService(
-				kCandleContractRepository, clockProxy, marketCatalog, queryMaxResults),
+				kCandleContractRepository, mocks.NewMockIKCandleContractSummaryDayRepository(controller), clockProxy, marketCatalog, queryMaxResults),
 			service.NewTradeJournalLinkService(
 				opaqueIdentifierProxy, nil, nil, "https://app.example.com"),
 			clockProxy,

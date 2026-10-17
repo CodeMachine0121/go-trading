@@ -12,6 +12,7 @@ import (
 
 type KCandleService struct {
 	kCandleRepository       domaininterface.IKCandleRepository
+	summarizedSeriesReader  kCandleSummarizedSeriesReader
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
 	clockProxy              domaininterface.IClockProxy
 	marketCatalogDomain     domains.MarketCatalogDomain
@@ -20,6 +21,7 @@ type KCandleService struct {
 
 func NewKCandleService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	kCandleSummaryDayRepository domaininterface.IKCandleSummaryDayRepository,
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	clockProxy domaininterface.IClockProxy,
 	marketCatalogDomain domains.MarketCatalogDomain,
@@ -27,6 +29,7 @@ func NewKCandleService(
 ) *KCandleService {
 	return &KCandleService{
 		kCandleRepository:       kCandleRepository,
+		summarizedSeriesReader:  newKCandleSummarizedSeriesReader(kCandleRepository, kCandleSummaryDayRepository),
 		tradingSymbolRepository: tradingSymbolRepository,
 		clockProxy:              clockProxy,
 		marketCatalogDomain:     marketCatalogDomain,
@@ -98,6 +101,16 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 	)
 	if validationError != nil {
 		return dto.KCandleSeriesDto{}, validationError
+	}
+
+	planDomain := domains.NewKCandleSummaryPlanDomain(seriesQueryDomain, kCandleService.clockProxy.Now())
+	if planDomain.UsesSummaries() {
+		sourceCandles, readError := kCandleService.summarizedSeriesReader.read(executionContext, planDomain)
+		if readError != nil {
+			return dto.KCandleSeriesDto{}, readError
+		}
+
+		return seriesQueryDomain.SeriesOf(sourceCandles).ToDto(), nil
 	}
 
 	kCandles, findError := kCandleService.kCandleRepository.FindInRange(

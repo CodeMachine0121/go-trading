@@ -79,12 +79,14 @@ func registerRoutes(
 	requiresWebSignIn := authenticationMiddleware.HandleWebSignIn
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
+	kCandleSummaryDayRepository := persistence.NewKCandleSummaryDayRepository(database)
 
 	// 每個來源一個節奏，所有打到那個來源的 proxy 共用，因為額度是照來源算的。
 	venuePacers := newVenuePacers(applicationConfig)
 
 	kCandleService := service.NewKCandleService(
 		kCandleRepository,
+		kCandleSummaryDayRepository,
 		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
@@ -147,6 +149,7 @@ func registerRoutes(
 
 	// 永續合約從來源到儲存都不與現貨共用：同一代號在兩個場所是不同商品，共用一張表會互相覆蓋。
 	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
+	contractKCandleSummaryDayRepository := persistence.NewKCandleContractSummaryDayRepository(database)
 	contractTradingSymbolRepository := persistence.NewContractTradingSymbolRepository(database)
 	// Built before candle ingestion, which fills in position statistics after a history sync.
 	contractPositionStatisticService := service.NewContractPositionStatisticService(
@@ -216,6 +219,7 @@ func registerRoutes(
 	// Shared with the contract bots, which quote the newest candle as the reference price.
 	kCandleContractService := service.NewKCandleContractService(
 		contractKCandleRepository,
+		contractKCandleSummaryDayRepository,
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,

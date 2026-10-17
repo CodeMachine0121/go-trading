@@ -76,7 +76,7 @@ func newContractServiceUnderTest(t *testing.T) contractServiceUnderTest {
 
 	return contractServiceUnderTest{
 		// A closing market sits beside the round-the-clock one, so a contract series using the wrong calendar would lose closed hours.
-		service: service.NewKCandleContractService(repository, clockProxy,
+		service: service.NewKCandleContractService(repository, mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 				vo.MarketCrypto: {},
 				vo.MarketTaiwanStock: {TradingSession: vo.TradingSessionVo{

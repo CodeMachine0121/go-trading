@@ -31,7 +31,7 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 
 		// 未登錄的交易標的視為永不收盤的市場，所以每一分鐘都算數。
 		return service.NewKCandleService(
-			kCandleRepository, persistence.NewTradingSymbolRepository(database), clockProxy,
+			kCandleRepository, persistence.NewKCandleSummaryDayRepository(database), persistence.NewTradingSymbolRepository(database), clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 			1000)
 	}

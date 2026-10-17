@@ -95,6 +95,19 @@ func coarsestSelectableAggregationInterval() selectableAggregationInterval {
 	return coarsestInterval
 }
 
+// summaryIntervals are the lengths summaries are stored at, finest first: the intervals that are their own summary.
+func summaryIntervals() []AggregationIntervalDomain {
+	storedIntervals := make([]AggregationIntervalDomain, 0, 2)
+	for _, selectableInterval := range selectableAggregationIntervals {
+		candidate := newAggregationIntervalDomain(selectableInterval)
+		if summary, hasSummary := candidate.summaryInterval(); hasSummary && summary.value == candidate.value {
+			storedIntervals = append(storedIntervals, candidate)
+		}
+	}
+
+	return storedIntervals
+}
+
 // newAggregationIntervalDomain is the only constructor, so an interval never exists without its length.
 func newAggregationIntervalDomain(selectableInterval selectableAggregationInterval) AggregationIntervalDomain {
 	return AggregationIntervalDomain{
@@ -105,6 +118,23 @@ func newAggregationIntervalDomain(selectableInterval selectableAggregationInterv
 
 func (aggregationIntervalDomain AggregationIntervalDomain) Value() vo.AggregationIntervalVo {
 	return aggregationIntervalDomain.value
+}
+
+// summaryInterval is the stored summary a coarse interval is merged from: hours for one and four hours, days for a day; finer intervals have none and keep merging minutes.
+func (aggregationIntervalDomain AggregationIntervalDomain) summaryInterval() (AggregationIntervalDomain, bool) {
+	summarizedValue := map[vo.AggregationIntervalVo]vo.AggregationIntervalVo{
+		vo.AggregationIntervalOneHour:   vo.AggregationIntervalOneHour,
+		vo.AggregationIntervalFourHours: vo.AggregationIntervalOneHour,
+		vo.AggregationIntervalOneDay:    vo.AggregationIntervalOneDay,
+	}[aggregationIntervalDomain.value]
+
+	for _, selectableInterval := range selectableAggregationIntervals {
+		if selectableInterval.value == summarizedValue {
+			return newAggregationIntervalDomain(selectableInterval), true
+		}
+	}
+
+	return AggregationIntervalDomain{}, false
 }
 
 func (aggregationIntervalDomain AggregationIntervalDomain) BucketStart(moment time.Time) time.Time {
