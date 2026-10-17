@@ -150,3 +150,50 @@ func TestContractDayWithOneMinuteMissingTheIndexHasNoIndexForThatDay(t *testing.
 		}
 	}
 }
+
+func everyFigureContractMinute() entities.KCandleContract {
+	return entities.KCandleContract{
+		Symbol: "BTCUSDT", OpenTime: summaryDay.Add(5 * time.Hour),
+		Open: summaryFigure("1"), High: summaryFigure("2"), Low: summaryFigure("3"), Close: summaryFigure("4"),
+		Volume: summaryFigure("5"), QuoteVolume: summaryFigure("6"),
+		TakerBuyBaseVolume: summaryFigure("7"), TakerBuyQuoteVolume: summaryFigure("8"), TradeCount: 9,
+		MarkOpen: summaryFigure("10"), MarkHigh: summaryFigure("11"), MarkLow: summaryFigure("12"), MarkClose: summaryFigure("13"),
+		IndexOpen: reportedSummaryFigure("14"), IndexHigh: reportedSummaryFigure("15"),
+		IndexLow: reportedSummaryFigure("16"), IndexClose: reportedSummaryFigure("17"),
+		PremiumIndexOpen: reportedSummaryFigure("18"), PremiumIndexHigh: reportedSummaryFigure("19"),
+		PremiumIndexLow: reportedSummaryFigure("20"), PremiumIndexClose: reportedSummaryFigure("21"),
+	}
+}
+
+func TestSummaryOfASingleContractMinuteCarriesEveryFigure(t *testing.T) {
+	minute := everyFigureContractMinute()
+
+	summaryDayEntity := domains.NewKCandleContractSummaryDayDomain(
+		"BTCUSDT", summaryDay, 0, []entities.KCandleContract{minute}).ToEntity()
+
+	require.Len(t, summaryDayEntity.Summaries, 2)
+	for _, summary := range summaryDayEntity.Summaries {
+		roundTripped := summary.ToKCandleContract()
+		roundTripped.OpenTime = minute.OpenTime
+		assert.Equal(t, minute.ToDto(), roundTripped.ToDto(), summary.Interval)
+	}
+}
+
+func TestSummaryOfASingleSpotMinuteCarriesEveryFigure(t *testing.T) {
+	minute := entities.KCandle{
+		Symbol: "BTCUSDT", OpenTime: summaryDay.Add(5 * time.Hour),
+		Open: summaryFigure("1"), High: summaryFigure("2"), Low: summaryFigure("3"), Close: summaryFigure("4"),
+		Volume: summaryFigure("5"), QuoteVolume: reportedSummaryFigure("6"),
+		TakerBuyBaseVolume: reportedSummaryFigure("7"), TakerBuyQuoteVolume: reportedSummaryFigure("8"),
+	}
+
+	summaryDayEntity := domains.NewKCandleSummaryDayDomain(
+		"BTCUSDT", summaryDay, 0, []entities.KCandle{minute}).ToEntity()
+
+	require.Len(t, summaryDayEntity.Summaries, 2)
+	for _, summary := range summaryDayEntity.Summaries {
+		roundTripped := summary.ToKCandle()
+		roundTripped.OpenTime = minute.OpenTime
+		assert.Equal(t, minute.ToDto(), roundTripped.ToDto(), summary.Interval)
+	}
+}
