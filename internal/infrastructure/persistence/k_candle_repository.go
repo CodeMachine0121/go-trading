@@ -24,7 +24,8 @@ var figureColumns = []string{
 }
 
 type KCandleRepository struct {
-	database *gorm.DB
+	database            *gorm.DB
+	summaryInvalidation kCandleSummaryInvalidation[entities.KCandleSummaryDay, entities.KCandleSummary]
 }
 
 func NewKCandleRepository(database *gorm.DB) *KCandleRepository {
@@ -34,14 +35,23 @@ func NewKCandleRepository(database *gorm.DB) *KCandleRepository {
 func (kCandleRepository *KCandleRepository) Save(
 	executionContext context.Context, kCandle entities.KCandle,
 ) (entities.KCandle, error) {
-	result := kCandleRepository.database.WithContext(executionContext).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
-			DoUpdates: clause.AssignmentColumns(figureColumns),
-		}).
-		Create(&kCandle)
-	if result.Error != nil {
-		return entities.KCandle{}, fmt.Errorf("save k candle: %w", result.Error)
+	transactionError := kCandleRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			result := transaction.
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
+					DoUpdates: clause.AssignmentColumns(figureColumns),
+				}).
+				Create(&kCandle)
+			if result.Error != nil {
+				return fmt.Errorf("save k candle: %w", result.Error)
+			}
+
+			return kCandleRepository.summaryInvalidation.invalidate(
+				transaction, kCandle.Symbol, []time.Time{kCandle.OpenTime})
+		})
+	if transactionError != nil {
+		return entities.KCandle{}, transactionError
 	}
 
 	return kCandle, nil
@@ -55,17 +65,41 @@ func (kCandleRepository *KCandleRepository) SaveAllIfAbsent(
 		return 0, nil
 	}
 
-	result := kCandleRepository.database.WithContext(executionContext).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
-			DoNothing: true,
-		}).
-		Create(&kCandles)
-	if result.Error != nil {
-		return 0, fmt.Errorf("save k candles if absent: %w", result.Error)
+	storedCount := 0
+	transactionError := kCandleRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			result := transaction.
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
+					DoNothing: true,
+				}).
+				Create(&kCandles)
+			if result.Error != nil {
+				return fmt.Errorf("save k candles if absent: %w", result.Error)
+			}
+			storedCount = int(result.RowsAffected)
+			if storedCount == 0 {
+				return nil
+			}
+
+			openTimesBySymbol := make(map[string][]time.Time, 1)
+			for _, stored := range kCandles {
+				openTimesBySymbol[stored.Symbol] = append(openTimesBySymbol[stored.Symbol], stored.OpenTime)
+			}
+			for symbol, openTimes := range openTimesBySymbol {
+				if invalidationError := kCandleRepository.summaryInvalidation.invalidate(
+					transaction, symbol, openTimes); invalidationError != nil {
+					return invalidationError
+				}
+			}
+
+			return nil
+		})
+	if transactionError != nil {
+		return 0, transactionError
 	}
 
-	return int(result.RowsAffected), nil
+	return storedCount, nil
 }
 
 // CountInRange counts candles in the inclusive range.
@@ -90,16 +124,25 @@ func (kCandleRepository *KCandleRepository) CountInRange(
 func (kCandleRepository *KCandleRepository) Update(
 	executionContext context.Context, kCandle entities.KCandle,
 ) (entities.KCandle, error) {
-	result := kCandleRepository.database.WithContext(executionContext).
-		Model(&entities.KCandle{}).
-		Where(&entities.KCandle{Symbol: kCandle.Symbol, OpenTime: kCandle.OpenTime}).
-		Select(figureColumns).
-		Updates(kCandle)
-	if result.Error != nil {
-		return entities.KCandle{}, fmt.Errorf("update k candle: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return entities.KCandle{}, domains.ErrKCandleNotFound
+	transactionError := kCandleRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			result := transaction.
+				Model(&entities.KCandle{}).
+				Where(&entities.KCandle{Symbol: kCandle.Symbol, OpenTime: kCandle.OpenTime}).
+				Select(figureColumns).
+				Updates(kCandle)
+			if result.Error != nil {
+				return fmt.Errorf("update k candle: %w", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return domains.ErrKCandleNotFound
+			}
+
+			return kCandleRepository.summaryInvalidation.invalidate(
+				transaction, kCandle.Symbol, []time.Time{kCandle.OpenTime})
+		})
+	if transactionError != nil {
+		return entities.KCandle{}, transactionError
 	}
 
 	return kCandle, nil
@@ -203,17 +246,20 @@ func (kCandleRepository *KCandleRepository) FindLatestBefore(
 func (kCandleRepository *KCandleRepository) Delete(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) error {
-	result := kCandleRepository.database.WithContext(executionContext).
-		Where(&entities.KCandle{Symbol: symbol, OpenTime: openTime}).
-		Delete(&entities.KCandle{})
-	if result.Error != nil {
-		return fmt.Errorf("delete k candle: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return domains.ErrKCandleNotFound
-	}
+	return kCandleRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			result := transaction.
+				Where(&entities.KCandle{Symbol: symbol, OpenTime: openTime}).
+				Delete(&entities.KCandle{})
+			if result.Error != nil {
+				return fmt.Errorf("delete k candle: %w", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return domains.ErrKCandleNotFound
+			}
 
-	return nil
+			return kCandleRepository.summaryInvalidation.invalidate(transaction, symbol, []time.Time{openTime})
+		})
 }
 
 // FindPriceExtremesInRange aggregates in the database because a week's holding is ten thousand one-minute candles, as on the contract side.
