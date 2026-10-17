@@ -158,3 +158,14 @@ func TestMinuteCapacityCountsEveryMinuteOfTheStretch(t *testing.T) {
 
 	assert.Equal(t, 1440, queryDomain.MinuteCapacity())
 }
+
+func TestSummaryPlanMergesAMissingDayFromEveryMinuteOfIt(t *testing.T) {
+	planDomain := summaryPlanAt(t, "1d", summaryMoment("2026-10-10T00:00:00Z"), summaryMoment("2026-10-14T00:00:00Z"))
+
+	dayStretch := planDomain.DayStretch(summaryMoment("2026-10-11T00:00:00Z"))
+
+	assert.Equal(t, "BTCUSDT", dayStretch.Symbol())
+	assert.Equal(t, summaryMoment("2026-10-11T00:00:00Z"), dayStretch.StartTime())
+	assert.Equal(t, summaryMoment("2026-10-11T23:59:59.999999999Z"), dayStretch.EndTime())
+	assert.Equal(t, 1440, dayStretch.MinuteCapacity())
+}

@@ -102,6 +102,15 @@ func (planDomain KCandleSummaryPlanDomain) DaysToSummarize(summarizedDays []time
 	return daysToSummarize
 }
 
+// DayStretch is every minute of one day the plan summarizes, the unit a missing day is merged in.
+func (planDomain KCandleSummaryPlanDomain) DayStretch(day time.Time) KCandleQueryDomain {
+	return KCandleQueryDomain{
+		symbol:    planDomain.rangeQuery.symbol,
+		startTime: day,
+		endTime:   day.Add(KCandleSummaryDayLength - time.Nanosecond),
+	}
+}
+
 // IncludesSummary tells a freshly merged day's summaries that belong to this request from the rest of that day.
 func (planDomain KCandleSummaryPlanDomain) IncludesSummary(
 	interval vo.AggregationIntervalVo, openTime time.Time,

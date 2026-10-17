@@ -6,7 +6,6 @@ import (
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -71,14 +70,7 @@ func (reader kCandleContractSummarizedSeriesReader) summaries(
 	}
 
 	for _, day := range planDomain.DaysToSummarize(summarizedDays) {
-		dayQuery, queryError := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{
-			Symbol:    planDomain.Symbol(),
-			StartTime: day,
-			EndTime:   day.Add(domains.KCandleSummaryDayLength - time.Nanosecond),
-		})
-		if queryError != nil {
-			return nil, queryError
-		}
+		dayQuery := planDomain.DayStretch(day)
 		minutes, minutesError := reader.kCandleContractRepository.FindInRange(
 			executionContext, dayQuery, dayQuery.MinuteCapacity())
 		if minutesError != nil {
