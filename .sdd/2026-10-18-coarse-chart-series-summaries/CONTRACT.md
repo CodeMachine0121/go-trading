@@ -77,3 +77,20 @@ Out-of-scope check: 指標計算、回測、策略機器人、交易日誌的讀
 - Orphans: 2 (undocumented, not out-of-scope)
 - Jev: ran on 34 clauses (12 re-audited with complete code paths)
 - Needs James: AC-1 (low confidence), AC-3 (low confidence), AC-6 (low confidence), AC-10 (violation), AC-12 (disagree), AC-13 (low confidence), AC-14 (low confidence), AC-15 (low confidence), AC-18 (low confidence), AC-19 (violation), AC-20 (low confidence), AC-21 (disagree), AC-24 (disagree), BR-3 (low confidence), BR-6 (low confidence), BR-7 (low confidence), BR-8 (low confidence), NFR-1 (disagree), NFR-2 (disagree) — mostly Jev's low confidence over multi-file paths; the two violations are analysed above
+
+## Follow-up after fixes (re-audit)
+
+Spec correction: NFR-2 now states the bound the design guarantees (filling reads one day at a time; a request holds at most about two days — the partial first bucket and the end or today — independent of range length). Tests added for AC-1 (900 days, every figure), AC-7, AC-10 (a week with two empty days), AC-21 (each hour of the filled day), AC-24 (explicit), NFR-2 (per-stretch bound).
+
+| ID | Test audit | Code audit | Jev test | Jev code | Status | Route |
+|----|------------|------------|----------|----------|--------|-------|
+| AC-1 | asserts-oracle | produces-oracle | shallow 0.33 | diverges 0.25 | 🔴 violation | escalate (violation) |
+| AC-7 | asserts-oracle | produces-oracle | asserts-oracle 0.83 | produces-oracle 0.79 | ✅ conforms | recheck (mid confidence) |
+| AC-10 | asserts-oracle | produces-oracle | asserts-oracle 0.52 | diverges 0.20 | 🔴 violation | escalate (violation) |
+| AC-19 | asserts-oracle | produces-oracle | asserts-oracle 0.80 | produces-oracle 0.71 | ✅ conforms | recheck (mid confidence) |
+| AC-21 | asserts-oracle | produces-oracle | asserts-oracle 0.91 | produces-oracle 0.53 | ✅ conforms | escalate (low confidence) |
+| AC-24 | asserts-oracle | produces-oracle | asserts-oracle 0.84 | produces-oracle 0.95 | ✅ conforms | recheck (mid confidence) |
+| NFR-2 | asserts-oracle | produces-oracle | asserts-oracle 0.56 | produces-oracle 0.84 | ✅ conforms | escalate (low confidence) |
+
+- AC-1 and AC-10 still show low-confidence `diverges` picks (Jev's distribution for AC-1 code was 0.33 / 0.33 / 0.31; AC-10 flipped to `conforms` on a verbose re-run). No concrete defect was identified; AC-1's open part is the two-second production latency, measured after deployment (see PR).
+- After fixes: 31/34 conform by Jev's status, AC-1 and AC-10 escalated on low confidence, NFR-1 is a production measurement.
