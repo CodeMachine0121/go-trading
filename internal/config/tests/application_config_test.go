@@ -391,3 +391,23 @@ func TestLoadReadsTheTrustedConnectorRedirectUris(t *testing.T) {
 		})
 	}
 }
+
+func TestKCandleSummaryRoundDefaultsToFiveMinutesAndCanBeSwitchedOff(t *testing.T) {
+	testCases := []struct {
+		name             string
+		declared         string
+		expectedInterval time.Duration
+	}{
+		{"not declared", "", 5 * time.Minute},
+		{"declared", "15", 15 * time.Minute},
+		{"switched off", "0", 0},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("KCANDLE_SUMMARY_INTERVAL_MINUTES", testCase.declared)
+
+			assert.Equal(t, testCase.expectedInterval, config.Load().KCandleSummaryInterval)
+		})
+	}
+}

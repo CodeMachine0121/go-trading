@@ -36,6 +36,7 @@ func registerRoutes(
 	liveFollowApplications,
 	*application.KCandleIngestionApplication,
 	*application.KCandleContractIngestionApplication,
+	*application.KCandleSummaryApplication,
 	strategyBotJobApplications,
 	*application.InterruptedWorkApplication,
 	contractSeriesApplications,
@@ -224,6 +225,12 @@ func registerRoutes(
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,
 	)
+
+	kCandleSummaryApplication := application.NewKCandleSummaryApplication(service.NewKCandleSummaryService(
+		kCandleRepository, kCandleSummaryDayRepository,
+		contractKCandleRepository, contractKCandleSummaryDayRepository,
+		persistence.NewTradingSymbolRepository(database), contractTradingSymbolRepository,
+		clock.NewSystemClockProxy(), domains.NewMarketCatalogDomain(applicationConfig.MarketRules)))
 
 	kCandleContractController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(kCandleContractService))
@@ -867,6 +874,7 @@ func registerRoutes(
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
 		kCandleIngestionApplication,
 		kCandleContractIngestionApplication,
+		kCandleSummaryApplication,
 		strategyBotJobApplications{
 			run: strategyBotRunApplication, pendingMessageDispatch: pendingMessageDispatchApplication,
 			contractAutoOrderExecution: contractAutoOrderExecutionApplication,
@@ -960,6 +968,7 @@ func backgroundJobsFor(
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
+	kCandleSummaryApplication *application.KCandleSummaryApplication,
 	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
 	backtestRunApplication *application.BacktestRunApplication,
@@ -1017,6 +1026,11 @@ func backgroundJobsFor(
 		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 		pendingMessageDispatchJob, contractAutoOrderExecutionJob, backtestRunWorkerJob, backtestRunRetentionJob,
+	}
+
+	if applicationConfig.KCandleSummaryInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewKCandleSummaryJob(
+			kCandleSummaryApplication, jobLeadershipApplication, applicationConfig.KCandleSummaryInterval))
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.

@@ -309,6 +309,8 @@ type ApplicationConfig struct {
 	ServerPort             string
 	CorsAllowedOrigins     []string
 	KCandleQueryMaxResults int
+	// KCandleSummaryInterval paces the round that summarizes watched symbols' recently finished days; zero or less switches it off.
+	KCandleSummaryInterval time.Duration
 	IndicatorScriptTimeout time.Duration
 	// IndicatorScriptMemoryLimitBytes applies per script compartment and must sit well below the
 	// service's own memory, as several run concurrently.
@@ -391,6 +393,7 @@ func loadAsWritten() ApplicationConfig {
 		CorsAllowedOrigins: commaSeparatedListWithDefault(
 			"CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
+		KCandleSummaryInterval: jobIntervalWithDefault("KCANDLE_SUMMARY_INTERVAL_MINUTES", 5, time.Minute),
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		IndicatorScriptMemoryLimitBytes: int64(

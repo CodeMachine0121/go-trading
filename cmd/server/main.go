@@ -34,7 +34,7 @@ func main() {
 	}
 
 	engine := gin.Default()
-	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication,
+	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication, kCandleSummaryApplication,
 		strategyBotJobs, interruptedWorkApplication,
 		contractSeries, backtestRunApplication := registerRoutes(engine, database, applicationConfig)
 
@@ -85,6 +85,7 @@ func main() {
 				liveFollows.spot,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
+				kCandleSummaryApplication,
 				strategyBotJobs,
 				contractSeries,
 				backtestRunApplication)),
