@@ -245,3 +245,22 @@ func TestContractDaySummarizedIsReadBackWithItsSummaries(t *testing.T) {
 	assert.Equal(t, int64(42), summaryDays[0].Summaries[0].TradeCount)
 	assert.False(t, summaryDays[0].Summaries[0].IndexOpen.Valid)
 }
+
+func TestInvalidatedDaySummarizedAgainCarriesTheNewFigures(t *testing.T) {
+	database := newTestDatabase(t)
+	summaryDayRepository := persistence.NewKCandleSummaryDayRepository(database)
+	_, firstSaveError := summaryDayRepository.SaveSummarized(t.Context(), summarizedSpotDay(firstOfMarch, 0))
+	require.NoError(t, firstSaveError)
+	_, writeError := persistence.NewKCandleRepository(database).Save(
+		t.Context(), spotMinuteAt(firstOfMarch.Add(14*time.Hour+5*time.Minute), "101"))
+	require.NoError(t, writeError)
+	resummarizedDay := summarizedSpotDay(firstOfMarch, storedSpotDay(t, database, firstOfMarch).Revision)
+	resummarizedDay.Summaries[1].Volume = decimal.RequireFromString("61")
+
+	isStored, saveError := summaryDayRepository.SaveSummarized(t.Context(), resummarizedDay)
+	require.NoError(t, saveError)
+
+	assert.True(t, isStored)
+	require.Len(t, storedSpotDay(t, database, firstOfMarch).Summaries, 1)
+	assert.True(t, storedSpotDay(t, database, firstOfMarch).Summaries[0].Volume.Equal(decimal.RequireFromString("61")))
+}
