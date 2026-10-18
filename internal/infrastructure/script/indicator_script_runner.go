@@ -25,7 +25,7 @@ var errScriptAllowanceSpent = errors.New("indicator script allowance spent")
 const scriptEntryPoint = "main.Calculate"
 
 // scriptCall runs the entry point through the interpreter so a script that never finishes can be stopped.
-const scriptCall = "main.Calculate(indicator.Data)"
+const scriptCall = "main.Calculate(indicator.Data())"
 
 const scriptDataPackage = "indicator/indicator"
 
@@ -114,8 +114,8 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	}
 
 	dataSymbols := map[string]reflect.Value{
-		// The field's address (not a copy) is exported so its contents can be swapped between runs.
-		"Data":          reflect.ValueOf(&preparedScript.visibleInput).Elem(),
+		// A function rather than the field, since the compiled call would otherwise keep the input it saw when compiled.
+		"Data":          reflect.ValueOf(preparedScript.visibleData),
 		"LookbackCount": reflect.ValueOf(preparedScript.parameterReader.lookbackCount),
 		"Number":        reflect.ValueOf(preparedScript.parameterReader.number),
 		"Boolean":       reflect.ValueOf(preparedScript.parameterReader.boolean),
@@ -180,16 +180,29 @@ func (runner indicatorScriptRunner[Input]) prepare(
 			resultType.ScriptResultShape())
 	}
 
+	// Compiled once: evaluating the call anew every run grows the interpreter's state, so a long replay slows quadratically and runs out of memory.
+	call, compileError := preparedScript.interpreter.Compile(scriptCall)
+	if compileError != nil {
+		return nil, fmt.Errorf(
+			"%w: 算式必須提供 Calculate 進入點：%v", domains.ErrIndicatorScriptFailed, compileError)
+	}
+	preparedScript.call = call
+
 	return preparedScript, nil
 }
 
 // preparedScript keeps the interpreter open between runs and swaps the input via a field.
 type preparedScript[Input any] struct {
 	interpreter      *interp.Interpreter
+	call             *interp.Program
 	shape            indicatorScriptShape
 	visibleInput     []Input
 	parameterReader  *strategyScriptParameterReader
 	executionTimeout time.Duration
+}
+
+func (preparedScript *preparedScript[Input]) visibleData() []Input {
+	return preparedScript.visibleInput
 }
 
 // runOver runs the prepared script through the interpreter, which turns every failure, including panics, into an error.
@@ -203,7 +216,7 @@ func (preparedScript *preparedScript[Input]) runOver(
 		executionContext, preparedScript.executionTimeout, errScriptAllowanceSpent)
 	defer stopWaiting()
 
-	calculated, callError := preparedScript.interpreter.EvalWithContext(allowanceContext, scriptCall)
+	calculated, callError := preparedScript.interpreter.ExecuteWithContext(allowanceContext, preparedScript.call)
 
 	// Checked first so an undeclared parameter is reported as such rather than as whatever error it caused.
 	if missingName, isMissing := preparedScript.parameterReader.missingName(); isMissing {
