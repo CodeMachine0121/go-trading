@@ -62,3 +62,25 @@ func TestTradingStrategyBacktestHearsACoarserSourceOnlyOnceItsBarHasFinished(t *
 	assert.True(t, decimal.RequireFromString("130").Equal(resultDto.ClosedTrades[0].EntryPrice))
 	assert.True(t, decimal.RequireFromString("170").Equal(resultDto.ClosedTrades[0].ExitPrice))
 }
+
+// Two read hours finish no four-hour bar, so B is never run and holds; A alone never opens.
+func TestTradingStrategyBacktestDoesNotRunACoarserSourceWithNoFinishedBar(t *testing.T) {
+	fixture := newTradingStrategyBacktestUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), replayedTradingStrategyID).
+		Return(aReplayedTradingStrategy("1h", "4h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110")}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(signalsSaying(vo.SignalBuy, vo.SignalBuy), nil).Times(1)
+
+	requestDto := tradingStrategyBacktestRequestDto()
+	requestDto.EndTime = backtestStart.Add(2 * time.Hour)
+
+	resultDto, runError := fixture.application.RunTradingStrategyBacktest(
+		context.Background(), backtestViewerID, replayedTradingStrategyID, requestDto)
+
+	require.NoError(t, runError)
+	assert.Equal(t, 0, resultDto.Summary.PositionOpenCount)
+}

@@ -205,8 +205,7 @@ func (backtestDomain BacktestDomain) readStart() time.Time {
 	return readStart
 }
 
-// isFinishedBy tells whether a bucket of the given interval has closed by the read cut-off; the read
-// starts on a coarsest bucket edge, so no bucket is cut short at the front.
+// isFinishedBy ignores the front edge because the read starts on a coarsest bucket edge.
 func (backtestDomain BacktestDomain) isFinishedBy(interval AggregationIntervalDomain, bucketOpenTime time.Time) bool {
 	return !bucketOpenTime.Add(interval.duration).After(backtestDomain.readCutoff)
 }

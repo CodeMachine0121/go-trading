@@ -101,16 +101,15 @@ func NewSubmittedBacktestRunDomain(
 	}
 
 	// A trading strategy replays at its finest source interval; an unreadable one is refused when the replay starts.
-	paceInterval := AggregationIntervalDomain{}
+	readableIntervals := make([]AggregationIntervalDomain, 0, len(strategySources))
 	for _, source := range strategySources {
-		sourceInterval, intervalError := NewAggregationIntervalDomain(source.AggregationInterval)
-		if intervalError == nil && (paceInterval.duration == 0 || sourceInterval.duration < paceInterval.duration) {
-			paceInterval = sourceInterval
+		if sourceInterval, intervalError := NewAggregationIntervalDomain(source.AggregationInterval); intervalError == nil {
+			readableIntervals = append(readableIntervals, sourceInterval)
 		}
 	}
 	switch {
-	case paceInterval.duration > 0:
-		backtestRun.Interval = string(paceInterval.Value())
+	case len(readableIntervals) > 0:
+		backtestRun.Interval = string(NewReplayPaceDomain(readableIntervals, make([]int, len(readableIntervals))).Interval().Value())
 	case len(strategySources) > 0:
 		backtestRun.Interval = strategySources[0].AggregationInterval
 	}

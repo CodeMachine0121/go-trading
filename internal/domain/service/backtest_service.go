@@ -140,6 +140,12 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 		sourceKCandles := inputKCandles
 		if !tradingStrategyBacktestDomain.SourceIsAtPace(sourceIndex) {
 			sourceKCandles = tradingStrategyBacktestDomain.SourceInputCandles(sourceIndex, kCandles)
+			if len(sourceKCandles) == 0 {
+				signalsBySource = append(signalsBySource, tradingStrategyBacktestDomain.SignalsAtPace(
+					sourceIndex, nil, nil, inputKCandles))
+
+				continue
+			}
 		}
 
 		perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
