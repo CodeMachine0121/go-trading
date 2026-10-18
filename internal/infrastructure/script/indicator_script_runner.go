@@ -115,7 +115,7 @@ func (runner indicatorScriptRunner[Input]) prepare(
 
 	dataSymbols := map[string]reflect.Value{
 		// A function rather than the field, since the compiled call would otherwise keep the input it saw when compiled.
-		"Data":          reflect.ValueOf(preparedScript.visibleData),
+		"Data":          reflect.ValueOf(func() []Input { return preparedScript.visibleInput }),
 		"LookbackCount": reflect.ValueOf(preparedScript.parameterReader.lookbackCount),
 		"Number":        reflect.ValueOf(preparedScript.parameterReader.number),
 		"Boolean":       reflect.ValueOf(preparedScript.parameterReader.boolean),
@@ -199,10 +199,6 @@ type preparedScript[Input any] struct {
 	visibleInput     []Input
 	parameterReader  *strategyScriptParameterReader
 	executionTimeout time.Duration
-}
-
-func (preparedScript *preparedScript[Input]) visibleData() []Input {
-	return preparedScript.visibleInput
 }
 
 // runOver runs the prepared script through the interpreter, which turns every failure, including panics, into an error.
