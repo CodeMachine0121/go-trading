@@ -56,14 +56,14 @@ type ResolvedSignalSourceDto struct {
 	ParameterValues     []StrategyScriptParameterValueDto
 }
 
-// ToBacktestRequestDto builds the shared replay conditions once the signal sources' common
+// ToBacktestRequestDto builds the shared replay conditions once the signal sources' replay pace
 // interval is known; scripts and parameters stay per source.
 func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
-	sharedAggregationInterval string,
+	paceAggregationInterval string,
 ) BacktestRequestDto {
 	return BacktestRequestDto{
 		Symbol:               requestDto.Symbol,
-		AggregationInterval:  sharedAggregationInterval,
+		AggregationInterval:  paceAggregationInterval,
 		StartTime:            requestDto.StartTime,
 		EndTime:              requestDto.EndTime,
 		InitialCapital:       requestDto.InitialCapital,

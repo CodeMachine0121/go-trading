@@ -42,11 +42,11 @@ type ContractTradingStrategyBacktestRequestDto struct {
 }
 
 func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRequestDto(
-	sharedAggregationInterval string,
+	paceAggregationInterval string,
 ) ContractBacktestRequestDto {
 	return ContractBacktestRequestDto{
 		Symbol:                requestDto.Symbol,
-		AggregationInterval:   sharedAggregationInterval,
+		AggregationInterval:   paceAggregationInterval,
 		StartTime:             requestDto.StartTime,
 		EndTime:               requestDto.EndTime,
 		InitialCapital:        requestDto.InitialCapital,
