@@ -198,13 +198,13 @@ func (backtestDomain BacktestDomain) readStart() time.Time {
 	return readStart
 }
 
-// isWholeBucketRead tells whether a bucket of the given interval lies entirely within what is read and finished.
-func (backtestDomain BacktestDomain) isWholeBucketRead(interval AggregationIntervalDomain, bucketOpenTime time.Time) bool {
-	return !bucketOpenTime.Before(backtestDomain.readStart()) &&
-		!bucketOpenTime.Add(interval.duration).After(backtestDomain.readCutoff)
+// isFinishedBy tells whether a bucket of the given interval has closed by the read cut-off; the read
+// starts on a coarsest bucket edge, so no bucket is cut short at the front.
+func (backtestDomain BacktestDomain) isFinishedBy(interval AggregationIntervalDomain, bucketOpenTime time.Time) bool {
+	return !bucketOpenTime.Add(interval.duration).After(backtestDomain.readCutoff)
 }
 
-// FinishedCandlesAt aggregates the read candles into another interval, keeping only buckets wholly read and finished.
+// FinishedCandlesAt aggregates the read candles into another interval, keeping only finished buckets.
 func (backtestDomain BacktestDomain) FinishedCandlesAt(
 	interval AggregationIntervalDomain, kCandles []entities.KCandle,
 ) []vo.KCandleVo {
@@ -212,7 +212,7 @@ func (backtestDomain BacktestDomain) FinishedCandlesAt(
 
 	finishedKCandleVos := make([]vo.KCandleVo, 0, len(buckets))
 	for _, bucket := range buckets {
-		if backtestDomain.isWholeBucketRead(interval, bucket.OpenTime()) {
+		if backtestDomain.isFinishedBy(interval, bucket.OpenTime()) {
 			finishedKCandleVos = append(finishedKCandleVos, bucket.ToVo())
 		}
 	}
