@@ -169,19 +169,26 @@ func NewBacktestDomain(
 	}, nil
 }
 
-// warmedUpFor applies the look-back declared by scripts read elsewhere, keeping the default only when none declares one, as a single script does.
-func (backtestDomain BacktestDomain) warmedUpFor(declaredLookbackCount int) BacktestDomain {
-	if declaredLookbackCount > 0 {
-		backtestDomain.warmupBarCount = declaredLookbackCount
+// pacedBy keeps the default warm-up when no source declares one, as a single script does; mixed intervals start the read on a whole coarsest bar.
+func (backtestDomain BacktestDomain) pacedBy(pace ReplayPaceDomain, maxCandleCount int) (BacktestDomain, error) {
+	if pace.WarmupBarCount() > 0 {
+		backtestDomain.warmupBarCount = pace.WarmupBarCount()
 	}
 
-	return backtestDomain
-}
+	if !pace.MixesIntervals() {
+		return backtestDomain, nil
+	}
 
-func (backtestDomain BacktestDomain) readingAlignedTo(interval AggregationIntervalDomain) BacktestDomain {
-	backtestDomain.readAlignment = interval
+	if backtestDomain.warmupBarCount > maxCandleCount {
+		return BacktestDomain{}, BacktestValidationFailure(BacktestSignalSourcesField, fmt.Sprintf(
+			"較粗的信號來源要回看的行情，換成 %s 要 %d 根，超過一次重演可用的最大根數（最多 %d 根）——"+
+				"請減少那個來源的回看根數，或縮短重演期間",
+			backtestDomain.interval.Value(), backtestDomain.warmupBarCount, maxCandleCount))
+	}
 
-	return backtestDomain
+	backtestDomain.readAlignment = pace.CoarsestInterval()
+
+	return backtestDomain, nil
 }
 
 func (backtestDomain BacktestDomain) readStart() time.Time {
@@ -218,18 +225,6 @@ func (backtestDomain BacktestDomain) FinishedCandlesAt(
 	}
 
 	return finishedKCandleVos
-}
-
-// refusingWarmupBeyond refuses a warm-up that alone needs more bars than one replay may read.
-func (backtestDomain BacktestDomain) refusingWarmupBeyond(maxCandleCount int) error {
-	if backtestDomain.warmupBarCount <= maxCandleCount {
-		return nil
-	}
-
-	return BacktestValidationFailure(BacktestSignalSourcesField, fmt.Sprintf(
-		"較粗的信號來源要回看的行情，換成 %s 要 %d 根，超過一次重演可用的最大根數（最多 %d 根）——"+
-			"請減少那個來源的回看根數，或縮短重演期間",
-		backtestDomain.interval.Value(), backtestDomain.warmupBarCount, maxCandleCount))
 }
 
 func (backtestDomain BacktestDomain) tradeStartIndex(barOpenTimes []time.Time) int {

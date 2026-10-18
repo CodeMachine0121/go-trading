@@ -44,12 +44,9 @@ func NewTradingStrategyBacktestDomain(
 		return TradingStrategyBacktestDomain{}, backtestError
 	}
 
-	backtest = backtest.warmedUpFor(pace.WarmupBarCount())
-	if pace.MixesIntervals() {
-		if warmupError := backtest.refusingWarmupBeyond(maxCandleCount); warmupError != nil {
-			return TradingStrategyBacktestDomain{}, warmupError
-		}
-		backtest = backtest.readingAlignedTo(pace.CoarsestInterval())
+	backtest, paceError := backtest.pacedBy(pace, maxCandleCount)
+	if paceError != nil {
+		return TradingStrategyBacktestDomain{}, paceError
 	}
 
 	return TradingStrategyBacktestDomain{backtest: backtest, sources: sources}, nil

@@ -51,13 +51,11 @@ func NewContractTradingStrategyBacktestDomain(
 		return ContractTradingStrategyBacktestDomain{}, contractBacktestError
 	}
 
-	contractBacktest.backtest = contractBacktest.backtest.warmedUpFor(pace.WarmupBarCount())
-	if pace.MixesIntervals() {
-		if warmupError := contractBacktest.backtest.refusingWarmupBeyond(maxCandleCount); warmupError != nil {
-			return ContractTradingStrategyBacktestDomain{}, warmupError
-		}
-		contractBacktest.backtest = contractBacktest.backtest.readingAlignedTo(pace.CoarsestInterval())
+	pacedBacktest, paceError := contractBacktest.backtest.pacedBy(pace, maxCandleCount)
+	if paceError != nil {
+		return ContractTradingStrategyBacktestDomain{}, paceError
 	}
+	contractBacktest.backtest = pacedBacktest
 
 	for sourceIndex := range sources.SourceCount() {
 		if reachError := contractBacktest.KCandleQuery().requireOrderFlowReach(
