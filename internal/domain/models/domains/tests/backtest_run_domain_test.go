@@ -185,6 +185,34 @@ func TestSubmittedBacktestRunDescribesWhatItReplays(t *testing.T) {
 			expectedKind: "spotTradingStrategy", expectedInterval: "1d",
 		},
 		{
+			name: "a spot trading strategy on a day, four hours and fifteen minutes records fifteen minutes",
+			submission: dto.BacktestRunSubmissionDto{Kind: "spotTradingStrategy", TradingStrategyID: &tradingStrategyID,
+				Request: dto.BacktestRunRequestDto{SpotTradingStrategy: &dto.TradingStrategyBacktestRequestDto{
+					Symbol: "BTCUSDT", SignalSources: []dto.ResolvedSignalSourceDto{
+						{AggregationInterval: "1d"}, {AggregationInterval: "4h"}, {AggregationInterval: "15m"},
+					},
+				}}},
+			expectedKind: "spotTradingStrategy", expectedInterval: "15m",
+		},
+		{
+			name: "a contract trading strategy on a day and four hours records four hours",
+			submission: dto.BacktestRunSubmissionDto{Kind: "contractTradingStrategy", TradingStrategyID: &tradingStrategyID,
+				Request: dto.BacktestRunRequestDto{ContractTradingStrategy: &dto.ContractTradingStrategyBacktestRequestDto{
+					Symbol: "BTCUSDT", Leverage: decimal.NewFromInt(2), TradingStrategyTradingMode: "longOnly",
+					SignalSources: []dto.ResolvedSignalSourceDto{{AggregationInterval: "1d"}, {AggregationInterval: "4h"}},
+				}}},
+			expectedKind: "contractTradingStrategy", expectedInterval: "4h",
+			expectedLeverage: decimalPointer("2"), expectedTradingMode: stringPointer("longOnly"),
+		},
+		{
+			name: "an unreadable source interval is recorded as given, to be refused when the replay starts",
+			submission: dto.BacktestRunSubmissionDto{Kind: "spotTradingStrategy", TradingStrategyID: &tradingStrategyID,
+				Request: dto.BacktestRunRequestDto{SpotTradingStrategy: &dto.TradingStrategyBacktestRequestDto{
+					Symbol: "BTCUSDT", SignalSources: []dto.ResolvedSignalSourceDto{{AggregationInterval: "3h"}},
+				}}},
+			expectedKind: "spotTradingStrategy", expectedInterval: "3h",
+		},
+		{
 			name: "a contract trading strategy carries the strategy's own trading mode",
 			submission: dto.BacktestRunSubmissionDto{Kind: "contractTradingStrategy", TradingStrategyID: &tradingStrategyID,
 				Request: dto.BacktestRunRequestDto{ContractTradingStrategy: &dto.ContractTradingStrategyBacktestRequestDto{
