@@ -444,35 +444,7 @@ func TestTradingStrategyApplicationReadsAMixedOneBackUnchanged(t *testing.T) {
 	assert.Equal(t, "5m", tradingStrategyDto.SignalSources[1].AggregationInterval)
 }
 
-// Any rewrite of a mixed one must reconcile it, even a name-only edit, because the rule applies to
-// what is saved.
-func TestTradingStrategyApplicationUpdateRefusesAMixedOneEvenWhenOnlyTheNameChanged(t *testing.T) {
-	underTest := newTradingStrategyApplicationUnderTest(t)
-	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
-		Return(aMixedCoarsenessTradingStrategy(), nil).AnyTimes()
-	underTest.expectFollowingBots()
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(aScriptOwnedByTheCaller(9), nil).AnyTimes()
-	underTest.expectNoMarketplaceQuestion()
-	underTest.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
-
-	writeDto := aTradingStrategyWrite()
-	writeDto.ID = tradingStrategyID
-	writeDto.Name = "改個名字"
-	writeDto.SignalSources = append(writeDto.SignalSources,
-		dto.TradingStrategySignalSourceWriteDto{
-			Label: "B", StrategyScriptID: 9, AggregationInterval: "5m"})
-
-	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
-		context.Background(), strategyBotOwnerID, writeDto)
-
-	require.ErrorIs(t, updateError, domains.ErrTradingStrategyValidation)
-	assert.ErrorContains(t, updateError, "1h")
-	assert.ErrorContains(t, updateError, "5m")
-}
-
-// Making the coarsenesses match is all it takes.
-func TestTradingStrategyApplicationUpdateAcceptsAMixedOneOnceItIsReconciled(t *testing.T) {
+func TestTradingStrategyApplicationUpdateAcceptsSourcesOnTheSameInterval(t *testing.T) {
 	underTest := newTradingStrategyApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
 		Return(aMixedCoarsenessTradingStrategy(), nil).Times(2)

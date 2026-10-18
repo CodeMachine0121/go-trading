@@ -37,15 +37,19 @@ func NewTradingStrategyBacktestDomain(
 	}
 
 	// The interval comes from the trading strategy's sources, not the caller.
+	pace := sources.Pace()
 	backtest, backtestError := NewBacktestDomain(
-		requestDto.ToBacktestRequestDto(sources.SharedInterval()), maxCandleCount, now)
+		requestDto.ToBacktestRequestDto(string(pace.Interval().Value())), maxCandleCount, now)
 	if backtestError != nil {
 		return TradingStrategyBacktestDomain{}, backtestError
 	}
 
-	return TradingStrategyBacktestDomain{
-		backtest: backtest.warmedUpFor(sources.MaximumLookbackCount()), sources: sources,
-	}, nil
+	backtest, paceError := backtest.pacedBy(pace, maxCandleCount)
+	if paceError != nil {
+		return TradingStrategyBacktestDomain{}, paceError
+	}
+
+	return TradingStrategyBacktestDomain{backtest: backtest, sources: sources}, nil
 }
 
 func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) Symbol() string {
@@ -64,6 +68,29 @@ func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SelectInputCa
 	kCandles []entities.KCandle,
 ) ([]vo.KCandleVo, error) {
 	return tradingStrategyBacktestDomain.backtest.SelectInputCandles(kCandles)
+}
+
+func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SourceIsAtPace(index int) bool {
+	return tradingStrategyBacktestDomain.sources.SourceIsAtPace(index)
+}
+
+// SourceInputCandles is what a source coarser than the pace reads: its own finished bars from the same candles.
+func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SourceInputCandles(
+	index int, kCandles []entities.KCandle,
+) []vo.KCandleVo {
+	return tradingStrategyBacktestDomain.backtest.FinishedCandlesAt(
+		tradingStrategyBacktestDomain.sources.SourceInterval(index), kCandles)
+}
+
+// SignalsAtPace lets a coarser source speak on each pace candle with its last finished bar only.
+func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SignalsAtPace(
+	index int, sourceKCandles []vo.KCandleVo, sourceSignals []SignalDomain, paceKCandles []vo.KCandleVo,
+) []SignalDomain {
+	return tradingStrategyBacktestDomain.sources.Pace().SignalsAtPace(
+		tradingStrategyBacktestDomain.sources.SourceInterval(index),
+		tradingStrategyBacktestDomain.backtest.openTimesOf(sourceKCandles),
+		sourceSignals,
+		tradingStrategyBacktestDomain.backtest.openTimesOf(paceKCandles))
 }
 
 func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) ResultType() IndicatorResultTypeDomain {

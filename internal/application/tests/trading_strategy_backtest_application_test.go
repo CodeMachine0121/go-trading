@@ -190,20 +190,6 @@ func TestTradingStrategyBacktestTakesItsCoarsenessFromTheSources(t *testing.T) {
 	assert.Equal(t, "1h", resultDto.Interval)
 }
 
-func TestTradingStrategyBacktestRefusesSourcesThatDisagreeAboutCoarseness(t *testing.T) {
-	// Replay walks one candle at a time, so mismatched coarsenesses are refused, naming both.
-	fixture := newTradingStrategyBacktestUnderTest(t)
-	fixture.tradingStrategyRepository.EXPECT().
-		FindOne(gomock.Any(), replayedTradingStrategyID).
-		Return(aReplayedTradingStrategy("1h", "5m"), nil)
-
-	_, err := fixture.run()
-
-	require.ErrorIs(t, err, domains.ErrBacktestValidation)
-	assert.ErrorContains(t, err, "1h")
-	assert.ErrorContains(t, err, "5m")
-}
-
 func TestTradingStrategyBacktestCountsNoConflictWhenTheTwoTreesCannotBothHold(t *testing.T) {
 	// Buy needs both sources and sell needs A, so no candle satisfies both and the conflict count
 	// must be zero.

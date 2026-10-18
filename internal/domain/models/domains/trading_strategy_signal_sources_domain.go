@@ -108,19 +108,6 @@ func NewTradingStrategySignalSourcesDomain(
 		labels = append(labels, label)
 	}
 
-	// Sources must share one interval, otherwise the trading strategy cannot be replayed and
-	// live signals would compare different candles.
-	intervals := make([]string, 0, len(settledSources))
-	for _, source := range settledSources {
-		intervals = append(intervals, source.AggregationInterval)
-	}
-
-	_, sharedIntervalError := NewSharedAggregationIntervalDomain(intervals).Shared()
-	if sharedIntervalError != nil {
-		return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
-			"%w: %w", ErrTradingStrategyValidation, sharedIntervalError)
-	}
-
 	return TradingStrategySignalSourcesDomain{sources: settledSources, labels: labels}, nil
 }
 

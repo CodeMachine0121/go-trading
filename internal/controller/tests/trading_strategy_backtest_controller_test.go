@@ -161,13 +161,13 @@ func TestTradingStrategyBacktestRouterMapsEachRefusalOntoItsOwnStatus(t *testing
 			expectedStatus: http.StatusNotFound,
 		},
 		{
-			name: "sources that disagree about coarseness name the input at fault",
+			name: "a source reading an interval outside the six names the input at fault",
 			arrange: func(fixture tradingStrategyBacktestRouterUnderTest) {
 				disagreeing := aRoutedTradingStrategy("1h")
 				disagreeing.SignalSources = append(disagreeing.SignalSources,
 					entities.TradingStrategySignalSource{
 						ID: 21, TradingStrategyID: 11, Label: "B",
-						StrategyScriptID: 9, AggregationInterval: "5m",
+						StrategyScriptID: 9, AggregationInterval: "3h",
 					})
 				fixture.tradingStrategyRepository.EXPECT().
 					FindOne(gomock.Any(), uint(11)).Return(disagreeing, nil)
@@ -211,7 +211,7 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	disagreeing.SignalSources = append(disagreeing.SignalSources,
 		entities.TradingStrategySignalSource{
 			ID: 21, TradingStrategyID: 11, Label: "B",
-			StrategyScriptID: 9, AggregationInterval: "5m",
+			StrategyScriptID: 9, AggregationInterval: "3h",
 		})
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), uint(11)).Return(disagreeing, nil)
@@ -221,8 +221,8 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.Equal(t, "signalSources", answer["field"])
-	assert.Contains(t, answer["message"], "1h")
-	assert.Contains(t, answer["message"], "5m")
+	assert.Contains(t, answer["message"], `信號來源 "B" 的彙總刻度不對`)
+	assert.Contains(t, answer["message"], "1m、5m、15m、1h、4h、1d")
 }
 
 func TestTradingStrategyBacktestRouterAtTheOwnerLimit(t *testing.T) {

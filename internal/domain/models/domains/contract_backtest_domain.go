@@ -130,6 +130,27 @@ func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 	return newContractKCandleAlignmentDomain(contractBacktestDomain.backtest.interval, finishedBuckets), nil
 }
 
+// FinishedAlignmentAt merges the read contract K candles into another interval, keeping only finished buckets.
+func (contractBacktestDomain ContractBacktestDomain) FinishedAlignmentAt(
+	interval AggregationIntervalDomain, kCandleContracts []entities.KCandleContract,
+) (ContractKCandleAlignmentDomain, bool) {
+	mergedBuckets := NewKCandleContractSeriesDomain(
+		contractBacktestDomain.backtest.symbol, interval, kCandleContracts).ToDto().KCandles
+
+	finishedBuckets := make([]dto.KCandleContractDto, 0, len(mergedBuckets))
+	for _, bucket := range mergedBuckets {
+		if contractBacktestDomain.backtest.isFinishedBy(interval, bucket.OpenTime) {
+			finishedBuckets = append(finishedBuckets, bucket)
+		}
+	}
+
+	if len(finishedBuckets) == 0 {
+		return ContractKCandleAlignmentDomain{}, false
+	}
+
+	return newContractKCandleAlignmentDomain(interval, finishedBuckets), true
+}
+
 func (contractBacktestDomain ContractBacktestDomain) tradeStartIndex(buckets []dto.KCandleContractDto) int {
 	return contractBacktestDomain.backtest.tradeStartIndex(contractBacktestDomain.openTimesOf(buckets))
 }

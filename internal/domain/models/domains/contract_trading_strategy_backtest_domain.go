@@ -44,13 +44,18 @@ func NewContractTradingStrategyBacktestDomain(
 		return ContractTradingStrategyBacktestDomain{}, sourcesError
 	}
 
+	pace := sources.Pace()
 	contractBacktest, contractBacktestError := NewContractBacktestDomain(
-		requestDto.ToContractBacktestRequestDto(sources.SharedInterval()), tradingRules, maxCandleCount, now)
+		requestDto.ToContractBacktestRequestDto(string(pace.Interval().Value())), tradingRules, maxCandleCount, now)
 	if contractBacktestError != nil {
 		return ContractTradingStrategyBacktestDomain{}, contractBacktestError
 	}
 
-	contractBacktest.backtest = contractBacktest.backtest.warmedUpFor(sources.MaximumLookbackCount())
+	pacedBacktest, paceError := contractBacktest.backtest.pacedBy(pace, maxCandleCount)
+	if paceError != nil {
+		return ContractTradingStrategyBacktestDomain{}, paceError
+	}
+	contractBacktest.backtest = pacedBacktest
 
 	for sourceIndex := range sources.SourceCount() {
 		if reachError := contractBacktest.KCandleQuery().requireOrderFlowReach(
@@ -78,6 +83,33 @@ func (strategyBacktestDomain ContractTradingStrategyBacktestDomain) SourceParame
 	index int,
 ) StrategyScriptParametersDomain {
 	return strategyBacktestDomain.sources.SourceParameters(index)
+}
+
+func (strategyBacktestDomain ContractTradingStrategyBacktestDomain) SourceIsAtPace(index int) bool {
+	return strategyBacktestDomain.sources.SourceIsAtPace(index)
+}
+
+// SourceAlignment is what a source coarser than the pace reads: its own finished bars from the same
+// contract K candles; false when not one of its bars has finished within what was read.
+func (strategyBacktestDomain ContractTradingStrategyBacktestDomain) SourceAlignment(
+	index int, kCandleContracts []entities.KCandleContract,
+) (ContractKCandleAlignmentDomain, bool) {
+	return strategyBacktestDomain.contractBacktest.FinishedAlignmentAt(
+		strategyBacktestDomain.sources.SourceInterval(index), kCandleContracts)
+}
+
+// SignalsAtPace lets a coarser source speak on each pace bar with its last finished bar only.
+func (strategyBacktestDomain ContractTradingStrategyBacktestDomain) SignalsAtPace(
+	index int,
+	sourceAlignment ContractKCandleAlignmentDomain,
+	sourceSignals []SignalDomain,
+	paceAlignment ContractKCandleAlignmentDomain,
+) []SignalDomain {
+	return strategyBacktestDomain.sources.Pace().SignalsAtPace(
+		strategyBacktestDomain.sources.SourceInterval(index),
+		sourceAlignment.openTimes(),
+		sourceSignals,
+		paceAlignment.openTimes())
 }
 
 // ReplayOver combines each bar's source signals into one verdict and replays the contract account over them, recording conflicted bars.

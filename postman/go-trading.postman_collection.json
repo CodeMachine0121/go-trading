@@ -14021,7 +14021,7 @@
           ]
         },
         {
-          "name": "拒絕：兩個來源看不同粗細的 K 線",
+          "name": "兩個來源各看各的粗細",
           "request": {
             "method": "POST",
             "header": [
@@ -14039,10 +14039,10 @@
                 "trading-strategies"
               ]
             },
-            "description": "一份交易策略只看一種粗細的 K 線。「一小時那一棒」與「五分鐘那一棒」不是同一根——放行的話它重演不了，上線之後兩個來源也會在不同的時間軸上各說各話。拒絕的句子說得出現在有哪幾種，因為要做的事就是把它們調成一樣。",
+            "description": "信號來源可以各用各的彙總刻度（例如日線定方向、十五分鐘抓進場）。重演以最細的那一個為步調，較粗的那一路只用已經走完的那一根。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"刻度不一致 {{$timestamp}}\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"多刻度 {{$timestamp}}\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1d\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -14056,12 +14056,56 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"刻度不一致的一份存不下去，而且說得出有哪幾種\", function () {",
-                  "    pm.response.to.have.status(400);",
-                  "    const message = pm.response.json().message;",
-                  "    pm.expect(message).to.include(\"1h\");",
-                  "    pm.expect(message).to.include(\"5m\");",
-                  "});"
+                    "pm.test(\"兩個刻度的一份存得下去，各記著自己的刻度\", function () {",
+                    "    pm.response.to.have.status(201);",
+                    "    const intervals = pm.response.json().signalSources.map(source => source.aggregationInterval);",
+                    "    pm.expect(intervals).to.eql([\"1h\", \"1d\"]);",
+                    "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：來源的刻度不在六種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies"
+              ]
+            },
+            "description": "彙總刻度只能是 1m、5m、15m、1h、4h、1d 其中之一；拒絕的句子指名是哪一個來源。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"刻度不對 {{$timestamp}}\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"3h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "pm.test(\"刻度不在六種之內的存不下去，而且指名是哪一個來源\", function () {",
+                    "    pm.response.to.have.status(400);",
+                    "    pm.expect(pm.response.json().message).to.include('信號來源 \"B\" 的彙總刻度不對');",
+                    "});"
                 ]
               }
             }

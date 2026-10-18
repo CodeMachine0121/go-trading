@@ -47,6 +47,8 @@ func NewSubmittedBacktestRunDomain(
 		SubmittedAt:       submittedAt.UTC(),
 	}
 
+	strategySources := []dto.ResolvedSignalSourceDto{}
+
 	switch vo.NewBacktestRunKindVo(submission.Kind) {
 	case vo.BacktestRunSpotScript:
 		request := submission.Request.SpotScript
@@ -76,14 +78,14 @@ func NewSubmittedBacktestRunDomain(
 		if request == nil || len(request.SignalSources) == 0 {
 			return BacktestRunDomain{}, fmt.Errorf("%w: 現貨交易策略回測沒有帶請求", ErrBacktestValidation)
 		}
-		backtestRun.Symbol, backtestRun.Interval = request.Symbol, request.SignalSources[0].AggregationInterval
+		backtestRun.Symbol, strategySources = request.Symbol, request.SignalSources
 		backtestRun.StartTime, backtestRun.EndTime = request.StartTime.UTC(), request.EndTime.UTC()
 	case vo.BacktestRunContractTradingStrategy:
 		request := submission.Request.ContractTradingStrategy
 		if request == nil || len(request.SignalSources) == 0 {
 			return BacktestRunDomain{}, fmt.Errorf("%w: 合約交易策略回測沒有帶請求", ErrBacktestValidation)
 		}
-		backtestRun.Symbol, backtestRun.Interval = request.Symbol, request.SignalSources[0].AggregationInterval
+		backtestRun.Symbol, strategySources = request.Symbol, request.SignalSources
 		backtestRun.StartTime, backtestRun.EndTime = request.StartTime.UTC(), request.EndTime.UTC()
 		backtestRun.Leverage = decimal.NewNullDecimal(request.Leverage)
 		if request.Leverage.IsZero() {
@@ -96,6 +98,20 @@ func NewSubmittedBacktestRunDomain(
 		backtestRun.TradingMode = string(tradingMode.Value())
 	default:
 		return BacktestRunDomain{}, fmt.Errorf("%w: 認不得的回測種類 %q", ErrBacktestValidation, submission.Kind)
+	}
+
+	// A trading strategy replays at its finest source interval; an unreadable one is refused when the replay starts.
+	readableIntervals := make([]AggregationIntervalDomain, 0, len(strategySources))
+	for _, source := range strategySources {
+		if sourceInterval, intervalError := NewAggregationIntervalDomain(source.AggregationInterval); intervalError == nil {
+			readableIntervals = append(readableIntervals, sourceInterval)
+		}
+	}
+	switch {
+	case len(readableIntervals) > 0:
+		backtestRun.Interval = string(NewReplayPaceDomain(readableIntervals, make([]int, len(readableIntervals))).Interval().Value())
+	case len(strategySources) > 0:
+		backtestRun.Interval = strategySources[0].AggregationInterval
 	}
 
 	return NewBacktestRunDomain(backtestRun), nil

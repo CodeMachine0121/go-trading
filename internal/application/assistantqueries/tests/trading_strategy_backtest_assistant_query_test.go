@@ -236,19 +236,18 @@ func TestTradingStrategyBacktestAssistantQueryAlwaysReportsTheConflictCount(t *t
 	assert.Equal(t, 0, report.Summary.PositionOpenCount)
 }
 
-func TestTradingStrategyBacktestAssistantQueryHandsBackTheCoarsenessRefusal(t *testing.T) {
-	// The refusal names the coarsenesses so the assistant can make them agree.
+func TestTradingStrategyBacktestAssistantQueryHandsBackTheUnknownIntervalRefusal(t *testing.T) {
+	// The refusal names the interval so the assistant can correct it.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
-		Return(aReplayableTradingStrategy("1h", "5m"), nil)
+		Return(aReplayableTradingStrategy("1h", "3h"), nil)
 
 	_, runError := fixture.backtestAssistantQuery.Run(
 		t.Context(), assistantOrigin, aReplayArgument)
 
 	require.Error(t, runError)
-	assert.Contains(t, runError.Error(), "1h")
-	assert.Contains(t, runError.Error(), "5m")
+	assert.Contains(t, runError.Error(), "1m、5m、15m、1h、4h、1d")
 }
 
 func TestTradingStrategyBacktestAssistantQueryIsCutOffByTheOnDemandAllowance(t *testing.T) {

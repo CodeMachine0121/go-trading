@@ -11,42 +11,42 @@ import (
 // TradingStrategyReplaySourcesDomain is shared by spot and contract replays and judges
 // through StrategyBotVerdictDomain, so replays and live rounds reach the same signal.
 type TradingStrategyReplaySourcesDomain struct {
-	sharedInterval string
-	sources        []resolvedSignalSource
-	buyCondition   TradingStrategyConditionDomain
-	sellCondition  TradingStrategyConditionDomain
+	pace          ReplayPaceDomain
+	sources       []resolvedSignalSource
+	buyCondition  TradingStrategyConditionDomain
+	sellCondition TradingStrategyConditionDomain
 }
 
 type resolvedSignalSource struct {
 	label      string
 	script     string
+	interval   AggregationIntervalDomain
 	parameters StrategyScriptParametersDomain
 }
 
-// NewTradingStrategyReplaySourcesDomain checks the shared interval first, then refuses
-// sources of the wrong market data kind by name, since sources saved before that rule may
-// still be one.
+// NewTradingStrategyReplaySourcesDomain refuses sources of the wrong market data kind by name,
+// since sources saved before that rule may still be one.
 func NewTradingStrategyReplaySourcesDomain(
 	signalSources []dto.ResolvedSignalSourceDto,
 	buyConditionDto dto.TradingStrategyConditionDto,
 	sellConditionDto dto.TradingStrategyConditionDto,
 	replayedMarketDataKind MarketDataKindDomain,
 ) (TradingStrategyReplaySourcesDomain, error) {
-	intervals := make([]string, 0, len(signalSources))
-	for _, signalSource := range signalSources {
-		intervals = append(intervals, signalSource.AggregationInterval)
-	}
-
-	sharedInterval, intervalError := NewSharedAggregationIntervalDomain(intervals).Shared()
-	if intervalError != nil {
+	if len(signalSources) == 0 {
 		return TradingStrategyReplaySourcesDomain{}, BacktestValidationFailure(
-			BacktestSignalSourcesField, intervalError.Error())
+			BacktestSignalSourcesField, "這一份交易策略沒有任何信號來源")
 	}
 
 	sources := make([]resolvedSignalSource, 0, len(signalSources))
 	labels := make([]string, 0, len(signalSources))
 	for _, signalSource := range signalSources {
 		label := strings.TrimSpace(signalSource.Label)
+
+		interval, intervalError := NewAggregationIntervalDomain(signalSource.AggregationInterval)
+		if intervalError != nil {
+			return TradingStrategyReplaySourcesDomain{}, BacktestValidationFailure(
+				BacktestSignalSourcesField, fmt.Sprintf("信號來源 %q 的彙總刻度不對：%s", label, intervalError.Error()))
+		}
 
 		sourceKind, kindError := NewMarketDataKindDomain(signalSource.MarketDataKind)
 		if kindError != nil {
@@ -79,6 +79,7 @@ func NewTradingStrategyReplaySourcesDomain(
 		sources = append(sources, resolvedSignalSource{
 			label:      label,
 			script:     signalSource.Script,
+			interval:   interval,
 			parameters: parameters,
 		})
 		labels = append(labels, label)
@@ -94,25 +95,32 @@ func NewTradingStrategyReplaySourcesDomain(
 		return TradingStrategyReplaySourcesDomain{}, fmt.Errorf("%w（賣出條件）", sellError)
 	}
 
+	intervals := make([]AggregationIntervalDomain, 0, len(sources))
+	lookbackCounts := make([]int, 0, len(sources))
+	for _, source := range sources {
+		intervals = append(intervals, source.interval)
+		lookbackCounts = append(lookbackCounts, source.parameters.MaximumLookbackCount())
+	}
+
 	return TradingStrategyReplaySourcesDomain{
-		sharedInterval: sharedInterval,
-		sources:        sources,
-		buyCondition:   buyCondition,
-		sellCondition:  sellCondition,
+		pace:          NewReplayPaceDomain(intervals, lookbackCounts),
+		sources:       sources,
+		buyCondition:  buyCondition,
+		sellCondition: sellCondition,
 	}, nil
 }
 
-func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SharedInterval() string {
-	return replaySourcesDomain.sharedInterval
+func (replaySourcesDomain TradingStrategyReplaySourcesDomain) Pace() ReplayPaceDomain {
+	return replaySourcesDomain.pace
 }
 
-func (replaySourcesDomain TradingStrategyReplaySourcesDomain) MaximumLookbackCount() int {
-	maximumLookbackCount := 0
-	for _, source := range replaySourcesDomain.sources {
-		maximumLookbackCount = max(maximumLookbackCount, source.parameters.MaximumLookbackCount())
-	}
+func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceInterval(index int) AggregationIntervalDomain {
+	return replaySourcesDomain.sources[index].interval
+}
 
-	return maximumLookbackCount
+// SourceIsAtPace tells whether a source reads the pace bars themselves, so its signals need no alignment.
+func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceIsAtPace(index int) bool {
+	return replaySourcesDomain.sources[index].interval.duration == replaySourcesDomain.pace.interval.duration
 }
 
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceCount() int {

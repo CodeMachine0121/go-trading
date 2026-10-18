@@ -28,6 +28,8 @@ type BacktestDomain struct {
 	readCutoff time.Time
 	// warmupBarCount is read before the stretch so indicators are settled on its first bar; those bars are never traded.
 	warmupBarCount int
+	// readAlignment, when set, moves the read start back to its bucket start so a coarser source's first bar is whole.
+	readAlignment AggregationIntervalDomain
 }
 
 // effectiveEndTime treats a zero or future end as now, since the market cannot be read past the present.
@@ -167,22 +169,61 @@ func NewBacktestDomain(
 	}, nil
 }
 
-// warmedUpFor applies the look-back declared by scripts read elsewhere, keeping the default only when none declares one, as a single script does.
-func (backtestDomain BacktestDomain) warmedUpFor(declaredLookbackCount int) BacktestDomain {
-	if declaredLookbackCount > 0 {
-		backtestDomain.warmupBarCount = declaredLookbackCount
+// pacedBy keeps the default warm-up when no source declares one, as a single script does; mixed intervals start the read on a whole coarsest bar.
+func (backtestDomain BacktestDomain) pacedBy(pace ReplayPaceDomain, maxCandleCount int) (BacktestDomain, error) {
+	if pace.WarmupBarCount() > 0 {
+		backtestDomain.warmupBarCount = pace.WarmupBarCount()
 	}
 
-	return backtestDomain
+	if !pace.MixesIntervals() {
+		return backtestDomain, nil
+	}
+
+	if backtestDomain.warmupBarCount > maxCandleCount {
+		return BacktestDomain{}, BacktestValidationFailure(BacktestSignalSourcesField, fmt.Sprintf(
+			"較粗的信號來源要回看的行情，換成 %s 要 %d 根，超過一次重演可用的最大根數（最多 %d 根）——"+
+				"請減少那個來源的回看根數，或縮短重演期間",
+			backtestDomain.interval.Value(), backtestDomain.warmupBarCount, maxCandleCount))
+	}
+
+	backtestDomain.readAlignment = pace.CoarsestInterval()
+
+	return backtestDomain, nil
 }
 
 func (backtestDomain BacktestDomain) readStart() time.Time {
-	if backtestDomain.warmupBarCount == 0 {
-		return backtestDomain.startTime
+	readStart := backtestDomain.startTime
+	if backtestDomain.warmupBarCount > 0 {
+		readStart = backtestDomain.interval.BucketStart(backtestDomain.startTime).Add(
+			-time.Duration(backtestDomain.warmupBarCount) * backtestDomain.interval.duration)
 	}
 
-	return backtestDomain.interval.BucketStart(backtestDomain.startTime).Add(
-		-time.Duration(backtestDomain.warmupBarCount) * backtestDomain.interval.duration)
+	if backtestDomain.readAlignment.duration > 0 {
+		return backtestDomain.readAlignment.BucketStart(readStart)
+	}
+
+	return readStart
+}
+
+// isFinishedBy ignores the front edge because the read starts on a coarsest bucket edge.
+func (backtestDomain BacktestDomain) isFinishedBy(interval AggregationIntervalDomain, bucketOpenTime time.Time) bool {
+	return !bucketOpenTime.Add(interval.duration).After(backtestDomain.readCutoff)
+}
+
+// FinishedCandlesAt aggregates the read candles into another interval, keeping only finished buckets.
+func (backtestDomain BacktestDomain) FinishedCandlesAt(
+	interval AggregationIntervalDomain, kCandles []entities.KCandle,
+) []vo.KCandleVo {
+	buckets := NewKCandleSeriesDomain(backtestDomain.symbol, interval, kCandles).Buckets()
+
+	finishedKCandleVos := make([]vo.KCandleVo, 0, len(buckets))
+	for _, bucket := range buckets {
+		if backtestDomain.isFinishedBy(interval, bucket.OpenTime()) {
+			finishedKCandleVos = append(finishedKCandleVos, bucket.ToVo())
+		}
+	}
+
+	return finishedKCandleVos
 }
 
 func (backtestDomain BacktestDomain) tradeStartIndex(barOpenTimes []time.Time) int {

@@ -102,7 +102,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		return dto.ContractBacktestResultDto{}, validationError
 	}
 
-	alignment, alignedBars, settlements, readError := contractBacktestService.readReplayBars(
+	alignment, alignedBars, settlements, _, _, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
@@ -152,8 +152,8 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	}
 
 	contractBacktestDomain := strategyBacktestDomain.ContractBacktest()
-	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
-		replayContext, contractBacktestDomain)
+	alignment, contractKCandles, settlements, statistics, kCandleContracts, readError :=
+		contractBacktestService.readReplayBars(replayContext, contractBacktestDomain)
 	if readError != nil {
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
@@ -161,9 +161,21 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	sourceCount := strategyBacktestDomain.SourceCount()
 	signalsBySource := make([][]domains.SignalDomain, 0, sourceCount)
 	for sourceIndex := range sourceCount {
+		sourceAlignment, sourceKCandles := alignment, contractKCandles
+		if !strategyBacktestDomain.SourceIsAtPace(sourceIndex) {
+			coarserAlignment, hasFinishedBar := strategyBacktestDomain.SourceAlignment(sourceIndex, kCandleContracts)
+			if !hasFinishedBar {
+				signalsBySource = append(signalsBySource, strategyBacktestDomain.SignalsAtPace(
+					sourceIndex, coarserAlignment, nil, alignment))
+
+				continue
+			}
+			sourceAlignment, sourceKCandles = coarserAlignment, coarserAlignment.Aligning(settlements, statistics)
+		}
+
 		// Each source gets footprints at its own price step; sources sharing a step share remembered days.
 		sourceBars, attachError := contractBacktestService.contractOrderFlowService.AttachFootprints(
-			replayContext, alignment, contractKCandles, strategyBacktestDomain.SourceParameters(sourceIndex), 0)
+			replayContext, sourceAlignment, sourceKCandles, strategyBacktestDomain.SourceParameters(sourceIndex), 0)
 		if attachError != nil {
 			return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, attachError)
 		}
@@ -180,7 +192,12 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 			return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 		}
 
-		signalsBySource = append(signalsBySource, signalsOf(perBarIndicatorValues))
+		sourceSignals := signalsOf(perBarIndicatorValues)
+		if !strategyBacktestDomain.SourceIsAtPace(sourceIndex) {
+			sourceSignals = strategyBacktestDomain.SignalsAtPace(sourceIndex, sourceAlignment, sourceSignals, alignment)
+		}
+
+		signalsBySource = append(signalsBySource, sourceSignals)
 	}
 
 	return strategyBacktestDomain.ReplayOver(alignment, signalsBySource, settlements), nil
@@ -211,32 +228,39 @@ func (contractBacktestService *ContractBacktestService) readTradingRules(
 	return domains.NewContractTradingRulesDomain(contractTradingSymbol, isRegistered, maintenanceMarginTiers)
 }
 
-// readReplayBars merges stored contract K candles into bars with funding and positioning aligned, exactly as indicator calculation does, returning the account view, the script view and the settlements.
+// readReplayBars merges stored contract K candles into bars with funding and positioning aligned, exactly as indicator calculation does, returning the account view, the script view, the settlements and statistics, and the raw candles coarser sources merge again.
 func (contractBacktestService *ContractBacktestService) readReplayBars(
 	executionContext context.Context, contractBacktestDomain domains.ContractBacktestDomain,
-) (domains.ContractKCandleAlignmentDomain, []vo.ContractKCandleVo, []entities.ContractFundingRateSettlement, error) {
+) (
+	domains.ContractKCandleAlignmentDomain,
+	[]vo.ContractKCandleVo,
+	[]entities.ContractFundingRateSettlement,
+	[]entities.ContractPositionStatistic,
+	[]entities.KCandleContract,
+	error,
+) {
 	kCandleContracts, findCandlesError := contractBacktestService.kCandleContractRepository.FindInRange(
 		executionContext, contractBacktestDomain.KCandleQuery(), contractBacktestDomain.SourceCandleLimit())
 	if findCandlesError != nil {
-		return domains.ContractKCandleAlignmentDomain{}, nil, nil, findCandlesError
+		return domains.ContractKCandleAlignmentDomain{}, nil, nil, nil, nil, findCandlesError
 	}
 
 	alignment, selectionError := contractBacktestDomain.SelectInput(kCandleContracts)
 	if selectionError != nil {
-		return domains.ContractKCandleAlignmentDomain{}, nil, nil, selectionError
+		return domains.ContractKCandleAlignmentDomain{}, nil, nil, nil, nil, selectionError
 	}
 
 	settlements, findSettlementsError := contractBacktestService.contractFundingRateSettlementRepository.
 		FindInRange(executionContext, alignment.SettlementQuery(), alignment.SettlementReadLimit())
 	if findSettlementsError != nil {
-		return domains.ContractKCandleAlignmentDomain{}, nil, nil, findSettlementsError
+		return domains.ContractKCandleAlignmentDomain{}, nil, nil, nil, nil, findSettlementsError
 	}
 
 	leadInSettlement, hasLeadIn, findLeadInError := contractBacktestService.
 		contractFundingRateSettlementRepository.
 		FindLatestBefore(executionContext, contractBacktestDomain.Symbol(), alignment.SettlementLeadInCutoff())
 	if findLeadInError != nil {
-		return domains.ContractKCandleAlignmentDomain{}, nil, nil, findLeadInError
+		return domains.ContractKCandleAlignmentDomain{}, nil, nil, nil, nil, findLeadInError
 	}
 	if hasLeadIn {
 		settlements = append(settlements, leadInSettlement)
@@ -245,8 +269,8 @@ func (contractBacktestService *ContractBacktestService) readReplayBars(
 	statistics, findStatisticsError := contractBacktestService.contractPositionStatisticRepository.
 		FindInRange(executionContext, alignment.StatisticQuery(), alignment.StatisticReadLimit())
 	if findStatisticsError != nil {
-		return domains.ContractKCandleAlignmentDomain{}, nil, nil, findStatisticsError
+		return domains.ContractKCandleAlignmentDomain{}, nil, nil, nil, nil, findStatisticsError
 	}
 
-	return alignment, alignment.Aligning(settlements, statistics), settlements, nil
+	return alignment, alignment.Aligning(settlements, statistics), settlements, statistics, kCandleContracts, nil
 }
