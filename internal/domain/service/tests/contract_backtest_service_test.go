@@ -529,3 +529,57 @@ func TestAContractTradingStrategyRefusesACoarseLookbackBeyondOneReplay(t *testin
 	assert.ErrorContains(t, err, "要 1200 根")
 	assert.ErrorContains(t, err, "最多 1000 根")
 }
+
+// B reads four hours and declares order flow, so it is handed four-hour bars carrying that bar's whole footprint.
+func TestACoarserTradingStrategySourceReadsFootprintsOnItsOwnBars(t *testing.T) {
+	hourlyCandles := make([]entities.KCandleContract, 0, 8)
+	for hour := range 8 {
+		price := decimal.NewFromInt(100)
+		hourlyCandles = append(hourlyCandles, entities.KCandleContract{
+			Symbol: "BTCUSDT", OpenTime: contractBacktestServiceStart.Add(time.Duration(hour) * time.Hour),
+			Open: price, High: price, Low: price, Close: price,
+			MarkOpen: price, MarkHigh: price, MarkLow: price, MarkClose: price,
+		})
+	}
+	captured := [][]vo.ContractKCandleVo{}
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+		boundaries.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(hourlyCandles, nil)
+		boundaries.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", contractBacktestServiceStart, gomock.Any()).
+			DoAndReturn(archivedTrade(contractBacktestServiceStart.Add(150*time.Minute), 104))
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+				_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+			) ([]map[string]vo.IndicatorValueVo, error) {
+				captured = append(captured, bars)
+				perBarIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(bars))
+				for range bars {
+					perBarIndicatorValues = append(perBarIndicatorValues, map[string]vo.IndicatorValueVo{
+						vo.SignalIndicatorKey: {Signal: vo.SignalHold},
+					})
+				}
+
+				return perBarIndicatorValues, nil
+			}).Times(2)
+	})
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.EndTime = contractBacktestServiceStart.Add(8 * time.Hour)
+	requestDto.SignalSources = []dto.ResolvedSignalSourceDto{
+		{Label: "A", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle"},
+		{Label: "B", AggregationInterval: "4h", Script: "the script", MarketDataKind: "contractKCandle",
+			Parameters: orderFlowWidth(10)},
+	}
+
+	_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
+
+	require.NoError(t, err)
+	require.Len(t, captured, 2)
+	require.Len(t, captured[1], 2)
+	assert.Equal(t, contractBacktestServiceStart.Unix(), captured[1][0].OpenTimeUnixSeconds)
+	assert.Equal(t, vo.OrderFlowFootprintVo{
+		PriceStep: 10, Levels: []vo.OrderFlowPriceLevelVo{{Price: 100, BuyVolume: 1, TradeCount: 1}},
+		Delta: 1, PointOfControl: 100,
+	}, captured[1][0].Footprint)
+	assert.Empty(t, captured[1][1].Footprint.Levels)
+}
