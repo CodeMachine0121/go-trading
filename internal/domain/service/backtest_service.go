@@ -54,7 +54,7 @@ func (backtestService *BacktestService) ValidateTradingStrategyBacktest(
 	return validationError
 }
 
-// RunBacktest replays the script over every finished candle, oldest first, each run seeing all candles up to its own; progress, when a sink is given, is reported per candle.
+// RunBacktest replays the script over every finished candle, oldest first, each run seeing the candles up to its own within the declared look-back; progress, when a sink is given, is reported per candle.
 func (backtestService *BacktestService) RunBacktest(
 	executionContext context.Context,
 	requestDto dto.BacktestRequestDto,

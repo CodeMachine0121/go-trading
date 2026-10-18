@@ -33,7 +33,7 @@ func (yaegiContractIndicatorScriptProxy *YaegiContractIndicatorScriptProxy) Exec
 		executionContext, script, resultType, contractKCandles, parameters)
 }
 
-// ExecuteForEachCandle replays the script once per contract bar over a growing prefix, reading it once.
+// ExecuteForEachCandle replays the script once per contract bar over the bars up to it, no more than the declared look-back, reading it once.
 func (yaegiContractIndicatorScriptProxy *YaegiContractIndicatorScriptProxy) ExecuteForEachCandle(
 	executionContext context.Context,
 	script string,

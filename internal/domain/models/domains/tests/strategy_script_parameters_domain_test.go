@@ -137,6 +137,48 @@ func TestMaximumLookbackCountLooksOnlyAtLookbackCounts(t *testing.T) {
 	}
 }
 
+func TestReplayWindowStartReadsNoMoreThanTheDeclaredLookback(t *testing.T) {
+	testCases := []struct {
+		name     string
+		declared []dto.StrategyScriptParameterWriteDto
+		barCount int
+		expected int
+	}{
+		{name: "沒宣告回看根數就從頭看起", declared: nil, barCount: 500, expected: 0},
+		{
+			name:     "累積的根數還不到回看根數時從頭看起",
+			declared: []dto.StrategyScriptParameterWriteDto{lookbackCountParameter("期數", 100)},
+			barCount: 60,
+			expected: 0,
+		},
+		{
+			name:     "正好等於回看根數時從頭看起",
+			declared: []dto.StrategyScriptParameterWriteDto{lookbackCountParameter("期數", 100)},
+			barCount: 100,
+			expected: 0,
+		},
+		{
+			name:     "超過回看根數時只看最後那幾根",
+			declared: []dto.StrategyScriptParameterWriteDto{lookbackCountParameter("期數", 100)},
+			barCount: 101,
+			expected: 1,
+		},
+		{
+			name:     "以最大的回看根數為準",
+			declared: []dto.StrategyScriptParameterWriteDto{lookbackCountParameter("快線", 20), lookbackCountParameter("慢線", 100)},
+			barCount: 500,
+			expected: 400,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expected,
+				parametersOf(t, testCase.declared...).ReplayWindowStart(testCase.barCount))
+		})
+	}
+}
+
 // 套值一次處理四件事，呼叫端不必自己排序也不會漏步。
 func TestApplyingThisRunsValues(t *testing.T) {
 	t.Run("給了值就用給的", func(t *testing.T) {

@@ -80,7 +80,7 @@ func (contractBacktestService *ContractBacktestService) ValidateContractTradingS
 	return validationError
 }
 
-// RunContractBacktest replays one contract script once per finished bar, each run seeing all bars up to its own; nothing is stored.
+// RunContractBacktest replays one contract script once per finished bar, each run seeing the bars up to its own within the declared look-back; nothing is stored.
 func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	executionContext context.Context,
 	requestDto dto.ContractBacktestRequestDto,

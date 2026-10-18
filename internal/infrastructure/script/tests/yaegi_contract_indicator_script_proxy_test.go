@@ -222,3 +222,34 @@ func TestAContractScriptReadsTheFootprintOfEachBar(t *testing.T) {
 		"delta": numberOf(indicatorValues, "delta"), "control": numberOf(indicatorValues, "control"),
 	})
 }
+
+func TestContractExecuteForEachCandleKeepsEachRunAsCheapOnALongReplay(t *testing.T) {
+	if raceDetectorOn {
+		t.Skip("the race detector slows every run too much for a time bound to mean anything")
+	}
+	const lastCloseScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.ContractKCandle) map[string]float64 {
+	return map[string]float64{"close": data[len(data)-1].Close}
+}
+`
+	// Roughly sixteen months of quarter hours; when every run cost more than the last, this took tens of seconds and outgrew the memory cap.
+	const barCount = 47000
+	closePrices := make([]float64, barCount)
+	for barIndex := range closePrices {
+		closePrices[barIndex] = float64(barIndex)
+	}
+
+	started := time.Now()
+	perBarValues, err := contractIndicatorScriptProxy(2*time.Second).
+		ExecuteForEachCandle(t.Context(), lastCloseScript, resultTypeOf(t, "float"),
+			contractBarsWithClosePrices(closePrices...), noStrategyScriptParameters(t), nil)
+
+	require.NoError(t, err)
+	require.Len(t, perBarValues, barCount)
+	assert.Equal(t, float64(barCount-1), numberOf(perBarValues[barCount-1], "close"))
+	assert.Less(t, time.Since(started), 5*time.Second)
+}

@@ -18,7 +18,7 @@ type IIndicatorScriptProxy interface {
 		kCandles []vo.KCandleVo,
 		parameters domains.StrategyScriptParametersDomain,
 	) (map[string]vo.IndicatorValueVo, error)
-	// ExecuteForEachCandle runs the script once per candle over the prefix up to it, compiling once so replays stay affordable; the first failure aborts with no partial result.
+	// ExecuteForEachCandle runs the script once per candle over the candles up to it, no more than the declared look-back as a live round reads, compiling once so replays stay affordable; the first failure aborts with no partial result.
 	ExecuteForEachCandle(
 		executionContext context.Context,
 		script string,
