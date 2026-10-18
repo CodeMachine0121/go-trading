@@ -120,3 +120,13 @@ func TestTradingStrategyBacktestHandsACoarserSourceOnlyItsFinishedBars(t *testin
 	require.Len(t, fourHourCandles, 1)
 	assert.Equal(t, replayStart.Unix(), fourHourCandles[0].OpenTimeUnixSeconds)
 }
+
+func TestTradingStrategyBacktestRefusesAStrategyWithoutSources(t *testing.T) {
+	replayStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	_, buildError := domains.NewTradingStrategyBacktestDomain(
+		aPacedReplayRequest(replayStart), 50000, replayStart.Add(48*time.Hour))
+
+	require.ErrorIs(t, buildError, domains.ErrBacktestValidation)
+	assert.ErrorContains(t, buildError, "這一份交易策略沒有任何信號來源")
+}
