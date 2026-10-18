@@ -513,3 +513,19 @@ func TestAContractTradingStrategyCoarserSourceWithNoFinishedBarHolds(t *testing.
 	assert.Empty(t, resultDto.ClosedTrades)
 	assert.Equal(t, 0, resultDto.Summary.PositionOpenCount)
 }
+
+func TestAContractTradingStrategyRefusesACoarseLookbackBeyondOneReplay(t *testing.T) {
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.SignalSources = []dto.ResolvedSignalSourceDto{
+		{Label: "A", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle"},
+		{Label: "B", AggregationInterval: "1d", Script: "the script", MarketDataKind: "contractKCandle",
+			Parameters: []dto.StrategyScriptParameterWriteDto{{Name: "回看", Kind: "lookbackCount", DefaultValue: 50}}},
+	}
+
+	_, err := newContractBacktestServiceUnderTest(t, func(contractBacktestServiceMocks) {}).RunContractTradingStrategyBacktest(
+		context.Background(), requestDto, nil)
+
+	require.ErrorIs(t, err, domains.ErrBacktestValidation)
+	assert.ErrorContains(t, err, "要 1200 根")
+	assert.ErrorContains(t, err, "最多 1000 根")
+}
