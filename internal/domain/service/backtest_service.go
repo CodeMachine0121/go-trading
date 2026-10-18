@@ -137,11 +137,16 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	sourceCount := tradingStrategyBacktestDomain.SourceCount()
 	signalsBySource := make([][]domains.SignalDomain, 0, sourceCount)
 	for sourceIndex := range sourceCount {
+		sourceKCandles := inputKCandles
+		if !tradingStrategyBacktestDomain.SourceIsAtPace(sourceIndex) {
+			sourceKCandles = tradingStrategyBacktestDomain.SourceInputCandles(sourceIndex, kCandles)
+		}
+
 		perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
 			replayContext,
 			tradingStrategyBacktestDomain.SourceScript(sourceIndex),
 			tradingStrategyBacktestDomain.ResultType(),
-			inputKCandles,
+			sourceKCandles,
 			tradingStrategyBacktestDomain.SourceParameters(sourceIndex),
 			newSourceReplayProgress(progress, sourceIndex, sourceCount))
 		// One failing source ends the replay; missing signals would silently make conditions false.
@@ -149,7 +154,13 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 			return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 		}
 
-		signalsBySource = append(signalsBySource, signalsOf(perCandleIndicatorValues))
+		sourceSignals := signalsOf(perCandleIndicatorValues)
+		if !tradingStrategyBacktestDomain.SourceIsAtPace(sourceIndex) {
+			sourceSignals = tradingStrategyBacktestDomain.SignalsAtPace(
+				sourceIndex, sourceKCandles, sourceSignals, inputKCandles)
+		}
+
+		signalsBySource = append(signalsBySource, sourceSignals)
 	}
 
 	return tradingStrategyBacktestDomain.ReplayOver(inputKCandles, signalsBySource), nil

@@ -87,12 +87,12 @@ func (fixture tradingStrategyRouterUnderTest) send(
 	return recorder
 }
 
-// aMixedCoarsenessTradingStrategyBody has sources at different intervals, the one otherwise valid shape that cannot be saved.
-const aMixedCoarsenessTradingStrategyBody = `{
+// anUnknownIntervalTradingStrategyBody names an interval outside the six, the one otherwise valid shape that cannot be saved.
+const anUnknownIntervalTradingStrategyBody = `{
 	"name": "黃金交叉",
 	"signalSources": [
 		{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"},
-		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "5m"}
+		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "3h"}
 	],
 	"buyCondition": {"sourceLabel": "A", "signal": "buy"},
 	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
@@ -316,13 +316,13 @@ func TestTradingStrategyRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 			expectedStatus: http.StatusNotFound,
 		},
 		{
-			name: "sources reading different coarsenesses are the caller's mistake",
+			name: "a source reading an interval outside the six is the caller's mistake",
 			arrange: func(fixture tradingStrategyRouterUnderTest) {
 				fixture.expectResolvableStrategyScript()
 			},
 			method:         http.MethodPost,
 			target:         "/trading-strategies",
-			body:           aMixedCoarsenessTradingStrategyBody,
+			body:           anUnknownIntervalTradingStrategyBody,
 			expectedStatus: http.StatusBadRequest,
 		},
 		{

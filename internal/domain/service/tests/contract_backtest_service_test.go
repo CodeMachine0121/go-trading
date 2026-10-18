@@ -421,3 +421,95 @@ func TestTheUpFrontOrderFlowCheckCountsTheDefaultWarmUpTheReplayWillAdd(t *testi
 	require.ErrorIs(t, strategyError, domains.ErrBacktestValidation)
 	assert.Contains(t, strategyError.Error(), "訂單流一次至多涵蓋 31 天")
 }
+
+// A paces at one hour and B reads four hours merged from the same contract K candles; B's first bar
+// finishes with the fourth hour, so the replay can only go long there.
+func TestAContractTradingStrategyHearsACoarserSourceOnlyOnceItsBarHasFinished(t *testing.T) {
+	hourlyCandles := make([]entities.KCandleContract, 0, 8)
+	for hour := range 8 {
+		price := decimal.NewFromInt(int64(100 + 10*hour))
+		hourlyCandles = append(hourlyCandles, entities.KCandleContract{
+			Symbol: "BTCUSDT", OpenTime: contractBacktestServiceStart.Add(time.Duration(hour) * time.Hour),
+			Open: price, High: price, Low: price, Close: price,
+			MarkOpen: price, MarkHigh: price, MarkLow: price, MarkClose: price,
+		})
+	}
+	answers := [][]vo.SignalVo{
+		{vo.SignalBuy, vo.SignalBuy, vo.SignalBuy, vo.SignalBuy, vo.SignalBuy, vo.SignalBuy, vo.SignalBuy, vo.SignalSell},
+		{vo.SignalBuy, vo.SignalSell},
+	}
+	barCountsBySource := []int{}
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+		boundaries.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(hourlyCandles, nil)
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+				_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+			) ([]map[string]vo.IndicatorValueVo, error) {
+				answer := answers[len(barCountsBySource)]
+				barCountsBySource = append(barCountsBySource, len(bars))
+				perBarIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(answer))
+				for _, signal := range answer {
+					perBarIndicatorValues = append(perBarIndicatorValues, map[string]vo.IndicatorValueVo{
+						vo.SignalIndicatorKey: {Signal: signal},
+					})
+				}
+
+				return perBarIndicatorValues, nil
+			}).Times(2)
+	})
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.EndTime = contractBacktestServiceStart.Add(8 * time.Hour)
+	requestDto.SignalSources = []dto.ResolvedSignalSourceDto{
+		{Label: "A", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle"},
+		{Label: "B", AggregationInterval: "4h", Script: "the script", MarketDataKind: "contractKCandle"},
+	}
+	requestDto.BuyCondition = dto.TradingStrategyConditionDto{Operator: "and", Conditions: []dto.TradingStrategyConditionDto{
+		{SourceLabel: "A", Signal: "buy"}, {SourceLabel: "B", Signal: "buy"},
+	}}
+
+	resultDto, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "1h", resultDto.Interval)
+	assert.Equal(t, []int{8, 2}, barCountsBySource)
+	require.NotEmpty(t, resultDto.ClosedTrades)
+	assert.Equal(t, string(vo.PositionDirectionLong), resultDto.ClosedTrades[0].Direction)
+	assert.Equal(t, contractBacktestServiceStart.Add(3*time.Hour), resultDto.ClosedTrades[0].EntryTime)
+	assert.True(t, decimal.NewFromInt(130).Equal(resultDto.ClosedTrades[0].EntryPrice))
+}
+
+// No four-hour bar finishes within two read hours, so B holds throughout and A alone never opens.
+func TestAContractTradingStrategyCoarserSourceWithNoFinishedBarHolds(t *testing.T) {
+	executedBarCounts := []int{}
+	contractBacktestService := newContractBacktestServiceUnderTest(t, func(boundaries contractBacktestServiceMocks) {
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+				_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+			) ([]map[string]vo.IndicatorValueVo, error) {
+				executedBarCounts = append(executedBarCounts, len(bars))
+
+				return []map[string]vo.IndicatorValueVo{
+					{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, {vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				}, nil
+			}).Times(1)
+	})
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.EndTime = contractBacktestServiceStart.Add(2 * time.Hour)
+	requestDto.SignalSources = []dto.ResolvedSignalSourceDto{
+		{Label: "A", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle"},
+		{Label: "B", AggregationInterval: "4h", Script: "the script", MarketDataKind: "contractKCandle"},
+	}
+	requestDto.BuyCondition = dto.TradingStrategyConditionDto{Operator: "and", Conditions: []dto.TradingStrategyConditionDto{
+		{SourceLabel: "A", Signal: "buy"}, {SourceLabel: "B", Signal: "buy"},
+	}}
+
+	resultDto, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int{2}, executedBarCounts)
+	assert.Empty(t, resultDto.ClosedTrades)
+	assert.Equal(t, 0, resultDto.Summary.PositionOpenCount)
+}

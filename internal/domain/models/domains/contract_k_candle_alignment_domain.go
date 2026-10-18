@@ -24,6 +24,15 @@ func newContractKCandleAlignmentDomain(
 	return ContractKCandleAlignmentDomain{interval: interval, buckets: buckets}
 }
 
+func (alignmentDomain ContractKCandleAlignmentDomain) openTimes() []time.Time {
+	openTimes := make([]time.Time, 0, len(alignmentDomain.buckets))
+	for _, bucket := range alignmentDomain.buckets {
+		openTimes = append(openTimes, bucket.OpenTime.UTC())
+	}
+
+	return openTimes
+}
+
 // SettlementLeadInCutoff is the first bar's open; the latest settlement before it (the rate in force at the start) must be queried separately since it may be arbitrarily far back.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementLeadInCutoff() time.Time {
 	return alignmentDomain.buckets[0].OpenTime.UTC()

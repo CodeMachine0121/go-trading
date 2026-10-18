@@ -255,31 +255,57 @@ func TestNewTradingStrategyDomainRefusesASourceThatDoesNotSpeakInSignals(t *test
 	}
 }
 
-// Sources on different intervals cannot be replayed and would compare different candles live.
-func TestNewTradingStrategyDomainRefusesSourcesThatReadDifferentCoarseness(t *testing.T) {
-	writeDto := aTradingStrategyWriteDto()
-	writeDto.SignalSources[1].AggregationInterval = string(vo.AggregationIntervalFiveMinutes)
+func TestNewTradingStrategyDomainKeepsEachSourcesOwnInterval(t *testing.T) {
+	testCases := []struct {
+		name              string
+		intervals         []vo.AggregationIntervalVo
+		expectedIntervals []string
+	}{
+		{
+			name:              "a day, four hours and fifteen minutes",
+			intervals:         []vo.AggregationIntervalVo{vo.AggregationIntervalOneDay, vo.AggregationIntervalFourHours, vo.AggregationIntervalFifteenMinutes},
+			expectedIntervals: []string{"1d", "4h", "15m"},
+		},
+		{
+			name:              "two sources on one hour",
+			intervals:         []vo.AggregationIntervalVo{vo.AggregationIntervalOneHour, vo.AggregationIntervalOneHour},
+			expectedIntervals: []string{"1h", "1h"},
+		},
+	}
 
-	_, buildError := domains.NewTradingStrategyDomain(writeDto)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aTradingStrategyWriteDto()
+			writeDto.SignalSources = nil
+			for index, interval := range testCase.intervals {
+				source := sourceNamed(string(rune('A'+index)), uint(index+1))
+				source.AggregationInterval = string(interval)
+				writeDto.SignalSources = append(writeDto.SignalSources, source)
+			}
+			writeDto.BuyCondition = comparing("A", vo.SignalBuy)
+			writeDto.SellCondition = comparing("A", vo.SignalSell)
 
-	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-	// The refusal names the intervals so the user knows what to align.
-	assert.ErrorContains(t, buildError, "1h")
-	assert.ErrorContains(t, buildError, "5m")
+			tradingStrategyDomain, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+			require.NoError(t, buildError)
+			savedIntervals := []string{}
+			for _, source := range tradingStrategyDomain.ToEntity().SignalSources {
+				savedIntervals = append(savedIntervals, source.AggregationInterval)
+			}
+			assert.Equal(t, testCase.expectedIntervals, savedIntervals)
+		})
+	}
 }
 
-func TestNewTradingStrategyDomainNamesEveryCoarsenessItFound(t *testing.T) {
+func TestNewTradingStrategyDomainRefusesAnIntervalOutsideTheSix(t *testing.T) {
 	writeDto := aTradingStrategyWriteDto()
-	writeDto.SignalSources = append(writeDto.SignalSources, sourceNamed("C", 3))
-	writeDto.SignalSources[2].AggregationInterval = string(vo.AggregationIntervalOneDay)
-	writeDto.BuyCondition = joining(vo.ConditionOperatorAnd,
-		comparing("A", vo.SignalBuy), comparing("B", vo.SignalBuy))
+	writeDto.SignalSources[1].AggregationInterval = "3h"
 
 	_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
 	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-	assert.ErrorContains(t, buildError, "1h")
-	assert.ErrorContains(t, buildError, "1d")
+	assert.ErrorContains(t, buildError, `信號來源 "B" 的彙總刻度不對`)
+	assert.ErrorContains(t, buildError, "1m、5m、15m、1h、4h、1d")
 }
 
 func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.T) {
