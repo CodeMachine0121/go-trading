@@ -101,6 +101,16 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) MaximumLook
 	return maximumLookbackCount
 }
 
+// ReplayWindowStart bounds a replayed run to the declared look-back, as a live round reads; without one it sees all history.
+func (strategyScriptParametersDomain StrategyScriptParametersDomain) ReplayWindowStart(barCount int) int {
+	lookbackCount := strategyScriptParametersDomain.MaximumLookbackCount()
+	if lookbackCount == 0 {
+		return 0
+	}
+
+	return max(0, barCount-lookbackCount)
+}
+
 // OrderFlowPriceStep is the width footprints are tallied at; false means the script asked for no order flow.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) OrderFlowPriceStep() (OrderFlowPriceStepDomain, bool) {
 	for _, parameter := range strategyScriptParametersDomain.parameters {

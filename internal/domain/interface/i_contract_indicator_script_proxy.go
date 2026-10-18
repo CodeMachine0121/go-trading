@@ -18,7 +18,7 @@ type IContractIndicatorScriptProxy interface {
 		contractKCandles []vo.ContractKCandleVo,
 		parameters domains.StrategyScriptParametersDomain,
 	) (map[string]vo.IndicatorValueVo, error)
-	// ExecuteForEachCandle runs the script once per bar over the prefix up to that bar, in order; the first failure aborts with no partial result.
+	// ExecuteForEachCandle runs the script once per bar over the bars up to it, no more than the declared look-back as a live round reads, in order; the first failure aborts with no partial result.
 	ExecuteForEachCandle(
 		executionContext context.Context,
 		script string,

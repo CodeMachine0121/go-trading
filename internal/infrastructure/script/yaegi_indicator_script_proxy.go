@@ -32,7 +32,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	return yaegiIndicatorScriptProxy.compartment.execute(executionContext, script, resultType, kCandles, parameters)
 }
 
-// ExecuteForEachCandle replays the script once per K candle over a growing prefix, reading it once.
+// ExecuteForEachCandle replays the script once per K candle over the candles up to it, no more than the declared look-back, reading it once.
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) ExecuteForEachCandle(
 	executionContext context.Context,
 	script string,

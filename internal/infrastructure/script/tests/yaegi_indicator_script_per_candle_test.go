@@ -43,7 +43,36 @@ func TestExecuteForEachCandle(t *testing.T) {
 		assert.Len(t, perCandleIndicatorValues, 4)
 	})
 
-	t.Run("each run sees everything up to the candle it stands on", func(t *testing.T) {
+	t.Run("a declared look-back bounds each run to that many candles ending at its own", func(t *testing.T) {
+		const oldestVisibleScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{"seen": float64(len(data)), "oldest": data[0].Close}
+}
+`
+		parameters, buildError := domains.NewStrategyScriptParametersDomain(
+			[]dto.StrategyScriptParameterWriteDto{{Name: "period", Kind: "lookbackCount", DefaultValue: 2}})
+		require.NoError(t, buildError)
+
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), oldestVisibleScript, resultTypeOf(t, "float"),
+				candlesWithClosePrices(100, 110, 120, 130), parameters, nil)
+
+		require.NoError(t, err)
+		require.Len(t, perCandleIndicatorValues, 4)
+		expectedSeen := []float64{1, 2, 2, 2}
+		expectedOldest := []float64{100, 100, 110, 120}
+		for candleIndex, indicatorValues := range perCandleIndicatorValues {
+			assert.Equal(t, expectedSeen[candleIndex], numberOf(indicatorValues, "seen"))
+			assert.Equal(t, expectedOldest[candleIndex], numberOf(indicatorValues, "oldest"))
+		}
+	})
+
+	t.Run("without a declared look-back each run sees everything up to the candle it stands on", func(t *testing.T) {
 		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),

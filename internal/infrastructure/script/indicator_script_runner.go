@@ -61,7 +61,7 @@ func (runner indicatorScriptRunner[Input]) execute(
 	return preparedScript.runOver(executionContext, isolatedInput)
 }
 
-// executeForEachElement reads the script once and runs it per element over a growing prefix, each with its own allowance, handing each bar's values on as it goes; the first failure aborts the rest.
+// executeForEachElement reads the script once and runs it per element over the elements up to it, no more than the declared look-back, each with its own allowance, handing each bar's values on as it goes; the first failure aborts the rest.
 func (runner indicatorScriptRunner[Input]) executeForEachElement(
 	executionContext context.Context,
 	script string,
@@ -81,7 +81,8 @@ func (runner indicatorScriptRunner[Input]) executeForEachElement(
 
 	for elementCount := 1; elementCount <= len(input); elementCount++ {
 		indicatorValues, executionError := preparedScript.runOver(
-			executionContext, isolatedInput[:elementCount:elementCount])
+			executionContext,
+			isolatedInput[parameters.ReplayWindowStart(elementCount):elementCount:elementCount])
 		if executionError != nil {
 			return executionError
 		}
