@@ -2,6 +2,10 @@ package marketdata_test
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,4 +74,25 @@ func TestContractSymbolLookupKnowsAPerpetualTheVenueNoLongerTrades(t *testing.T)
 			assert.Equal(t, testCase.expectedIsKnownToVenue, listing.IsKnownToVenue)
 		})
 	}
+}
+
+func TestContractProxyAsksTheVenueForTheCoarseIntervalItself(t *testing.T) {
+	askedIntervals := &atomic.Value{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		askedIntervals.Store(request.URL.Query())
+		_, _ = writer.Write([]byte("[]"))
+	}))
+	t.Cleanup(server.Close)
+	proxy := marketdata.NewBinanceContractMarketDataProxy(
+		server.URL, server.URL, server.URL, server.URL, requestTimeout, unpaced())
+	firstOpen := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+	_, fetchError := proxy.FetchAggregatedKCandles(t.Context(), vo.AggregatedKCandleFetchWindowVo{
+		Symbol: "LINKUSDT", Interval: "4h", Step: 4 * time.Hour, StartTime: firstOpen, EndTime: firstOpen.Add(24 * time.Hour),
+	})
+
+	require.NoError(t, fetchError)
+	query, _ := askedIntervals.Load().(url.Values)
+	assert.Equal(t, "4h", query.Get("interval"))
+	assert.Equal(t, "LINKUSDT", query.Get("symbol"))
 }
