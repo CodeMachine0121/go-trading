@@ -105,7 +105,7 @@
 | `SymbolScreeningRunController` | Controller | `POST /symbol-screening-runs`（202）、`GET /symbol-screening-runs`、`GET /symbol-screening-runs/:id?waitSeconds=`、`POST /symbol-screening-runs/:id/cancel`；已有進行中 → 429；已結束 → 409 | application | US-03、04 |
 | `SymbolScreeningRunWorkerJob` | Job | 每 `PollInterval` 在**值班分身**上 `RunClaimedScreening`（值班只有一台 → 全系統一次一筆）；失去值班或 Stop 時 `StopRunner`（手上的輪次收成 failed「被重新啟動打斷」） | application、`JobLeadershipApplication` | US-04 |
 | `SymbolScreeningRetentionJob` | Job | 值班分身每小時刪 90 天前結束的輪次與 30 天前取得的篩選行情 | application、leadership | US-04、08 |
-| `SymbolScreeningConfig` | Config | `SYMBOL_SCREENING_MAX_CANDIDATES_PER_RUN`=20、`SYMBOL_SCREENING_RUN_TIME_ALLOWANCE_MINUTES`=120、`SYMBOL_SCREENING_RUN_POLL_INTERVAL_SECONDS`=5（0 停用）、`SYMBOL_SCREENING_RUN_RETENTION_DAYS`=90、`SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS`=30 | — | NFR |
+| `SymbolScreeningConfig` | Config | `SYMBOL_SCREENING_MAX_CANDIDATES_PER_RUN`=20、`SYMBOL_SCREENING_RUN_TIME_ALLOWANCE_MINUTES`=120、`SYMBOL_SCREENING_RUN_POLL_INTERVAL_SECONDS`=5（不是正數時退回預設，與回測輪次相同；停用靠背景工作總開關）、`SYMBOL_SCREENING_RUN_RETENTION_DAYS`=90、`SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS`=30 | — | NFR |
 
 ---
 
@@ -157,7 +157,7 @@ flowchart TD
   - 一鍵加入追蹤：新 application 方法呼叫既有合約追蹤名單用例，篩選區不動。
 - **Patterns applied & why:** 重演輸入抽成 DTO＋共用私有核心（引擎與資料來源解耦，第二種資料來源不必再改引擎）；快照（設定與腳本之後改動不影響過去結果）；runner 與 job 沿用回測輪次的生命週期形狀（維運一致）。
 - **Do not hardcode:** 門檻全在設定（篩選設定或環境變數）；10,000 起始資金是 PRD 定值，集中在 `SymbolScreeningPeriodDomain` 一處。
-- **Known debt / deferred:** 粗刻度重演的止損與強平只看該格高低點；持倉時段只用平倉交易（區段結束仍持有的部位以區段終點收尾）；組合貢獻的空窗以日曆天取整。
+- **Known debt / deferred:** 粗刻度重演的止損與強平只看該格高低點；持倉時段由平倉交易加上合約重演回報的 `OpenPositionEntryTime`（區段結束仍持有的部位以區段終點收尾，`ContractBacktestResultDto.TradesClosedBy`）；組合貢獻的空窗以日曆天取整。
 
 ---
 
