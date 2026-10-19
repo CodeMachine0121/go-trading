@@ -246,6 +246,10 @@ func TestSymbolScreeningEndpointsAnswerWhatTheyRead(t *testing.T) {
 						return profile, nil
 					})
 			}, expectedCode: http.StatusOK, expectedInBody: `"historyDays":365`},
+		{name: "a knob the script does not declare", method: http.MethodPost, target: "/symbol-screening-profiles",
+			body:         `{"name":"多旋鈕","strategyScriptId":108,"aggregationInterval":"4h","parameterValues":[{"name":"不存在","value":3}]}`,
+			arrange:      func(underTest screeningRouterUnderTest) { underTest.theProfileAndScriptAreMine() },
+			expectedCode: http.StatusBadRequest, expectedInBody: "不存在"},
 		{name: "changing with an unreadable body", method: http.MethodPut, target: "/symbol-screening-profiles/4",
 			body: `{nope`, arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
 		{name: "changing a profile with an unreadable identifier", method: http.MethodPut,

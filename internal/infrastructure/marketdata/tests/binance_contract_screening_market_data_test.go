@@ -96,3 +96,45 @@ func TestContractProxyAsksTheVenueForTheCoarseIntervalItself(t *testing.T) {
 	assert.Equal(t, "4h", query.Get("interval"))
 	assert.Equal(t, "LINKUSDT", query.Get("symbol"))
 }
+
+func TestContractProxySaysSoWhenTheCoarseCandlesCannotBeHad(t *testing.T) {
+	firstOpen := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	window := vo.AggregatedKCandleFetchWindowVo{
+		Symbol: "LINKUSDT", Interval: "4h", Step: 4 * time.Hour, StartTime: firstOpen, EndTime: firstOpen.Add(8 * time.Hour),
+	}
+	testCases := []struct {
+		name       string
+		tradedBody string
+		tradedCode int
+		markCode   int
+	}{
+		{name: "the traded candles are refused", tradedBody: "[]", tradedCode: http.StatusInternalServerError, markCode: http.StatusOK},
+		{name: "the mark prices are refused", tradedBody: "[" + fourHourKLineJson(firstOpen, "105") + "]",
+			tradedCode: http.StatusOK, markCode: http.StatusInternalServerError},
+		{name: "a traded candle cannot be read",
+			tradedBody: fmt.Sprintf(`[[%d,"x","x","x","x","x",2,"x",1,"x","x","0"]]`, firstOpen.UnixMilli()),
+			tradedCode: http.StatusOK, markCode: http.StatusOK},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestMultiplexer := http.NewServeMux()
+			requestMultiplexer.HandleFunc("/klines", func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.tradedCode)
+				_, _ = writer.Write([]byte(testCase.tradedBody))
+			})
+			requestMultiplexer.HandleFunc("/mark", func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.markCode)
+				_, _ = writer.Write([]byte("[]"))
+			})
+			server := httptest.NewServer(requestMultiplexer)
+			t.Cleanup(server.Close)
+			proxy := marketdata.NewBinanceContractMarketDataProxy(
+				server.URL+"/klines", server.URL+"/mark", server.URL+"/index", server.URL+"/premium", requestTimeout, unpaced())
+
+			_, fetchError := proxy.FetchAggregatedKCandles(t.Context(), window)
+
+			assert.Error(t, fetchError)
+		})
+	}
+}

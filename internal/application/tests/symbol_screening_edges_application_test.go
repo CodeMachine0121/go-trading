@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -347,6 +348,7 @@ func (underTest symbolScreeningUnderTest) prepares(
 		Return(nil, nil).AnyTimes()
 	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), symbol, gomock.Any()).
 		Return([]vo.ContractFundingRateSettlementVo{
+			{Symbol: symbol, SettlementTime: screeningPeriodEnd.Add(-200 * screeningDay), FundingRate: decimal.RequireFromString("0.0001")},
 			{Symbol: symbol, SettlementTime: screeningPeriodEnd.Add(-8 * time.Hour), FundingRate: decimal.Zero},
 			{Symbol: symbol, SettlementTime: screeningPeriodEnd.Add(8 * time.Hour), FundingRate: decimal.Zero},
 		}, settlementError).AnyTimes()
@@ -434,4 +436,338 @@ func TestSymbolScreeningBaselineThatNoLongerTrades(t *testing.T) {
 	ending := underTest.endingOf(t)
 
 	assert.Equal(t, "現有組合標的 OMGUSDT 無法比較：目前沒有在交易", ending.ContributionFailureReason)
+}
+
+func TestSymbolScreeningRunOnThisReplica(t *testing.T) {
+	t.Run("cancelling stops it at once and writes no failure over the cancel", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		run := aQueuedRun()
+		underTest.claimsTheRun(run, "LINKUSDT", "ADAUSDT")
+		underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Times(0)
+		waiting := underTest.blocksUntilStopped("LINKUSDT")
+		underTest.runRepository.EXPECT().FindOneOwned(gomock.Any(), screeningAdministratorID, screeningRunID).
+			Return(entities.SymbolScreeningRun{ID: screeningRunID, OwnerID: screeningAdministratorID, Status: "running"}, true, nil)
+		underTest.runRepository.EXPECT().CancelIfActive(gomock.Any(), gomock.Any()).Return(true, nil)
+
+		underTest.startsScreening(t)
+		<-waiting
+		cancelled, cancelError := underTest.application.CancelRun(t.Context(), screeningAdministratorID, screeningRunID)
+		underTest.application.StopRunner()
+
+		require.NoError(t, cancelError)
+		assert.Equal(t, "cancelled", cancelled.Status)
+		assert.Equal(t, screeningRunID, <-underTest.unfinishedCancelled)
+	})
+
+	t.Run("a second claim waits while one run is being screened", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		underTest.claimsTheRun(aQueuedRun(), "LINKUSDT", "ADAUSDT")
+		underTest.runWritesSucceed()
+		waiting := underTest.blocksUntilStopped("LINKUSDT")
+
+		underTest.startsScreening(t)
+		<-waiting
+		started, claimError := underTest.application.RunClaimedScreening(t.Context())
+		underTest.application.StopRunner()
+
+		require.NoError(t, claimError)
+		assert.False(t, started)
+	})
+}
+
+func TestSymbolScreeningRunEndsWellEvenWhenThingsGoWrong(t *testing.T) {
+	t.Run("a script that panics leaves the run failed in plain words", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		run := aQueuedRun()
+		run.CandidateCount = 1
+		underTest.claimsTheRun(run, "LINKUSDT")
+		underTest.runWritesSucceed()
+		underTest.isTrading("LINKUSDT", 0.01)
+		underTest.contractScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(context.Context, string, domains.IndicatorResultTypeDomain, []vo.ContractKCandleVo,
+				domains.StrategyScriptParametersDomain, domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
+				panic("the compartment fell over")
+			})
+
+		underTest.startsScreening(t)
+
+		assert.Equal(t, "篩選服務壞掉了，這筆沒有跑完", underTest.endingOf(t).FailureReason)
+	})
+
+	t.Run("time running out mid replay fails the run", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 100*time.Millisecond)
+		run := aQueuedRun()
+		run.CandidateCount = 1
+		underTest.claimsTheRun(run, "LINKUSDT")
+		underTest.runWritesSucceed()
+		underTest.isTrading("LINKUSDT", 0.01)
+		underTest.contractScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain, _ []vo.ContractKCandleVo,
+				_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
+				<-executionContext.Done()
+				return nil, executionContext.Err()
+			}).AnyTimes()
+
+		underTest.startsScreening(t)
+
+		assert.Equal(t, "超過時間上限", underTest.endingOf(t).FailureReason)
+	})
+
+	t.Run("time running out while comparing with the baseline fails the run", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 300*time.Millisecond)
+		run := aQueuedRun("BTCUSDT")
+		run.CandidateCount = 1
+		underTest.claimsTheRun(run, "LINKUSDT")
+		underTest.runWritesSucceed()
+		underTest.isTrading("LINKUSDT", 0.01)
+		underTest.scriptTradesEveryTenBars()
+		underTest.symbolLookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
+			DoAndReturn(func(executionContext context.Context, _ string) (vo.ContractSymbolListingVo, error) {
+				<-executionContext.Done()
+				return vo.ContractSymbolListingVo{}, executionContext.Err()
+			})
+
+		underTest.startsScreening(t)
+
+		assert.Equal(t, "超過時間上限", underTest.endingOf(t).FailureReason)
+	})
+
+	t.Run("a rejected candidate is left out of the comparison", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		underTest.claimsTheRun(aQueuedRun("BTCUSDT"), "FOOUSDT", "LINKUSDT")
+		underTest.runWritesSucceed()
+		underTest.isNotOnTheVenue("FOOUSDT")
+		underTest.isTrading("LINKUSDT", 0.01)
+		underTest.isTrading("BTCUSDT", 0.01)
+		underTest.scriptTradesEveryTenBars()
+
+		underTest.startsScreening(t)
+		underTest.endingOf(t)
+
+		assert.Nil(t, underTest.candidateSaved("FOOUSDT").Findings.Contribution)
+		assert.NotNil(t, underTest.candidateSaved("LINKUSDT").Findings.Contribution)
+	})
+
+	t.Run("a run cancelled just before its ending keeps the cancel", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		run := aQueuedRun()
+		run.CandidateCount = 1
+		underTest.claimsTheRun(run, "FOOUSDT")
+		underTest.isNotOnTheVenue("FOOUSDT")
+		refused := make(chan struct{})
+		gomock.InOrder(
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil),
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(context.Context, entities.SymbolScreeningRun) (bool, error) {
+					close(refused)
+					return false, nil
+				}),
+		)
+
+		underTest.startsScreening(t)
+		<-refused
+		underTest.application.StopRunner()
+
+		assert.Empty(t, underTest.unfinishedCancelled)
+	})
+
+	t.Run("an ending that cannot be written is only logged", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		run := aQueuedRun()
+		run.CandidateCount = 1
+		underTest.claimsTheRun(run, "FOOUSDT")
+		underTest.isNotOnTheVenue("FOOUSDT")
+		tried := make(chan struct{})
+		gomock.InOrder(
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil),
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(context.Context, entities.SymbolScreeningRun) (bool, error) {
+					close(tried)
+					return false, storageUnavailable
+				}),
+		)
+
+		underTest.startsScreening(t)
+		<-tried
+		underTest.application.StopRunner()
+	})
+}
+
+func TestSymbolScreeningMarketDataStorageFailures(t *testing.T) {
+	testCases := []struct {
+		name    string
+		arrange func(underTest symbolScreeningUnderTest)
+	}{
+		{name: "kept candles cannot be read", arrange: func(underTest symbolScreeningUnderTest) {
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", gomock.Any(), gomock.Any()).
+				Return(nil, storageUnavailable)
+		}},
+		{name: "fetched candles cannot be kept", arrange: func(underTest symbolScreeningUnderTest) {
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.marketDataProxy.EXPECT().FetchAggregatedKCandles(gomock.Any(), gomock.Any()).Return(nil, nil)
+			underTest.kCandleRepository.EXPECT().SaveAll(gomock.Any(), gomock.Any()).Return(storageUnavailable)
+		}},
+		{name: "kept settlements cannot be read", arrange: func(underTest symbolScreeningUnderTest) {
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.marketDataProxy.EXPECT().FetchAggregatedKCandles(gomock.Any(), gomock.Any()).Return(nil, nil)
+			underTest.kCandleRepository.EXPECT().SaveAll(gomock.Any(), gomock.Any()).Return(nil)
+			underTest.settlementRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", gomock.Any(), gomock.Any()).
+				Return(nil, storageUnavailable)
+		}},
+		{name: "fetched settlements cannot be kept", arrange: func(underTest symbolScreeningUnderTest) {
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.marketDataProxy.EXPECT().FetchAggregatedKCandles(gomock.Any(), gomock.Any()).Return(nil, nil)
+			underTest.kCandleRepository.EXPECT().SaveAll(gomock.Any(), gomock.Any()).Return(nil)
+			underTest.settlementRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", gomock.Any(), gomock.Any()).
+				Return(nil, nil)
+			underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), "LINKUSDT", gomock.Any()).Return(nil, nil)
+			underTest.settlementRepository.EXPECT().SaveAll(gomock.Any(), gomock.Any()).Return(storageUnavailable)
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSymbolScreeningUnderTest(t, 0)
+			run := aQueuedRun()
+			run.CandidateCount = 1
+			underTest.claimsTheRun(run, "LINKUSDT")
+			underTest.runWritesSucceed()
+			underTest.symbolLookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "LINKUSDT").Return(screeningListing("LINKUSDT"), nil)
+			testCase.arrange(underTest)
+
+			underTest.startsScreening(t)
+			underTest.endingOf(t)
+
+			candidate := underTest.candidateSaved("LINKUSDT")
+			assert.Equal(t, "unfinished", candidate.Status)
+			assert.Equal(t, "storage unavailable", candidate.Reason)
+		})
+	}
+}
+
+func TestSymbolScreeningReplayRefusalsLeaveTheCandidateUnfinished(t *testing.T) {
+	testCases := []struct {
+		name           string
+		change         func(run *entities.SymbolScreeningRun, listing *vo.ContractSymbolListingVo)
+		dailyChange    float64
+		expectedReason string
+	}{
+		{name: "a specification the venue gave wrongly", change: func(_ *entities.SymbolScreeningRun, listing *vo.ContractSymbolListingVo) {
+			listing.Specification.TickSize = decimal.Zero
+		}, expectedReason: "價格跳動單位必須大於零"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSymbolScreeningUnderTest(t, 0)
+			run := aQueuedRun()
+			run.CandidateCount = 1
+			listing := screeningListing("LINKUSDT")
+			testCase.change(&run, &listing)
+			underTest.claimsTheRun(run, "LINKUSDT")
+			underTest.runWritesSucceed()
+			underTest.prepares("LINKUSDT", listing, nil, dailyBars("LINKUSDT",
+				screeningPeriodEnd.Add(220*screeningDay), 0.01), nil, nil)
+
+			underTest.startsScreening(t)
+			underTest.endingOf(t)
+
+			candidate := underTest.candidateSaved("LINKUSDT")
+			assert.Equal(t, "unfinished", candidate.Status)
+			assert.Contains(t, candidate.Reason, testCase.expectedReason)
+		})
+	}
+}
+
+func TestSymbolScreeningRefusesALeverageTheContractsLadderDoesNotAllow(t *testing.T) {
+	underTest := newSymbolScreeningUnderTest(t, 0)
+	run := aQueuedRun()
+	run.CandidateCount = 1
+	run.Snapshot.Leverage = decimal.NewFromInt(50)
+	underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(run, true, nil)
+	underTest.runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(nil)
+	underTest.marginTierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+		Return([]vo.ContractMaintenanceMarginLadderVo{{Symbol: "LINKUSDT", Tiers: []vo.ContractMaintenanceMarginTierVo{{
+			Tier: 1, NotionalCap: decimal.NewFromInt(5_000_000), MaintenanceMarginRate: decimal.RequireFromString("0.01"),
+			MaximumLeverage: 20,
+		}}}}, nil)
+	underTest.candidateRepository.EXPECT().FindByRun(gomock.Any(), screeningRunID).Return(screeningCandidates("LINKUSDT"), nil)
+	underTest.candidateRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, candidate entities.SymbolScreeningCandidate) error {
+			underTest.savedCandidatesMutex.Lock()
+			defer underTest.savedCandidatesMutex.Unlock()
+			underTest.savedCandidates[candidate.Symbol] = candidate
+			return nil
+		}).AnyTimes()
+	underTest.runWritesSucceed()
+	underTest.isTrading("LINKUSDT", 0.01)
+
+	underTest.startsScreening(t)
+	underTest.endingOf(t)
+
+	candidate := underTest.candidateSaved("LINKUSDT")
+	assert.Equal(t, "unfinished", candidate.Status)
+	assert.Contains(t, candidate.Reason, "最高只能開 20 倍槓桿")
+}
+
+func TestSymbolScreeningCandidateWhoseMarketStoppedMidway(t *testing.T) {
+	underTest := newSymbolScreeningUnderTest(t, 0)
+	run := aQueuedRun()
+	run.CandidateCount = 1
+	run.Snapshot.MinimumAverageDailyQuoteVolume = decimal.Zero
+	underTest.claimsTheRun(run, "LINKUSDT")
+	underTest.runWritesSucceed()
+	underTest.scriptTradesEveryTenBars()
+	fetchStart := screeningPeriodEnd.Add(-180 * screeningDay)
+	firstTwentyDays := dailyBars("LINKUSDT", fetchStart.Add(400*screeningDay), 0.01)[:20]
+	underTest.prepares("LINKUSDT", screeningListing("LINKUSDT"), nil, firstTwentyDays, nil, nil)
+
+	underTest.startsScreening(t)
+	underTest.endingOf(t)
+
+	candidate := underTest.candidateSaved("LINKUSDT")
+	assert.Equal(t, "unfinished", candidate.Status)
+	assert.Contains(t, candidate.Reason, "湊不出足夠的 K 線")
+}
+
+func TestSymbolScreeningRunWhoseVerdictsCannotBeWrittenAtTheEnd(t *testing.T) {
+	testCases := []struct {
+		name  string
+		write func() error
+	}{
+		{name: "the store refuses", write: func() error { return storageUnavailable }},
+		{name: "the store falls over", write: func() error { panic("connection reset") }},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSymbolScreeningUnderTest(t, 0)
+			run := aQueuedRun()
+			run.CandidateCount = 1
+			underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(run, true, nil)
+			underTest.runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(nil)
+			underTest.marginTierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).Return(nil, nil)
+			underTest.candidateRepository.EXPECT().FindByRun(gomock.Any(), screeningRunID).Return(screeningCandidates("FOOUSDT"), nil)
+			finalWriteTried := make(chan struct{})
+			gomock.InOrder(
+				underTest.candidateRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).Times(2),
+				underTest.candidateRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(context.Context, entities.SymbolScreeningCandidate) error {
+						close(finalWriteTried)
+						return testCase.write()
+					}),
+			)
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil)
+			underTest.isNotOnTheVenue("FOOUSDT")
+
+			underTest.startsScreening(t)
+			<-finalWriteTried
+			underTest.application.StopRunner()
+		})
+	}
 }

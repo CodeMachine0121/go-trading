@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -218,4 +219,128 @@ func TestAUserIsNotAnAdministratorUntilTheOperatorSaysSo(t *testing.T) {
 
 	require.NoError(t, findError)
 	assert.False(t, stored.IsAdmin)
+}
+
+func TestSymbolScreeningRepositoriesListWhatIsMine(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	profileRepository := persistence.NewSymbolScreeningProfileRepository(database)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	candidateRepository := persistence.NewSymbolScreeningCandidateRepository(database)
+	_, firstError := profileRepository.Save(t.Context(), aScreeningProfileFor(screeningAdministratorID, "甲"))
+	_, secondError := profileRepository.Save(t.Context(), aScreeningProfileFor(screeningAdministratorID, "乙"))
+	_, foreignError := profileRepository.Save(t.Context(), aScreeningProfileFor(otherScreeningAdministratorID, "丙"))
+	require.NoError(t, errors.Join(firstError, secondError, foreignError))
+	older, olderError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "XRPUSDT"))
+	newer, newerError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "LINKUSDT"))
+	require.NoError(t, errors.Join(olderError, newerError))
+	finishedAt := screeningSubmittedAt.Add(time.Hour)
+	older.Status, older.FinishedAt = "cancelled", &finishedAt
+	_, cancelError := runRepository.CancelIfActive(t.Context(), older)
+	require.NoError(t, cancelError)
+
+	profiles, listError := profileRepository.FindAllByOwner(t.Context(), screeningAdministratorID)
+	allRuns, allCount, pageError := runRepository.FindPageByOwner(t.Context(), screeningAdministratorID,
+		dto.SymbolScreeningRunListQueryDto{Limit: 20})
+	queuedRuns, queuedCount, queuedError := runRepository.FindPageByOwner(t.Context(), screeningAdministratorID,
+		dto.SymbolScreeningRunListQueryDto{Status: "queued", Limit: 20})
+
+	require.NoError(t, errors.Join(listError, pageError, queuedError))
+	require.Len(t, profiles, 2)
+	assert.Equal(t, "甲", profiles[0].Name)
+	assert.Equal(t, int64(2), allCount)
+	assert.Equal(t, newer.ID, allRuns[0].ID)
+	assert.Equal(t, int64(1), queuedCount)
+	assert.Equal(t, newer.ID, queuedRuns[0].ID)
+
+	candidates, _ := candidateRepository.FindByRun(t.Context(), newer.ID)
+	rank := 1
+	candidates[0].Status, candidates[0].RecommendationRank = "passed", &rank
+	candidates[0].Findings = dto.SymbolScreeningFindingsDto{Segments: []dto.SymbolScreeningSegmentFindingDto{{ReturnRate: 0.2}}}
+	require.NoError(t, candidateRepository.Save(t.Context(), candidates[0]))
+	saved, _ := candidateRepository.FindByRun(t.Context(), newer.ID)
+	assert.Equal(t, "passed", saved[0].Status)
+	require.NotNil(t, saved[0].RecommendationRank)
+	assert.InDelta(t, 0.2, saved[0].Findings.Segments[0].ReturnRate, 0.0001)
+}
+
+func TestSymbolScreeningRepositoriesSaySoWhenTheStoreIsGone(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	connection, connectionError := database.DB()
+	require.NoError(t, connectionError)
+	require.NoError(t, connection.Close())
+	profileRepository := persistence.NewSymbolScreeningProfileRepository(database)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	candidateRepository := persistence.NewSymbolScreeningCandidateRepository(database)
+	kCandleRepository := persistence.NewSymbolScreeningKCandleRepository(database)
+	settlementRepository := persistence.NewSymbolScreeningFundingRateSettlementRepository(database)
+	ctx := t.Context()
+	someRun := entities.SymbolScreeningRun{ID: 1, OwnerID: screeningAdministratorID}
+
+	failures := map[string]func() error{
+		"save profile": func() error {
+			_, err := profileRepository.Save(ctx, aScreeningProfileFor(screeningAdministratorID, "x"))
+			return err
+		},
+		"find profile":   func() error { _, _, err := profileRepository.FindOneOwned(ctx, 1, 1); return err },
+		"list profiles":  func() error { _, err := profileRepository.FindAllByOwner(ctx, 1); return err },
+		"name check":     func() error { _, err := profileRepository.ExistsName(ctx, 1, "x", 0); return err },
+		"delete profile": func() error { return profileRepository.DeleteOwned(ctx, 1, 1) },
+		"save run":       func() error { _, err := runRepository.Save(ctx, aQueuedScreeningRun(1, nil, "X")); return err },
+		"find run":       func() error { _, _, err := runRepository.FindOneOwned(ctx, 1, 1); return err },
+		"list runs": func() error {
+			_, _, err := runRepository.FindPageByOwner(ctx, 1, dto.SymbolScreeningRunListQueryDto{Limit: 1})
+			return err
+		},
+		"count by owner":    func() error { _, err := runRepository.CountActiveByOwner(ctx, 1); return err },
+		"count by profile":  func() error { _, err := runRepository.CountActiveByProfile(ctx, 1); return err },
+		"lock oldest":       func() error { _, _, err := runRepository.LockOldestQueued(ctx); return err },
+		"save claim":        func() error { return runRepository.SaveClaim(ctx, someRun) },
+		"update if running": func() error { _, err := runRepository.UpdateIfRunning(ctx, someRun); return err },
+		"cancel if active":  func() error { _, err := runRepository.CancelIfActive(ctx, someRun); return err },
+		"fail outside": func() error {
+			_, err := runRepository.FailRunningOutside(ctx, []string{"a"}, "x", time.Now())
+			return err
+		},
+		"delete runs":       func() error { _, err := runRepository.DeleteFinishedBefore(ctx, time.Now()); return err },
+		"list candidates":   func() error { _, err := candidateRepository.FindByRun(ctx, 1); return err },
+		"save candidate":    func() error { return candidateRepository.Save(ctx, entities.SymbolScreeningCandidate{ID: 1}) },
+		"cancel candidates": func() error { return candidateRepository.CancelUnfinished(ctx, 1) },
+		"find candles": func() error {
+			_, err := kCandleRepository.FindInRange(ctx, "X", "4h", time.Now(), time.Now())
+			return err
+		},
+		"save candles":     func() error { return kCandleRepository.SaveAll(ctx, []entities.SymbolScreeningKCandle{{Symbol: "X"}}) },
+		"delete candles":   func() error { _, err := kCandleRepository.DeleteFetchedBefore(ctx, time.Now()); return err },
+		"find settlements": func() error { _, err := settlementRepository.FindInRange(ctx, "X", time.Now(), time.Now()); return err },
+		"save settlements": func() error {
+			return settlementRepository.SaveAll(ctx, []entities.SymbolScreeningFundingRateSettlement{{Symbol: "X"}})
+		},
+		"delete settlements": func() error { _, err := settlementRepository.DeleteFetchedBefore(ctx, time.Now()); return err },
+	}
+
+	for name, failure := range failures {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, failure())
+		})
+	}
+	assert.NoError(t, kCandleRepository.SaveAll(ctx, nil))
+	assert.NoError(t, settlementRepository.SaveAll(ctx, nil))
+}
+
+func TestSymbolScreeningRunRepositoryWithNothingThere(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	transactionRepository := persistence.NewTransactionRepository(database)
+
+	_, found, findError := runRepository.FindOneOwned(t.Context(), screeningAdministratorID, 999999)
+	queuedFound := true
+	lockError := transactionRepository.Atomically(t.Context(), func(transactionContext context.Context) error {
+		_, isQueued, err := runRepository.LockOldestQueued(transactionContext)
+		queuedFound = isQueued
+		return err
+	})
+
+	require.NoError(t, errors.Join(findError, lockError))
+	assert.False(t, found)
+	assert.False(t, queuedFound)
 }
