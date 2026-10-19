@@ -138,6 +138,7 @@ const waitingBody = `{
 	"id": 7,
 	"email": "james@example.com",
 	"isEnabled": false,
+	"isAdmin":   false,
 	"activationInstruction": {
 		"requestMailbox": "gatekeeper@example.com",
 		"subject": "console access request：james@example.com"
@@ -344,7 +345,7 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, recorder.Code)
 		assert.JSONEq(t,
-			`{"id":7,"email":"james@example.com","isEnabled":true}`, recorder.Body.String())
+			`{"id":7,"email":"james@example.com","isEnabled":true,"isAdmin":false}`, recorder.Body.String())
 	})
 
 	t.Run("reads the scheme without regard to case, because HTTP says so", func(t *testing.T) {

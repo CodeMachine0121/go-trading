@@ -399,6 +399,21 @@ func (userService *UserService) IdentifyActivatedWebUser(
 	return userService.activatedUser(executionContext, accessToken)
 }
 
+// IdentifyActivatedAdministrator checks activation first, so a pending administrator gets the activation instruction rather than a refusal.
+func (userService *UserService) IdentifyActivatedAdministrator(
+	executionContext context.Context, accessToken string,
+) (dto.UserDto, error) {
+	userDto, identifyError := userService.activatedUser(executionContext, accessToken)
+	if identifyError != nil {
+		return dto.UserDto{}, identifyError
+	}
+	if !userDto.IsAdmin {
+		return dto.UserDto{}, domains.ErrAdministratorRequired
+	}
+
+	return userDto, nil
+}
+
 func (userService *UserService) activatedUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {

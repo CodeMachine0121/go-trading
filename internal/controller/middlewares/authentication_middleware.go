@@ -40,6 +40,17 @@ func (authenticationMiddleware *AuthenticationMiddleware) HandleWebSignIn(ginCon
 	authenticationMiddleware.admitOrRefuse(ginContext, userDto, identifyError)
 }
 
+// HandleAdministrator admits connector tokens too, since an administrator may work through a plugin.
+func (authenticationMiddleware *AuthenticationMiddleware) HandleAdministrator(ginContext *gin.Context) {
+	userDto, identifyError := authenticationMiddleware.userApplication.IdentifyActivatedAdministrator(
+		ginContext.Request.Context(), accessTokenOf(ginContext))
+	if errors.Is(identifyError, domains.ErrAdministratorRequired) {
+		ginContext.AbortWithStatusJSON(http.StatusForbidden, gin.H{"message": identifyError.Error()})
+		return
+	}
+	authenticationMiddleware.admitOrRefuse(ginContext, userDto, identifyError)
+}
+
 func (authenticationMiddleware *AuthenticationMiddleware) admitOrRefuse(
 	ginContext *gin.Context, userDto dto.UserDto, identifyError error,
 ) {
