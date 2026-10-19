@@ -120,6 +120,8 @@ func TestSymbolScreeningPortabilityJudgesEverySegment(t *testing.T) {
 			tradesPerSegment: []int{3, 3, 3, 3}, expectedMessage: "多數區段虧損"},
 		{name: "a flat segment is not a win", returnRates: []float64{0.10, 0, 0.05}, tradesPerSegment: []int{3, 3, 3},
 			expectedPassed: true},
+		{name: "a flat segment beside a losing one leaves most losing", returnRates: []float64{0.10, 0, -0.05},
+			tradesPerSegment: []int{3, 3, 3}, expectedMessage: "多數區段虧損"},
 		{name: "slightly losing without the best", returnRates: []float64{0.50, 0.02, -0.02},
 			tradesPerSegment: []int{3, 3, 3}, expectedMessage: "去掉最好的一段就虧損",
 			expectedWithoutBest: -0.0004, checksReturnWithoutBest: true},
