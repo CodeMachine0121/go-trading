@@ -771,3 +771,36 @@ func TestSymbolScreeningRunWhoseVerdictsCannotBeWrittenAtTheEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestSymbolScreeningReplaysWithoutPositionStatisticsAndLeavesTheFollowedListAlone(t *testing.T) {
+	underTest := newSymbolScreeningUnderTest(t, 0)
+	run := aQueuedRun()
+	run.CandidateCount = 1
+	underTest.claimsTheRun(run, "LINKUSDT")
+	underTest.runWritesSucceed()
+	underTest.isTrading("LINKUSDT", 0.01)
+	sawOpenInterest := make(chan bool, 8)
+	underTest.contractScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
+			_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
+			anyOpenInterest := false
+			for _, bar := range bars {
+				anyOpenInterest = anyOpenInterest || bar.OpenInterest != 0 || bar.AccountLongShortRatio != 0
+			}
+			sawOpenInterest <- anyOpenInterest
+			signals := make([]vo.SignalVo, len(bars))
+			for index := range signals {
+				signals[index] = vo.SignalHold
+			}
+			return signalsSaying(signals...), nil
+		}).Times(3)
+
+	underTest.startsScreening(t)
+	underTest.endingOf(t)
+
+	for range 3 {
+		assert.False(t, <-sawOpenInterest)
+	}
+	// The fixture's followed-market repositories carry no expectations, so any read or write of them fails this test.
+}

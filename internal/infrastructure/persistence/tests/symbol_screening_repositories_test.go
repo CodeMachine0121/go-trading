@@ -344,3 +344,43 @@ func TestSymbolScreeningRunRepositoryWithNothingThere(t *testing.T) {
 	assert.False(t, found)
 	assert.False(t, queuedFound)
 }
+
+func TestADeletedProfileLeavesItsEndedRunsWithTheSettingsTheyUsed(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	profileRepository := persistence.NewSymbolScreeningProfileRepository(database)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	profile, profileError := profileRepository.Save(t.Context(), aScreeningProfileFor(screeningAdministratorID, "趨勢 V3"))
+	require.NoError(t, profileError)
+	run, runError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, &profile.ID, "XRPUSDT"))
+	require.NoError(t, runError)
+
+	require.NoError(t, profileRepository.DeleteOwned(t.Context(), screeningAdministratorID, profile.ID))
+
+	kept, found, findError := runRepository.FindOneOwned(t.Context(), screeningAdministratorID, run.ID)
+	require.NoError(t, findError)
+	require.True(t, found)
+	assert.Nil(t, kept.ProfileID)
+	assert.Equal(t, "趨勢 V3", kept.ProfileName)
+	assert.Equal(t, 730, kept.Snapshot.HistoryDays)
+}
+
+func TestCancellingKeepsTheCandidatesAlreadyJudged(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	candidateRepository := persistence.NewSymbolScreeningCandidateRepository(database)
+	run, runError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "FOOUSDT", "LINKUSDT", "ADAUSDT"))
+	require.NoError(t, runError)
+	candidates, _ := candidateRepository.FindByRun(t.Context(), run.ID)
+	candidates[0].Status, candidates[0].Stage, candidates[0].Reason = "rejected", "basicCondition", "幣安沒有這個 USDT 永續合約"
+	candidates[1].Status = "processing"
+	require.NoError(t, errors.Join(
+		candidateRepository.Save(t.Context(), candidates[0]), candidateRepository.Save(t.Context(), candidates[1])))
+
+	require.NoError(t, candidateRepository.CancelUnfinished(t.Context(), run.ID))
+
+	after, _ := candidateRepository.FindByRun(t.Context(), run.ID)
+	assert.Equal(t, "rejected", after[0].Status)
+	assert.Equal(t, "幣安沒有這個 USDT 永續合約", after[0].Reason)
+	assert.Equal(t, "cancelled", after[1].Status)
+	assert.Equal(t, "cancelled", after[2].Status)
+}

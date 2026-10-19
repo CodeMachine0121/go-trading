@@ -147,8 +147,9 @@ func (runner *symbolScreeningRunner) run() {
 			if !passed {
 				candidate = candidate.Rejected(vo.SymbolScreeningStagePortability, reason, findings)
 			}
-			for _, result := range results {
-				closedTradesBySymbol[symbol] = append(closedTradesBySymbol[symbol], result.ClosedTrades...)
+			for index, result := range results {
+				closedTradesBySymbol[symbol] = append(closedTradesBySymbol[symbol],
+					result.TradesClosedBy(period.Segments()[index].EndTime)...)
 			}
 		}
 
@@ -190,8 +191,8 @@ func (runner *symbolScreeningRunner) run() {
 				contributionFailureReason = fmt.Sprintf("現有組合標的 %s 無法比較：%s", baselineSymbol, replayError.Error())
 				break
 			}
-			for _, result := range results {
-				baselineTrades = append(baselineTrades, result.ClosedTrades...)
+			for index, result := range results {
+				baselineTrades = append(baselineTrades, result.TradesClosedBy(period.Segments()[index].EndTime)...)
 			}
 		}
 

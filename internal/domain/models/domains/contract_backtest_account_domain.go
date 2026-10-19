@@ -125,6 +125,11 @@ func (accountDomain *ContractBacktestAccountDomain) EquityAt(price decimal.Decim
 	return accountDomain.availableCash.Add(accountDomain.openPosition.ValueAt(price))
 }
 
+// OpenPositionEntryTime is when the position still held at the end was opened; false when nothing is held.
+func (accountDomain *ContractBacktestAccountDomain) OpenPositionEntryTime() (time.Time, bool) {
+	return accountDomain.openPosition.entryTime, accountDomain.hasOpenPosition
+}
+
 // ClosedTradeDtos returns finished round trips earliest first.
 func (accountDomain *ContractBacktestAccountDomain) ClosedTradeDtos() []dto.ContractClosedTradeDto {
 	closedTradeDtos := make([]dto.ContractClosedTradeDto, 0, len(accountDomain.closedTrades))

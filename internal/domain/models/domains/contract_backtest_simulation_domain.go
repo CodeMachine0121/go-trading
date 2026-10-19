@@ -2,6 +2,7 @@ package domains
 
 import (
 	"slices"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -111,8 +112,13 @@ func (simulationDomain ContractBacktestSimulationDomain) ToDto() dto.ContractBac
 	summaryDto.MaintenanceMarginBasis = simulationDomain.tradingRules.MaintenanceMarginBasisDto()
 
 	equityPointDtos := equityCurve.PointDtos()
+	openPositionEntryTime := (*time.Time)(nil)
+	if entryTime, isHolding := account.OpenPositionEntryTime(); isHolding {
+		openPositionEntryTime = &entryTime
+	}
 
 	return dto.ContractBacktestResultDto{
+		OpenPositionEntryTime: openPositionEntryTime,
 		TradingMode:     string(simulationDomain.tradingMode.Value()),
 		FillTiming:      string(simulationDomain.fillTiming.Value()),
 		Leverage:        simulationDomain.positionTerms.leverage,

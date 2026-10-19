@@ -18,6 +18,8 @@ type ContractBacktestResultDto struct {
 	Summary         ContractBacktestSummaryDto `json:"summary"`
 	ClosedTrades    []ContractClosedTradeDto   `json:"closedTrades"`
 	EquityCurve     []EquityPointDto           `json:"equityCurve"`
+	// OpenPositionEntryTime is set only when a position is still held when the replay ends.
+	OpenPositionEntryTime *time.Time `json:"openPositionEntryTime,omitempty"`
 	// FillTiming is close or nextOpen.
 	FillTiming string `json:"fillTiming"`
 	// ValidationStartTime is nil when the replay was not split.
@@ -26,6 +28,16 @@ type ContractBacktestResultDto struct {
 	// are nil when not split.
 	InSample   *ContractBacktestResultDto `json:"inSample,omitempty"`
 	Validation *ContractBacktestResultDto `json:"validation,omitempty"`
+}
+
+// TradesClosedBy treats a position still held at the end as closed at closingTime, so holding time is not lost at the edge.
+func (resultDto ContractBacktestResultDto) TradesClosedBy(closingTime time.Time) []ContractClosedTradeDto {
+	trades := append([]ContractClosedTradeDto{}, resultDto.ClosedTrades...)
+	if resultDto.OpenPositionEntryTime != nil {
+		trades = append(trades, ContractClosedTradeDto{EntryTime: *resultDto.OpenPositionEntryTime, ExitTime: closingTime})
+	}
+
+	return trades
 }
 
 func (resultDto ContractBacktestResultDto) ToBacktestRunSummaryDto() BacktestRunSummaryDto {

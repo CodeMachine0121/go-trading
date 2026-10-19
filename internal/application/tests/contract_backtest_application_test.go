@@ -179,6 +179,40 @@ func TestSubmitContractBacktest(t *testing.T) {
 	})
 }
 
+func TestRunContractBacktestSaysWhenAPositionIsStillHeldAtTheEnd(t *testing.T) {
+	testCases := []struct {
+		name           string
+		signals        []vo.SignalVo
+		expectsHolding bool
+	}{
+		{name: "bought and never sold", signals: []vo.SignalVo{vo.SignalBuy, vo.SignalHold}, expectsHolding: true},
+		{name: "bought and sold", signals: []vo.SignalVo{vo.SignalBuy, vo.SignalSell}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newContractBacktestUnderTest(t)
+			fixture.expectTheSymbolIsSpecified()
+			fixture.expectHourlyContractBars("100", "110")
+			requestDto := contractReplayRequestDto()
+			requestDto.TradingMode = "longOnly"
+			fixture.contractIndicatorScriptProxy.EXPECT().
+				ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Len(2), gomock.Any(), gomock.Any()).
+				Return(signalsSaying(testCase.signals...), nil)
+
+			resultDto, err := fixture.contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
+
+			require.NoError(t, err)
+			if testCase.expectsHolding {
+				require.NotNil(t, resultDto.OpenPositionEntryTime)
+				assert.Equal(t, backtestStart, *resultDto.OpenPositionEntryTime)
+			} else {
+				assert.Nil(t, resultDto.OpenPositionEntryTime)
+			}
+		})
+	}
+}
+
 func TestRunContractBacktest(t *testing.T) {
 	t.Run("replays a contract strategy script on a contract account", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)

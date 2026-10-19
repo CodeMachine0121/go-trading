@@ -2,6 +2,7 @@ package domains_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,4 +198,81 @@ func TestContractReplayInputTradingRules(t *testing.T) {
 	require.NoError(t, unreadableLadderError)
 	_, unreadableIsLimited := unreadableLadderRules.MaximumLeverage()
 	assert.False(t, unreadableIsLimited)
+	assert.Equal(t, "smallestTier", unreadableLadderRules.MaintenanceMarginBasisDto().Kind)
+	assert.Equal(t, "tiers", ladderRules.MaintenanceMarginBasisDto().Kind)
+}
+
+func TestSymbolScreeningProfileAcceptsExactlyTheEdgesOfEachRange(t *testing.T) {
+	figure := func(value int) *int { return &value }
+	testCases := []struct {
+		name           string
+		change         func(writeDto *dto.SymbolScreeningProfileWriteDto)
+		expectAccepted bool
+	}{
+		{name: "history 180 days", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.HistoryDays = figure(180) }, expectAccepted: true},
+		{name: "history 179 days", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.HistoryDays = figure(179) }},
+		{name: "history 1825 days", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.HistoryDays = figure(1825) }, expectAccepted: true},
+		{name: "history 1826 days", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.HistoryDays = figure(1826) }},
+		{name: "six segments", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.SegmentCount = figure(6) }, expectAccepted: true},
+		{name: "seven segments", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.SegmentCount = figure(7) }},
+		{name: "one trade", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.MinimumTradeCount = figure(1) }, expectAccepted: true},
+		{name: "no trades", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.MinimumTradeCount = figure(0) }},
+		{name: "two hundred trades", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.MinimumTradeCount = figure(200) }, expectAccepted: true},
+		{name: "two hundred and one trades", change: func(w *dto.SymbolScreeningProfileWriteDto) { w.MinimumTradeCount = figure(201) }},
+		{name: "ten baseline symbols", change: func(w *dto.SymbolScreeningProfileWriteDto) {
+			w.BaselineSymbols = strings.Split(distinctSymbols(10), ",")
+		}, expectAccepted: true},
+		{name: "eleven baseline symbols", change: func(w *dto.SymbolScreeningProfileWriteDto) {
+			w.BaselineSymbols = strings.Split(distinctSymbols(11), ",")
+		}},
+		{name: "a hundred and twenty-eight character name", change: func(w *dto.SymbolScreeningProfileWriteDto) {
+			w.Name = strings.Repeat("篩", 128)
+		}, expectAccepted: true},
+		{name: "a hundred and twenty-nine character name", change: func(w *dto.SymbolScreeningProfileWriteDto) {
+			w.Name = strings.Repeat("篩", 129)
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aScreeningProfileWrite()
+			testCase.change(&writeDto)
+
+			_, profileError := domains.NewSymbolScreeningProfileDomain(7, writeDto)
+
+			if testCase.expectAccepted {
+				assert.NoError(t, profileError)
+			} else {
+				assert.ErrorIs(t, profileError, domains.ErrSymbolScreeningValidation)
+			}
+		})
+	}
+}
+
+func TestAReplayResultCountsAPositionStillHeldAsHeldUntilTheEnd(t *testing.T) {
+	openedAt := screeningPeriodEnd.Add(-48 * time.Hour)
+	held := dto.ContractBacktestResultDto{
+		ClosedTrades:          holdingsFrom([2]int{10, 8}),
+		OpenPositionEntryTime: &openedAt,
+	}
+
+	trades := held.TradesClosedBy(screeningPeriodEnd)
+
+	require.Len(t, trades, 2)
+	assert.Equal(t, openedAt, trades[1].EntryTime)
+	assert.Equal(t, screeningPeriodEnd, trades[1].ExitTime)
+	assert.Len(t, dto.ContractBacktestResultDto{ClosedTrades: holdingsFrom([2]int{10, 8})}.TradesClosedBy(screeningPeriodEnd), 1)
+}
+
+func TestSymbolScreeningContributionCountsAPositionHeldAtTheEndOfASegment(t *testing.T) {
+	periodStart := screeningPeriodEnd.Add(-100 * 24 * time.Hour)
+	openedAt := screeningPeriodEnd.Add(-40 * 24 * time.Hour)
+	stillHolding := dto.ContractBacktestResultDto{OpenPositionEntryTime: &openedAt}
+	baseline := domains.NewSymbolScreeningHoldingTimelineDomain(holdingsFrom([2]int{100, 60}), periodStart, screeningPeriodEnd)
+
+	contribution := domains.NewSymbolScreeningHoldingTimelineDomain(
+		stillHolding.TradesClosedBy(screeningPeriodEnd), periodStart, screeningPeriodEnd).ContributionAgainst(baseline)
+
+	assert.Equal(t, 60, contribution.BaselineLongestGapDays)
+	assert.Equal(t, 20, contribution.CombinedLongestGapDays)
 }
