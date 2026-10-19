@@ -77,7 +77,8 @@
 | `SymbolScreeningPeriodDomain` | 由 `now`、歷史天數、區段數、刻度、暖機根數算出：期間終點＝最近一個走完的 UTC 日結束、起點、各區段 `[start,end)`、要取得的行情起點（起點 − 暖機）；`HistoryDaysOf(firstBarOpen)` | US-05、06 |
 | `SymbolScreeningBasicConditionDomain` | 依序判斷 listing → 歷史天數 → 最近 30 個走完的日子日均成交額（由篩選刻度 K 線依 UTC 日加總 quote volume）；回 `(passed, reason, findings)` | US-05 |
 | `SymbolScreeningPortabilityDomain` | 吃各區段 `ContractBacktestResultDto`：交易太少 → 多數區段虧損（報酬 > 0 的段數 ×2 > 段數）→ 去掉最好一段後連乘報酬 ≤ 0；回判斷與區段數字 | US-06 |
-| `SymbolScreeningHoldingTimelineDomain` | 由各區段平倉交易（＋區段結束時仍持有的部位，從資金曲線最後一筆是否在場推不出時以平倉為準）組出持倉時段；`LongestGapDays(period)`、`Union(other)`、`InMarketShare`、`OverlapShareWith(baseline)` | US-07 |
+| `SymbolScreeningHoldingTimelineDomain` | 由各區段平倉交易（＋區段結束時仍持有的部位）組出持倉時段（`SymbolScreeningHoldingVo`），合併重疊；`ContributionAgainst(baseline)` 算出在場比例、重疊比例與空窗縮短天數 | US-07 |
+| `SymbolScreeningBaselineDomain` | 現有組合標的的持倉彙總：`Including(segmentResults)` 累積、`Unavailable(symbol, cause)` 記下無法比較的原因、`Compared(candidates, tradesBySymbol)` 為通過的候選標的填入組合貢獻；無法比較時候選標的原樣返回 | US-07 |
 | `SymbolScreeningRecommendationDomain` | 依 PRD 規則排序候選、填 `RecommendationRank` | US-07 |
 | `ContractReplayInputDomain` | 包 `ContractReplayInputDto`：`CandlesIn(query)`、`SettlementsIn(query)`、`LatestSettlementBefore(cutoff)`、`TradingRules()`（以規格 VO 轉 `ContractTradingSymbol` 形狀＋分級 → `NewContractTradingRulesDomain`；分級空時引擎既有的退回規則生效） | US-06、08 |
 
@@ -157,7 +158,7 @@ flowchart TD
   - 一鍵加入追蹤：新 application 方法呼叫既有合約追蹤名單用例，篩選區不動。
 - **Patterns applied & why:** 重演輸入抽成 DTO＋共用私有核心（引擎與資料來源解耦，第二種資料來源不必再改引擎）；快照（設定與腳本之後改動不影響過去結果）；runner 與 job 沿用回測輪次的生命週期形狀（維運一致）。
 - **Do not hardcode:** 門檻全在設定（篩選設定或環境變數）；10,000 起始資金是 PRD 定值，集中在 `SymbolScreeningPeriodDomain` 一處。
-- **Known debt / deferred:** 粗刻度重演的止損與強平只看該格高低點；持倉時段由平倉交易加上合約重演回報的 `OpenPositionEntryTime`（區段結束仍持有的部位以區段終點收尾，`ContractBacktestResultDto.TradesClosedBy`）；組合貢獻的空窗以日曆天取整。
+- **Known debt / deferred:** 粗刻度重演的止損與強平只看該格高低點；持倉時段由平倉交易加上合約重演回報的 `OpenPositionEntryTime`（區段結束仍持有的部位以區段終點收尾，`SymbolScreeningPeriodDomain.ClosedTradesOf`）；組合貢獻的空窗以日曆天取整。
 
 ---
 
@@ -188,7 +189,7 @@ flowchart TD
 | US-04 結束的篩選保留 90 天 | `SymbolScreeningRetentionJob` |
 | US-05 全部 7 個情境 | `SymbolScreeningBasicConditionDomain` + `SymbolScreeningPeriodDomain` |
 | US-06 全部 9 個情境 | `SymbolScreeningPortabilityDomain` + `SymbolScreeningPeriodDomain` + `RunContractBacktestOn` |
-| US-07 算出縮短的空窗 | `SymbolScreeningHoldingTimelineDomain` |
+| US-07 算出縮短的空窗 | `SymbolScreeningBaselineDomain`、`SymbolScreeningHoldingTimelineDomain` |
 | US-07 排序 4 個情境 | `SymbolScreeningRecommendationDomain` |
 | US-07 現有組合標的取不到行情 | runner → `ContributionFailureReason` |
 | US-08 篩選不碰盯盤 / 保留期限內沿用 / 過期重新取得 | `SymbolScreeningMarketDataService` + 篩選行情 repo + retention job |

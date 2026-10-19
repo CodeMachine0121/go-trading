@@ -249,30 +249,56 @@ func TestSymbolScreeningProfileAcceptsExactlyTheEdgesOfEachRange(t *testing.T) {
 	}
 }
 
-func TestAReplayResultCountsAPositionStillHeldAsHeldUntilTheEnd(t *testing.T) {
-	openedAt := screeningPeriodEnd.Add(-48 * time.Hour)
-	held := dto.ContractBacktestResultDto{
-		ClosedTrades:          holdingsFrom([2]int{10, 8}),
-		OpenPositionEntryTime: &openedAt,
-	}
+func TestAPositionStillHeldAtASegmentEndCountsAsHeldUntilThatEnd(t *testing.T) {
+	period := domains.NewSymbolScreeningPeriodDomain(aScreeningSnapshot(100, 2), screeningPeriodEnd.Add(time.Hour), 0)
+	firstSegmentEnd := period.Segments()[0].EndTime
+	openedInFirst := firstSegmentEnd.Add(-48 * time.Hour)
+	openedInSecond := screeningPeriodEnd.Add(-24 * time.Hour)
 
-	trades := held.TradesClosedBy(screeningPeriodEnd)
+	trades := period.ClosedTradesOf([]dto.ContractBacktestResultDto{
+		{ClosedTrades: holdingsFrom([2]int{90, 80}), OpenPositionEntryTime: &openedInFirst},
+		{OpenPositionEntryTime: &openedInSecond},
+	})
 
-	require.Len(t, trades, 2)
-	assert.Equal(t, openedAt, trades[1].EntryTime)
-	assert.Equal(t, screeningPeriodEnd, trades[1].ExitTime)
-	assert.Len(t, dto.ContractBacktestResultDto{ClosedTrades: holdingsFrom([2]int{10, 8})}.TradesClosedBy(screeningPeriodEnd), 1)
+	require.Len(t, trades, 3)
+	assert.Equal(t, dto.ContractClosedTradeDto{EntryTime: openedInFirst, ExitTime: firstSegmentEnd}, trades[1])
+	assert.Equal(t, dto.ContractClosedTradeDto{EntryTime: openedInSecond, ExitTime: screeningPeriodEnd}, trades[2])
+	assert.Len(t, period.ClosedTradesOf([]dto.ContractBacktestResultDto{{ClosedTrades: holdingsFrom([2]int{10, 8})}}), 1)
 }
 
 func TestSymbolScreeningContributionCountsAPositionHeldAtTheEndOfASegment(t *testing.T) {
-	periodStart := screeningPeriodEnd.Add(-100 * 24 * time.Hour)
+	period := domains.NewSymbolScreeningPeriodDomain(aScreeningSnapshot(100, 1), screeningPeriodEnd.Add(time.Hour), 0)
 	openedAt := screeningPeriodEnd.Add(-40 * 24 * time.Hour)
-	stillHolding := dto.ContractBacktestResultDto{OpenPositionEntryTime: &openedAt}
-	baseline := domains.NewSymbolScreeningHoldingTimelineDomain(holdingsFrom([2]int{100, 60}), periodStart, screeningPeriodEnd)
+	baseline := domains.NewSymbolScreeningBaselineDomain(period).
+		Including([]dto.ContractBacktestResultDto{{ClosedTrades: holdingsFrom([2]int{100, 60})}})
 
-	contribution := domains.NewSymbolScreeningHoldingTimelineDomain(
-		stillHolding.TradesClosedBy(screeningPeriodEnd), periodStart, screeningPeriodEnd).ContributionAgainst(baseline)
+	compared := baseline.Compared(
+		[]entities.SymbolScreeningCandidate{{Symbol: "LINKUSDT", Status: "passed"}},
+		map[string][]dto.ContractClosedTradeDto{
+			"LINKUSDT": period.ClosedTradesOf([]dto.ContractBacktestResultDto{{OpenPositionEntryTime: &openedAt}}),
+		})
 
-	assert.Equal(t, 60, contribution.BaselineLongestGapDays)
-	assert.Equal(t, 20, contribution.CombinedLongestGapDays)
+	require.NotNil(t, compared[0].Findings.Contribution)
+	assert.Equal(t, 60, compared[0].Findings.Contribution.BaselineLongestGapDays)
+	assert.Equal(t, 20, compared[0].Findings.Contribution.CombinedLongestGapDays)
+}
+
+func TestSymbolScreeningBaselineThatCannotBeReplayedComparesNothing(t *testing.T) {
+	period := domains.NewSymbolScreeningPeriodDomain(aScreeningSnapshot(100, 1), screeningPeriodEnd.Add(time.Hour), 0)
+	candidates := []entities.SymbolScreeningCandidate{
+		{Symbol: "LINKUSDT", Status: "passed"}, {Symbol: "FOOUSDT", Status: "rejected"},
+	}
+	available := domains.NewSymbolScreeningBaselineDomain(period).
+		Including([]dto.ContractBacktestResultDto{{ClosedTrades: holdingsFrom([2]int{100, 60})}})
+	unavailable := available.Unavailable("BTCUSDT", domains.ErrSymbolScreeningSymbolNotTrading)
+
+	comparedWhileAvailable := available.Compared(candidates, map[string][]dto.ContractClosedTradeDto{})
+	comparedWhileUnavailable := unavailable.Compared(candidates, map[string][]dto.ContractClosedTradeDto{})
+
+	assert.Empty(t, available.UnavailableReason())
+	assert.NotNil(t, comparedWhileAvailable[0].Findings.Contribution)
+	assert.Nil(t, comparedWhileAvailable[1].Findings.Contribution)
+	assert.Nil(t, candidates[0].Findings.Contribution, "the candidates handed in are left as they were")
+	assert.Equal(t, "現有組合標的 BTCUSDT 無法比較：目前沒有在交易", unavailable.UnavailableReason())
+	assert.Nil(t, comparedWhileUnavailable[0].Findings.Contribution)
 }

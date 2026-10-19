@@ -90,6 +90,24 @@ func (periodDomain SymbolScreeningPeriodDomain) Segments() []vo.SymbolScreeningS
 	return segments
 }
 
+// ClosedTradesOf gathers the trades of one replay per segment, a position still held at a segment's end counted as closed there so holding time is not lost at the edge.
+func (periodDomain SymbolScreeningPeriodDomain) ClosedTradesOf(
+	segmentResults []dto.ContractBacktestResultDto,
+) []dto.ContractClosedTradeDto {
+	segments := periodDomain.Segments()
+	trades := []dto.ContractClosedTradeDto{}
+	for segmentIndex, result := range segmentResults {
+		trades = append(trades, result.ClosedTrades...)
+		if result.OpenPositionEntryTime != nil && segmentIndex < len(segments) {
+			trades = append(trades, dto.ContractClosedTradeDto{
+				EntryTime: *result.OpenPositionEntryTime, ExitTime: segments[segmentIndex].EndTime,
+			})
+		}
+	}
+
+	return trades
+}
+
 // ReplayRequests replays each segment from the same capital, filling on the next open and staking everything.
 func (periodDomain SymbolScreeningPeriodDomain) ReplayRequests(symbol string) []dto.ContractBacktestRequestDto {
 	snapshot := periodDomain.snapshot

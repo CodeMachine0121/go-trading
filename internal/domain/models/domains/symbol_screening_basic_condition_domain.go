@@ -45,7 +45,7 @@ func (basicConditionDomain SymbolScreeningBasicConditionDomain) Judge() (bool, s
 		return false, "幣安沒有這個 USDT 永續合約", findings
 	}
 	if !basicConditionDomain.listing.IsListed {
-		return false, "目前沒有在交易", findings
+		return false, ErrSymbolScreeningSymbolNotTrading.Error(), findings
 	}
 
 	period := basicConditionDomain.period

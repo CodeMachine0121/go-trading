@@ -286,6 +286,21 @@ func TestGetSymbolScreeningRun(t *testing.T) {
 		require.Len(t, detail.Candidates, 2)
 		assert.Equal(t, "LINKUSDT", detail.Candidates[0].Symbol)
 	})
+
+	t.Run("once the server is shutting down a wait answers at once with the run as it stands", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		running := aQueuedRun()
+		running.Status = "running"
+		underTest.runRepository.EXPECT().FindOneOwned(gomock.Any(), screeningAdministratorID, screeningRunID).
+			Return(running, true, nil).Times(1)
+		underTest.candidateRepository.EXPECT().FindByRun(gomock.Any(), screeningRunID).Return(nil, nil)
+
+		underTest.application.StopWaiting()
+		detail, getError := underTest.application.GetRun(t.Context(), screeningAdministratorID, screeningRunID, time.Minute)
+
+		require.NoError(t, getError)
+		assert.Equal(t, "running", detail.Status)
+	})
 }
 
 func TestSymbolScreeningClearsWhatOutlivedItsRetention(t *testing.T) {

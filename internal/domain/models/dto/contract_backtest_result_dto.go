@@ -30,16 +30,6 @@ type ContractBacktestResultDto struct {
 	Validation *ContractBacktestResultDto `json:"validation,omitempty"`
 }
 
-// TradesClosedBy treats a position still held at the end as closed at closingTime, so holding time is not lost at the edge.
-func (resultDto ContractBacktestResultDto) TradesClosedBy(closingTime time.Time) []ContractClosedTradeDto {
-	trades := append([]ContractClosedTradeDto{}, resultDto.ClosedTrades...)
-	if resultDto.OpenPositionEntryTime != nil {
-		trades = append(trades, ContractClosedTradeDto{EntryTime: *resultDto.OpenPositionEntryTime, ExitTime: closingTime})
-	}
-
-	return trades
-}
-
 func (resultDto ContractBacktestResultDto) ToBacktestRunSummaryDto() BacktestRunSummaryDto {
 	return BacktestRunSummaryDto{
 		TotalReturnRate: resultDto.Summary.TotalReturnRate,

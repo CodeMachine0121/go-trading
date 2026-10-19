@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"runtime/debug"
 	"sync"
@@ -147,10 +146,7 @@ func (runner *symbolScreeningRunner) run() {
 			if !passed {
 				candidate = candidate.Rejected(vo.SymbolScreeningStagePortability, reason, findings)
 			}
-			for index, result := range results {
-				closedTradesBySymbol[symbol] = append(closedTradesBySymbol[symbol],
-					result.TradesClosedBy(period.Segments()[index].EndTime)...)
-			}
+			closedTradesBySymbol[symbol] = period.ClosedTradesOf(results)
 		}
 
 		if recordError := runner.record(candidate.ToEntity(), index+1); recordError != nil {
@@ -160,13 +156,12 @@ func (runner *symbolScreeningRunner) run() {
 		candidates[index] = candidate.ToEntity()
 	}
 
-	contributionFailureReason := ""
+	baseline := domains.NewSymbolScreeningBaselineDomain(period)
 	hasPassed := false
 	for _, candidate := range candidates {
 		hasPassed = hasPassed || candidate.Status == string(vo.SymbolScreeningCandidatePassed)
 	}
 	if hasPassed && len(snapshot.BaselineSymbols) > 0 {
-		baselineTrades := []dto.ContractClosedTradeDto{}
 		for _, baselineSymbol := range snapshot.BaselineSymbols {
 			listing, _, replayInput, prepareError := service.marketDataService.Prepare(
 				screeningContext, baselineSymbol, period, marginTiersBySymbol[baselineSymbol])
@@ -175,7 +170,7 @@ func (runner *symbolScreeningRunner) run() {
 			case prepareError != nil:
 				replayError = prepareError
 			case !listing.IsListed:
-				replayError = errors.New("目前沒有在交易")
+				replayError = domains.ErrSymbolScreeningSymbolNotTrading
 			default:
 				results, replayError = replayedTrades(baselineSymbol, replayInput)
 			}
@@ -184,28 +179,15 @@ func (runner *symbolScreeningRunner) run() {
 				return
 			}
 			if replayError != nil {
-				contributionFailureReason = fmt.Sprintf("現有組合標的 %s 無法比較：%s", baselineSymbol, replayError.Error())
+				baseline = baseline.Unavailable(baselineSymbol, replayError)
 				break
 			}
-			for index, result := range results {
-				baselineTrades = append(baselineTrades, result.TradesClosedBy(period.Segments()[index].EndTime)...)
-			}
+			baseline = baseline.Including(results)
 		}
-
-		if contributionFailureReason == "" {
-			baseline := domains.NewSymbolScreeningHoldingTimelineDomain(baselineTrades, period.StartTime(), period.EndTime())
-			for index, candidate := range candidates {
-				if candidate.Status != string(vo.SymbolScreeningCandidatePassed) {
-					continue
-				}
-				contribution := domains.NewSymbolScreeningHoldingTimelineDomain(
-					closedTradesBySymbol[candidate.Symbol], period.StartTime(), period.EndTime()).ContributionAgainst(baseline)
-				candidates[index].Findings.Contribution = &contribution
-			}
-		}
+		candidates = baseline.Compared(candidates, closedTradesBySymbol)
 	}
 
-	runner.end(nil, domains.NewSymbolScreeningRecommendationDomain(candidates).Ranked(), contributionFailureReason)
+	runner.end(nil, domains.NewSymbolScreeningRecommendationDomain(candidates).Ranked(), baseline.UnavailableReason())
 }
 
 // record lands a candidate together with the progress only while the run is still running, so a run cancelled or swept meanwhile keeps the candidates it was left with.

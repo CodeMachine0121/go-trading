@@ -56,8 +56,12 @@ func NewBinanceContractMarketDataProxy(
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.ContractMarketKCandleVo, error) {
+	minuteWindow := vo.AggregatedKCandleFetchWindowVo{
+		Symbol: window.Symbol, Interval: kCandleInterval, Step: intervalStep,
+		StartTime: window.StartTime, EndTime: window.EndTime,
+	}
 	tradedRows, tradedError := binanceContractMarketDataProxy.fetchRows(
-		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, minuteWindowOf(window))
+		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, minuteWindow)
 	if tradedError != nil {
 		return nil, tradedError
 	}
@@ -77,19 +81,19 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	}
 
 	markPrices, markError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, minuteWindowOf(window))
+		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, minuteWindow)
 	if markError != nil {
 		return nil, markError
 	}
 
 	indexPrices, indexError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.indexPriceUrl, pairParameter, minuteWindowOf(window))
+		executionContext, binanceContractMarketDataProxy.indexPriceUrl, pairParameter, minuteWindow)
 	if indexError != nil {
 		return nil, indexError
 	}
 
 	premiumIndexes, premiumIndexError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.premiumIndexUrl, symbolParameter, minuteWindowOf(window))
+		executionContext, binanceContractMarketDataProxy.premiumIndexUrl, symbolParameter, minuteWindow)
 	if premiumIndexError != nil {
 		return nil, premiumIndexError
 	}
@@ -153,16 +157,6 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchAggre
 	}
 
 	return contractKCandles, nil
-}
-
-func minuteWindowOf(window vo.KCandleFetchWindowVo) vo.AggregatedKCandleFetchWindowVo {
-	return vo.AggregatedKCandleFetchWindowVo{
-		Symbol:    window.Symbol,
-		Interval:  kCandleInterval,
-		Step:      intervalStep,
-		StartTime: window.StartTime,
-		EndTime:   window.EndTime,
-	}
 }
 
 // fetchPriceLine fetches a price-only series and keys it by open time.

@@ -276,6 +276,25 @@ func TestSymbolScreeningRunFailsWhenItCannotKeepItsOwnRecords(t *testing.T) {
 		assert.Equal(t, "storage unavailable", ending.FailureReason)
 	})
 
+	t.Run("a failure cancelled meanwhile leaves the cancel as it was", func(t *testing.T) {
+		underTest := newSymbolScreeningUnderTest(t, 0)
+		underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(aQueuedRun(), true, nil)
+		underTest.runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(nil)
+		underTest.marginTierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).Return(nil, nil)
+		underTest.candidateRepository.EXPECT().FindByRun(gomock.Any(), screeningRunID).Return(nil, storageUnavailable)
+		underTest.candidateRepository.EXPECT().CancelUnfinished(gomock.Any(), gomock.Any()).Times(0)
+		refused := make(chan struct{})
+		underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(context.Context, entities.SymbolScreeningRun) (bool, error) {
+				close(refused)
+				return false, nil
+			})
+
+		underTest.startsScreening(t)
+		<-refused
+		underTest.application.StopRunner()
+	})
+
 	t.Run("a candidate cannot be marked as being screened", func(t *testing.T) {
 		underTest := newSymbolScreeningUnderTest(t, 0)
 		underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(aQueuedRun(), true, nil)

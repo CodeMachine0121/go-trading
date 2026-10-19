@@ -5,16 +5,12 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
-
-type symbolScreeningHolding struct {
-	startTime time.Time
-	endTime   time.Time
-}
 
 // SymbolScreeningHoldingTimelineDomain is when a set of symbols held a position during the screened period, merged so overlaps count once.
 type SymbolScreeningHoldingTimelineDomain struct {
-	holdings  []symbolScreeningHolding
+	holdings  []vo.SymbolScreeningHoldingVo
 	startTime time.Time
 	endTime   time.Time
 }
@@ -22,7 +18,7 @@ type SymbolScreeningHoldingTimelineDomain struct {
 func NewSymbolScreeningHoldingTimelineDomain(
 	closedTrades []dto.ContractClosedTradeDto, startTime time.Time, endTime time.Time,
 ) SymbolScreeningHoldingTimelineDomain {
-	holdings := make([]symbolScreeningHolding, 0, len(closedTrades))
+	holdings := make([]vo.SymbolScreeningHoldingVo, 0, len(closedTrades))
 	for _, closedTrade := range closedTrades {
 		holdingStart := closedTrade.EntryTime.UTC()
 		if holdingStart.Before(startTime) {
@@ -33,18 +29,18 @@ func NewSymbolScreeningHoldingTimelineDomain(
 			holdingEnd = endTime
 		}
 		if holdingEnd.After(holdingStart) {
-			holdings = append(holdings, symbolScreeningHolding{startTime: holdingStart, endTime: holdingEnd})
+			holdings = append(holdings, vo.SymbolScreeningHoldingVo{StartTime: holdingStart, EndTime: holdingEnd})
 		}
 	}
-	slices.SortFunc(holdings, func(earlier, later symbolScreeningHolding) int {
-		return earlier.startTime.Compare(later.startTime)
+	slices.SortFunc(holdings, func(earlier, later vo.SymbolScreeningHoldingVo) int {
+		return earlier.StartTime.Compare(later.StartTime)
 	})
 
-	merged := make([]symbolScreeningHolding, 0, len(holdings))
+	merged := make([]vo.SymbolScreeningHoldingVo, 0, len(holdings))
 	for _, holding := range holdings {
-		if last := len(merged) - 1; last >= 0 && !holding.startTime.After(merged[last].endTime) {
-			if holding.endTime.After(merged[last].endTime) {
-				merged[last].endTime = holding.endTime
+		if last := len(merged) - 1; last >= 0 && !holding.StartTime.After(merged[last].EndTime) {
+			if holding.EndTime.After(merged[last].EndTime) {
+				merged[last].EndTime = holding.EndTime
 			}
 			continue
 		}
@@ -61,17 +57,17 @@ func (timelineDomain SymbolScreeningHoldingTimelineDomain) ContributionAgainst(
 	combinedTrades := []dto.ContractClosedTradeDto{}
 	overlap := time.Duration(0)
 	for _, holding := range slices.Concat(timelineDomain.holdings, baseline.holdings) {
-		combinedTrades = append(combinedTrades, dto.ContractClosedTradeDto{EntryTime: holding.startTime, ExitTime: holding.endTime})
+		combinedTrades = append(combinedTrades, dto.ContractClosedTradeDto{EntryTime: holding.StartTime, ExitTime: holding.EndTime})
 	}
 	for _, own := range timelineDomain.holdings {
 		for _, other := range baseline.holdings {
-			overlapStart := own.startTime
-			if other.startTime.After(overlapStart) {
-				overlapStart = other.startTime
+			overlapStart := own.StartTime
+			if other.StartTime.After(overlapStart) {
+				overlapStart = other.StartTime
 			}
-			overlapEnd := own.endTime
-			if other.endTime.Before(overlapEnd) {
-				overlapEnd = other.endTime
+			overlapEnd := own.EndTime
+			if other.EndTime.Before(overlapEnd) {
+				overlapEnd = other.EndTime
 			}
 			if overlapEnd.After(overlapStart) {
 				overlap += overlapEnd.Sub(overlapStart)
@@ -83,8 +79,8 @@ func (timelineDomain SymbolScreeningHoldingTimelineDomain) ContributionAgainst(
 		longestGap := time.Duration(0)
 		cursor := timeline.startTime
 		for _, holding := range timeline.holdings {
-			longestGap = max(longestGap, holding.startTime.Sub(cursor))
-			cursor = holding.endTime
+			longestGap = max(longestGap, holding.StartTime.Sub(cursor))
+			cursor = holding.EndTime
 		}
 
 		return int(max(longestGap, timeline.endTime.Sub(cursor)) / symbolScreeningDay)
@@ -92,7 +88,7 @@ func (timelineDomain SymbolScreeningHoldingTimelineDomain) ContributionAgainst(
 
 	held := time.Duration(0)
 	for _, holding := range timelineDomain.holdings {
-		held += holding.endTime.Sub(holding.startTime)
+		held += holding.EndTime.Sub(holding.StartTime)
 	}
 	overlapShare := 0.0
 	if held > 0 {
