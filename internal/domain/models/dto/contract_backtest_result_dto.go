@@ -18,6 +18,8 @@ type ContractBacktestResultDto struct {
 	Summary         ContractBacktestSummaryDto `json:"summary"`
 	ClosedTrades    []ContractClosedTradeDto   `json:"closedTrades"`
 	EquityCurve     []EquityPointDto           `json:"equityCurve"`
+	// OpenPositionEntryTime is set only when a position is still held when the replay ends.
+	OpenPositionEntryTime *time.Time `json:"openPositionEntryTime,omitempty"`
 	// FillTiming is close or nextOpen.
 	FillTiming string `json:"fillTiming"`
 	// ValidationStartTime is nil when the replay was not split.

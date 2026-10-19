@@ -138,6 +138,7 @@ const waitingBody = `{
 	"id": 7,
 	"email": "james@example.com",
 	"isEnabled": false,
+	"isAdmin":   false,
 	"activationInstruction": {
 		"requestMailbox": "gatekeeper@example.com",
 		"subject": "console access request：james@example.com"
@@ -315,6 +316,19 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 		assert.JSONEq(t, waitingBody, recorder.Body.String())
 	})
 
+	t.Run("tells an administrator that they are one", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+		administrator := aStoredUserRow(7)
+		administrator.IsEnabled, administrator.IsAdmin = true, true
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(administrator, nil)
+
+		recorder := fixture.send(http.MethodGet, "/users/me", "", "Bearer a-signed-token")
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.JSONEq(t, `{"id":7,"email":"james@example.com","isEnabled":true,"isAdmin":true}`, recorder.Body.String())
+	})
+
 	t.Run("still answers somebody who has not been let in yet", func(t *testing.T) {
 		// This is why "who am I" stays outside the auth middleware: it is where a waiting person checks their status.
 		fixture := newUserRouterUnderTest(t)
@@ -344,7 +358,7 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, recorder.Code)
 		assert.JSONEq(t,
-			`{"id":7,"email":"james@example.com","isEnabled":true}`, recorder.Body.String())
+			`{"id":7,"email":"james@example.com","isEnabled":true,"isAdmin":false}`, recorder.Body.String())
 	})
 
 	t.Run("reads the scheme without regard to case, because HTTP says so", func(t *testing.T) {

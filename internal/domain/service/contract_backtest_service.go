@@ -108,6 +108,60 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
 
+	return contractBacktestService.replayContractScript(
+		replayContext, allowance, requestDto.Script, contractBacktestDomain, alignment, alignedBars, settlements, progress)
+}
+
+// RunContractBacktestOn replays one contract script on market data prepared by the caller instead of the stored minute candles; position statistics read as absent.
+func (contractBacktestService *ContractBacktestService) RunContractBacktestOn(
+	executionContext context.Context,
+	requestDto dto.ContractBacktestRequestDto,
+	replayInput domains.ContractReplayInputDomain,
+	progress domaininterface.IReplayProgressSink,
+) (dto.ContractBacktestResultDto, error) {
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
+	defer stopReplaying()
+
+	tradingRules, rulesError := replayInput.TradingRules()
+	if rulesError != nil {
+		return dto.ContractBacktestResultDto{}, rulesError
+	}
+
+	requestDto = requestDto.WarmingUpByDefault(contractBacktestService.defaultWarmupBarCount)
+	contractBacktestDomain, validationError := domains.NewContractBacktestDomain(
+		requestDto, tradingRules, contractBacktestService.maxCandleCount, contractBacktestService.clockProxy.Now())
+	if validationError != nil {
+		return dto.ContractBacktestResultDto{}, validationError
+	}
+
+	alignment, selectionError := contractBacktestDomain.SelectInput(
+		replayInput.CandlesIn(contractBacktestDomain.KCandleQuery()))
+	if selectionError != nil {
+		return dto.ContractBacktestResultDto{}, selectionError
+	}
+
+	settlements := replayInput.SettlementsIn(alignment.SettlementQuery())
+	if leadInSettlement, hasLeadIn := replayInput.LatestSettlementBefore(alignment.SettlementLeadInCutoff()); hasLeadIn {
+		settlements = append(settlements, leadInSettlement)
+	}
+
+	return contractBacktestService.replayContractScript(
+		replayContext, allowance, requestDto.Script, contractBacktestDomain, alignment,
+		alignment.Aligning(settlements, nil), settlements, progress)
+}
+
+// replayContractScript is the replay itself once bars are read, shared by stored and prepared market data.
+func (contractBacktestService *ContractBacktestService) replayContractScript(
+	replayContext context.Context,
+	allowance domains.ReplayAllowanceDomain,
+	script string,
+	contractBacktestDomain domains.ContractBacktestDomain,
+	alignment domains.ContractKCandleAlignmentDomain,
+	alignedBars []vo.ContractKCandleVo,
+	settlements []entities.ContractFundingRateSettlement,
+	progress domaininterface.IReplayProgressSink,
+) (dto.ContractBacktestResultDto, error) {
 	contractKCandles, attachError := contractBacktestService.contractOrderFlowService.AttachFootprints(
 		replayContext, alignment, alignedBars, contractBacktestDomain.Parameters(), 0)
 	if attachError != nil {
@@ -116,7 +170,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 
 	perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
 		replayContext,
-		requestDto.Script,
+		script,
 		contractBacktestDomain.ResultType(),
 		contractKCandles,
 		contractBacktestDomain.Parameters(),

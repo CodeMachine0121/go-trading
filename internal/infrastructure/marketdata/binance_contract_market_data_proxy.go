@@ -56,8 +56,12 @@ func NewBinanceContractMarketDataProxy(
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.ContractMarketKCandleVo, error) {
+	minuteWindow := vo.AggregatedKCandleFetchWindowVo{
+		Symbol: window.Symbol, Interval: kCandleInterval, Step: intervalStep,
+		StartTime: window.StartTime, EndTime: window.EndTime,
+	}
 	tradedRows, tradedError := binanceContractMarketDataProxy.fetchRows(
-		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, window)
+		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, minuteWindow)
 	if tradedError != nil {
 		return nil, tradedError
 	}
@@ -77,19 +81,19 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	}
 
 	markPrices, markError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, window)
+		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, minuteWindow)
 	if markError != nil {
 		return nil, markError
 	}
 
 	indexPrices, indexError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.indexPriceUrl, pairParameter, window)
+		executionContext, binanceContractMarketDataProxy.indexPriceUrl, pairParameter, minuteWindow)
 	if indexError != nil {
 		return nil, indexError
 	}
 
 	premiumIndexes, premiumIndexError := binanceContractMarketDataProxy.fetchPriceLine(
-		executionContext, binanceContractMarketDataProxy.premiumIndexUrl, symbolParameter, window)
+		executionContext, binanceContractMarketDataProxy.premiumIndexUrl, symbolParameter, minuteWindow)
 	if premiumIndexError != nil {
 		return nil, premiumIndexError
 	}
@@ -120,12 +124,47 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	return contractKCandles, nil
 }
 
+// FetchAggregatedKCandles returns the venue's own coarse candles with their mark price, oldest first; index and premium lines are left absent.
+func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchAggregatedKCandles(
+	executionContext context.Context, window vo.AggregatedKCandleFetchWindowVo,
+) ([]vo.ContractMarketKCandleVo, error) {
+	tradedRows, tradedError := binanceContractMarketDataProxy.fetchRows(
+		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, window)
+	if tradedError != nil {
+		return nil, tradedError
+	}
+	if len(tradedRows) == 0 {
+		return []vo.ContractMarketKCandleVo{}, nil
+	}
+
+	markPrices, markError := binanceContractMarketDataProxy.fetchPriceLine(
+		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, window)
+	if markError != nil {
+		return nil, markError
+	}
+
+	contractKCandles := make([]vo.ContractMarketKCandleVo, 0, len(tradedRows))
+	for _, tradedRow := range tradedRows {
+		contractKCandle, convertError := tradedRow.kLine.toContractMarketKCandleVo(window.Symbol)
+		if convertError != nil {
+			return nil, convertError
+		}
+		if markPrice, hasMarkPrice := markPrices[contractKCandle.OpenTime.UnixMilli()]; hasMarkPrice {
+			contractKCandle.MarkOpen, contractKCandle.MarkHigh, contractKCandle.MarkLow, contractKCandle.MarkClose =
+				markPrice.toNullDecimals()
+		}
+		contractKCandles = append(contractKCandles, contractKCandle)
+	}
+
+	return contractKCandles, nil
+}
+
 // fetchPriceLine fetches a price-only series and keys it by open time.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPriceLine(
 	executionContext context.Context,
 	address string,
 	contractParameter string,
-	window vo.KCandleFetchWindowVo,
+	window vo.AggregatedKCandleFetchWindowVo,
 ) (map[int64]priceLineFigures, error) {
 	rows, fetchError := binanceContractMarketDataProxy.fetchRows(
 		executionContext, address, contractParameter, window)
@@ -150,13 +189,13 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 	executionContext context.Context,
 	address string,
 	contractParameter string,
-	window vo.KCandleFetchWindowVo,
+	window vo.AggregatedKCandleFetchWindowVo,
 ) ([]contractSourceRow, error) {
 	rows := make([]contractSourceRow, 0)
 
 	for nextStartTime := window.StartTime; !nextStartTime.After(window.EndTime); {
 		page, fetchError := binanceContractMarketDataProxy.fetchPage(
-			executionContext, address, contractParameter, window.Symbol, nextStartTime, window.EndTime)
+			executionContext, address, contractParameter, window.Symbol, window.Interval, nextStartTime, window.EndTime)
 		if fetchError != nil {
 			return nil, fetchError
 		}
@@ -166,7 +205,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 		}
 
 		rows = append(rows, page...)
-		nextStartTime = page[len(page)-1].openTime.Add(intervalStep)
+		nextStartTime = page[len(page)-1].openTime.Add(window.Step)
 	}
 
 	return rows, nil
@@ -178,6 +217,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 	address string,
 	contractParameter string,
 	symbol string,
+	interval string,
 	startTime time.Time,
 	endTime time.Time,
 ) ([]contractSourceRow, error) {
@@ -187,7 +227,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 
 	queryValues := url.Values{}
 	queryValues.Set(contractParameter, symbol)
-	queryValues.Set("interval", kCandleInterval)
+	queryValues.Set("interval", interval)
 	queryValues.Set("startTime", strconv.FormatInt(startTime.UnixMilli(), 10))
 	queryValues.Set("endTime", strconv.FormatInt(endTime.UnixMilli(), 10))
 	queryValues.Set("limit", strconv.Itoa(pageLimit))

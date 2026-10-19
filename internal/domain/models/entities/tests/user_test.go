@@ -45,7 +45,7 @@ func TestUserDtoCarriesNoTraceOfThePasswordProof(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.JSONEq(t,
-		`{"id":7,"email":"james@example.com","isEnabled":false}`, string(encodedUserDto))
+		`{"id":7,"email":"james@example.com","isEnabled":false,"isAdmin":false}`, string(encodedUserDto))
 }
 
 func TestUserIsStoredInItsOwnTable(t *testing.T) {

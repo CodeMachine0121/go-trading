@@ -53,6 +53,12 @@ func (userApplication *UserApplication) IdentifyActivatedUser(
 	return userApplication.userService.IdentifyActivatedUser(executionContext, accessToken)
 }
 
+func (userApplication *UserApplication) IdentifyActivatedAdministrator(
+	executionContext context.Context, accessToken string,
+) (dto.UserDto, error) {
+	return userApplication.userService.IdentifyActivatedAdministrator(executionContext, accessToken)
+}
+
 func (userApplication *UserApplication) IdentifyActivatedWebUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {

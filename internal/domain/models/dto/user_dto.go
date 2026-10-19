@@ -6,6 +6,7 @@ type UserDto struct {
 	Email string `json:"email"`
 	// IsEnabled is returned on every answer so a pending user can see when they have been let in.
 	IsEnabled bool `json:"isEnabled"`
+	IsAdmin   bool `json:"isAdmin"`
 	// ActivationInstruction is a pointer so it disappears once the user is enabled.
 	ActivationInstruction *AccountActivationInstructionDto `json:"activationInstruction,omitempty"`
 }

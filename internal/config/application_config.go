@@ -255,6 +255,15 @@ type BacktestRunConfig struct {
 	StatusCheckInterval time.Duration
 }
 
+type SymbolScreeningConfig struct {
+	MaximumCandidatesPerRun int
+	TimeAllowance           time.Duration
+	// PollInterval is how often the duty replica looks for a queued screening.
+	PollInterval        time.Duration
+	RunRetention        time.Duration
+	MarketDataRetention time.Duration
+}
+
 // ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
 type ReplicaConfig struct {
 	Name string
@@ -324,6 +333,7 @@ type ApplicationConfig struct {
 	BacktestTimeAllowance         time.Duration
 	BacktestDefaultWarmupBarCount int
 	BacktestRun                   BacktestRunConfig
+	SymbolScreening               SymbolScreeningConfig
 	BackgroundJobsEnabled         bool
 	Replica                       ReplicaConfig
 	JobLeadership                 JobLeadershipConfig
@@ -417,6 +427,17 @@ func loadAsWritten() ApplicationConfig {
 			ProgressWriteEveryBars: positiveIntWithDefault("BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS", 100),
 			StatusCheckInterval: time.Duration(
 				positiveIntWithDefault("BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS", 2)) * time.Second,
+		},
+		SymbolScreening: SymbolScreeningConfig{
+			MaximumCandidatesPerRun: positiveIntWithDefault("SYMBOL_SCREENING_MAX_CANDIDATES_PER_RUN", 20),
+			TimeAllowance: time.Duration(
+				positiveIntWithDefault("SYMBOL_SCREENING_RUN_TIME_ALLOWANCE_MINUTES", 120)) * time.Minute,
+			PollInterval: time.Duration(
+				positiveIntWithDefault("SYMBOL_SCREENING_RUN_POLL_INTERVAL_SECONDS", 5)) * time.Second,
+			RunRetention: time.Duration(
+				positiveIntWithDefault("SYMBOL_SCREENING_RUN_RETENTION_DAYS", 90)) * 24 * time.Hour,
+			MarketDataRetention: time.Duration(
+				positiveIntWithDefault("SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS", 30)) * 24 * time.Hour,
 		},
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.

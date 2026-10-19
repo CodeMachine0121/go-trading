@@ -137,6 +137,11 @@ curl localhost:8080/health
 | `BACKTEST_RUN_POLL_INTERVAL_SECONDS` | `2` | 每台分身多久看一次排隊中的輪次 |
 | `BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS` | `100` | 進行中的輪次每處理幾格寫一次進度 |
 | `BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS` | `2` | 進行中的輪次每隔幾秒重讀一次自己的狀態；在別台分身被取消的輪次最晚這麼久停下、讓出位置 |
+| `SYMBOL_SCREENING_MAX_CANDIDATES_PER_RUN` | `20` | 一次標的篩選最多幾個標的；超過整次拒絕 |
+| `SYMBOL_SCREENING_RUN_TIME_ALLOWANCE_MINUTES` | `120` | 一筆標的篩選從開始跑到必須結束的時限；超過收成失敗「超過時間上限」，已處理完的標的保留結果 |
+| `SYMBOL_SCREENING_RUN_POLL_INTERVAL_SECONDS` | `5` | 值班分身多久看一次排隊中的標的篩選；只有值班分身會跑，所以全系統一次只跑一筆 |
+| `SYMBOL_SCREENING_RUN_RETENTION_DAYS` | `90` | 結束的標的篩選連同每個標的的結果保留幾天 |
+| `SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS` | `30` | 篩選直接向幣安取得的 4 小時／1 天 K 線與資金費率保留幾天；與盯盤用的每分鐘 K 線分開存放 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
 | `LIVE_FOLLOW_RELAY_INTERVAL_SECONDS` | `2` | 不在值班的分身多久讀一次值班分身寫下的台股即時 K 線 |
@@ -298,6 +303,12 @@ curl localhost:8080/health
 | `POST` | `/sessions/renewal` | 帶著**續用憑證**換一對全新的憑證；舊的那一份當場作廢 |
 | `POST` | `/sessions/revocation` | 登出：帶著續用憑證，把整條換發鏈作廢。恆回 `204` |
 | `GET` | `/users/me` | 帶著 `Authorization: Bearer <登入憑證>` 問「我是誰」 |
+| `GET` `POST` | `/symbol-screening-profiles` | **管理員限定**。列出／建立自己的篩選設定（策略腳本必須是自己的、吃合約行情、產出信號、不用訂單流；看盤間隔只能 `4h`／`1d`；沒給的數字用預設值）。不是管理員回 `403`「這是管理員功能」 |
+| `GET` `PUT` `DELETE` | `/symbol-screening-profiles/{id}` | **管理員限定**。讀取／修改／刪除自己的篩選設定；有排隊中或進行中的篩選在用時刪除回 `409`，別人的回 `404` |
+| `POST` | `/symbol-screening-runs` | **管理員限定**。body 給 `profileId` 與用逗號分隔的 `symbols`（全形逗號、大小寫、重複都會整理）。送出當下記下設定與腳本內容，回 `202` 與一筆排隊中的篩選；自己已有一筆在排隊或進行中回 `429` |
+| `GET` | `/symbol-screening-runs?status=&limit=` | **管理員限定**。列出自己的標的篩選，新到舊 |
+| `GET` | `/symbol-screening-runs/{id}?waitSeconds=` | **管理員限定**。看一筆標的篩選與每個候選標的的結果（依推薦順序：通過的在前，依最長空窗縮短天數、再依去掉最好一段後的報酬），`waitSeconds` 最多 60 |
+| `POST` | `/symbol-screening-runs/{id}/cancel` | **管理員限定**。取消排隊中或進行中的篩選；已處理完的標的保留結果，其餘標為已取消；已結束回 `409` |
 | `GET` | `/.well-known/oauth-authorization-server` | 外掛授權說明書（RFC 8414）：授權、換授權、登記、查驗的位置，只支援授權碼＋S256、不收外掛祕密 |
 | `POST` | `/oauth/register` | 外掛登記（RFC 7591）；送回地址只收本機 `http`（`localhost`／`127.0.0.1`／`[::1]`，任何埠）。回 `201` 與 `client_id`；套用身分相關額度 |
 | `GET` | `/oauth/authorize` | 請求外掛授權（授權碼＋PKCE）。外掛或送回地址不可信回 `400`、不轉址；請求不完整轉回外掛附 `error=invalid_request`；完整則記下 10 分鐘有效的待授權請求並轉到網頁的外掛授權頁 |

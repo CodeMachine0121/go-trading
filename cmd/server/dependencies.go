@@ -40,7 +40,7 @@ func registerRoutes(
 	strategyBotJobApplications,
 	*application.InterruptedWorkApplication,
 	contractSeriesApplications,
-	*application.BacktestRunApplication,
+	backgroundRunApplications,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 	requestGuards := guardRequests(engine, applicationConfig)
@@ -449,6 +449,71 @@ func registerRoutes(
 		strategyScriptService, backtestService, contractBacktestService, backtestRunService))
 	engine.POST("/backtests", requiresSignIn, backtestController.SubmitBacktest)
 	engine.POST("/contract-backtests", requiresSignIn, backtestController.SubmitContractBacktest)
+
+	symbolScreeningMarketDataService := service.NewSymbolScreeningMarketDataService(
+		persistence.NewSymbolScreeningKCandleRepository(database),
+		persistence.NewSymbolScreeningFundingRateSettlementRepository(database),
+		marketdata.NewBinanceContractMarketDataProxy(
+			applicationConfig.ContractIngestion.BaseUrl,
+			applicationConfig.ContractIngestion.MarkPriceUrl,
+			applicationConfig.ContractIngestion.IndexPriceUrl,
+			applicationConfig.ContractIngestion.PremiumIndexUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		marketdata.NewBinanceContractSymbolLookupProxy(
+			applicationConfig.ContractIngestion.SymbolCatalogUrl,
+			applicationConfig.ContractIngestion.FundingInfoUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		marketdata.NewBinanceContractFundingRateProxy(
+			applicationConfig.ContractIngestion.FundingRateUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		marketdata.NewBinanceContractMaintenanceMarginTierProxy(
+			applicationConfig.ContractIngestion.MaintenanceMarginTierUrl,
+			applicationConfig.ContractIngestion.AccountApiKey,
+			applicationConfig.ContractIngestion.AccountApiSecret,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+			clock.NewSystemClockProxy(),
+		),
+		clock.NewSystemClockProxy(),
+	)
+	symbolScreeningRunRepository := persistence.NewSymbolScreeningRunRepository(database)
+	symbolScreeningRunService := service.NewSymbolScreeningRunService(
+		symbolScreeningRunRepository,
+		persistence.NewSymbolScreeningCandidateRepository(database),
+		persistence.NewTransactionRepository(database),
+		clock.NewSystemClockProxy(),
+		symbolScreeningMarketDataService,
+		contractBacktestService,
+		applicationConfig.Replica.Name,
+		applicationConfig.SymbolScreening.MaximumCandidatesPerRun,
+		applicationConfig.SymbolScreening.TimeAllowance,
+		applicationConfig.BacktestDefaultWarmupBarCount,
+	)
+	symbolScreeningApplication := application.NewSymbolScreeningApplication(
+		service.NewSymbolScreeningProfileService(
+			persistence.NewSymbolScreeningProfileRepository(database), symbolScreeningRunRepository, strategyScriptService),
+		symbolScreeningRunService,
+		symbolScreeningMarketDataService,
+		applicationConfig.SymbolScreening.RunRetention,
+		applicationConfig.SymbolScreening.MarketDataRetention,
+	)
+	requiresAdministrator := authenticationMiddleware.HandleAdministrator
+	symbolScreeningController := controller.NewSymbolScreeningController(symbolScreeningApplication)
+	engine.GET("/symbol-screening-profiles", requiresAdministrator, symbolScreeningController.ListProfiles)
+	engine.POST("/symbol-screening-profiles", requiresAdministrator, symbolScreeningController.CreateProfile)
+	engine.GET("/symbol-screening-profiles/:id", requiresAdministrator, symbolScreeningController.GetProfile)
+	engine.PUT("/symbol-screening-profiles/:id", requiresAdministrator, symbolScreeningController.UpdateProfile)
+	engine.DELETE("/symbol-screening-profiles/:id", requiresAdministrator, symbolScreeningController.DeleteProfile)
+	engine.POST("/symbol-screening-runs", requiresAdministrator, symbolScreeningController.SubmitRun)
+	engine.GET("/symbol-screening-runs", requiresAdministrator, symbolScreeningController.ListRuns)
+	engine.GET("/symbol-screening-runs/:id", requiresAdministrator, symbolScreeningController.GetRun)
+	engine.POST("/symbol-screening-runs/:id/cancel", requiresAdministrator, symbolScreeningController.CancelRun)
 
 	backtestRunController := controller.NewBacktestRunController(backtestRunApplication)
 	engine.GET("/backtest-runs", requiresSignIn, backtestRunController.ListRuns)
@@ -884,14 +949,20 @@ func registerRoutes(
 				persistence.NewReplicaHeartbeatRepository(database), clock.NewSystemClockProxy(),
 				applicationConfig.Replica.Name, applicationConfig.Replica.HeartbeatInterval),
 			assistantConversationService, kCandleIngestionService, contractKCandleIngestionService,
-			backtestRunService),
+			backtestRunService, symbolScreeningRunService),
 		contractSeriesApplications{
 			fundingRate:       contractFundingRateApplication,
 			positionStatistic: contractPositionStatisticApplication,
 			tradingSymbol:     contractTradingSymbolApplication,
 			maintenanceMargin: contractMaintenanceMarginTierApplication,
 		},
-		backtestRunApplication
+		backgroundRunApplications{backtest: backtestRunApplication, symbolScreening: symbolScreeningApplication}
+}
+
+// backgroundRunApplications are the queued runs the routes accept and background workers carry out.
+type backgroundRunApplications struct {
+	backtest        *application.BacktestRunApplication
+	symbolScreening *application.SymbolScreeningApplication
 }
 
 type liveFollowApplications struct {
@@ -971,7 +1042,7 @@ func backgroundJobsFor(
 	kCandleSummaryApplication *application.KCandleSummaryApplication,
 	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
-	backtestRunApplication *application.BacktestRunApplication,
+	backgroundRuns backgroundRunApplications,
 ) []domaininterface.IBackgroundJob {
 	// The one job the switch does not turn off: a replica serving requests is alive whether or not it does background work.
 	replicaHeartbeatJob := job.NewReplicaHeartbeatJob(
@@ -1016,16 +1087,24 @@ func backgroundJobsFor(
 
 	// On every replica: each takes queued replays up to its own worker count.
 	backtestRunWorkerJob := job.NewBacktestRunWorkerJob(
-		backtestRunApplication, applicationConfig.BacktestRun.PollInterval)
+		backgroundRuns.backtest, applicationConfig.BacktestRun.PollInterval)
 
 	// On duty, since clearing out ended runs needs doing once.
 	backtestRunRetentionJob := job.NewBacktestRunRetentionJob(
-		backtestRunApplication, jobLeadershipApplication, job.BacktestRunRetentionInterval)
+		backgroundRuns.backtest, jobLeadershipApplication, job.BacktestRunRetentionInterval)
+
+	// On duty only: one replica screens, so the whole system runs one screening at a time.
+	symbolScreeningRunWorkerJob := job.NewSymbolScreeningRunWorkerJob(
+		backgroundRuns.symbolScreening, jobLeadershipApplication, applicationConfig.SymbolScreening.PollInterval)
+
+	symbolScreeningRetentionJob := job.NewSymbolScreeningRetentionJob(
+		backgroundRuns.symbolScreening, jobLeadershipApplication, job.SymbolScreeningRetentionInterval)
 
 	backgroundJobs := []domaininterface.IBackgroundJob{
 		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 		pendingMessageDispatchJob, contractAutoOrderExecutionJob, backtestRunWorkerJob, backtestRunRetentionJob,
+		symbolScreeningRunWorkerJob, symbolScreeningRetentionJob,
 	}
 
 	if applicationConfig.KCandleSummaryInterval > 0 {

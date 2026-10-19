@@ -1,0 +1,140 @@
+package marketdata_test
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func fourHourKLineJson(openTime time.Time, closePrice string) string {
+	return fmt.Sprintf(`[%d,"100","110","90","%s","55.7",%d,"5570",12,"30","3000","0"]`,
+		openTime.UnixMilli(), closePrice, openTime.Add(4*time.Hour).UnixMilli()-1)
+}
+
+func fourHourMarkJson(openTime time.Time, closePrice string) string {
+	return fmt.Sprintf(`[%d,"100","111","89","%s","0",%d,"0",240,"0","0","0"]`,
+		openTime.UnixMilli(), closePrice, openTime.Add(4*time.Hour).UnixMilli()-1)
+}
+
+func TestContractProxyFetchesTheVenuesOwnFourHourCandlesWithTheirMarkPrice(t *testing.T) {
+	firstOpen := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	venue := servedByContractVenue(t,
+		"["+fourHourKLineJson(firstOpen, "105")+","+fourHourKLineJson(firstOpen.Add(4*time.Hour), "107")+"]",
+		"["+fourHourMarkJson(firstOpen, "104.5")+"]")
+
+	kCandles, fetchError := venue.proxyFor(unpaced()).FetchAggregatedKCandles(t.Context(), vo.AggregatedKCandleFetchWindowVo{
+		Symbol: "LINKUSDT", Interval: "4h", Step: 4 * time.Hour,
+		StartTime: firstOpen, EndTime: firstOpen.Add(8*time.Hour - time.Millisecond),
+	})
+
+	require.NoError(t, fetchError)
+	require.Len(t, kCandles, 2)
+	assert.Equal(t, firstOpen.Add(4*time.Hour), kCandles[1].OpenTime)
+	assert.True(t, decimal.RequireFromString("5570").Equal(kCandles[0].QuoteVolume))
+	require.True(t, kCandles[0].MarkClose.Valid)
+	assert.True(t, decimal.RequireFromString("104.5").Equal(kCandles[0].MarkClose.Decimal))
+	assert.False(t, kCandles[1].MarkClose.Valid)
+	assert.False(t, kCandles[0].IndexClose.Valid)
+	assert.Equal(t, int32(0), venue.indexPriceCalls.Load())
+}
+
+func TestContractSymbolLookupKnowsAPerpetualTheVenueNoLongerTrades(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		symbol                 string
+		expectedIsListed       bool
+		expectedIsKnownToVenue bool
+	}{
+		{name: "trading", symbol: "BTCUSDT", expectedIsListed: true, expectedIsKnownToVenue: true},
+		{name: "stopped trading", symbol: "OMGUSDT", expectedIsListed: false, expectedIsKnownToVenue: true},
+		{name: "never there", symbol: "NOSUCHPAIR", expectedIsListed: false, expectedIsKnownToVenue: false},
+		{name: "a dated future is not a perpetual", symbol: "BTCUSDT_260925", expectedIsListed: false,
+			expectedIsKnownToVenue: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
+				servedBy(t, wholeContractCatalogue), noFundingIntervals(t), requestTimeout, unpaced())
+
+			listing, lookupError := lookupProxy.LookUpSymbol(t.Context(), testCase.symbol)
+
+			require.NoError(t, lookupError)
+			assert.Equal(t, testCase.expectedIsListed, listing.IsListed)
+			assert.Equal(t, testCase.expectedIsKnownToVenue, listing.IsKnownToVenue)
+		})
+	}
+}
+
+func TestContractProxyAsksTheVenueForTheCoarseIntervalItself(t *testing.T) {
+	askedIntervals := &atomic.Value{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		askedIntervals.Store(request.URL.Query())
+		_, _ = writer.Write([]byte("[]"))
+	}))
+	t.Cleanup(server.Close)
+	proxy := marketdata.NewBinanceContractMarketDataProxy(
+		server.URL, server.URL, server.URL, server.URL, requestTimeout, unpaced())
+	firstOpen := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+	_, fetchError := proxy.FetchAggregatedKCandles(t.Context(), vo.AggregatedKCandleFetchWindowVo{
+		Symbol: "LINKUSDT", Interval: "4h", Step: 4 * time.Hour, StartTime: firstOpen, EndTime: firstOpen.Add(24 * time.Hour),
+	})
+
+	require.NoError(t, fetchError)
+	query, _ := askedIntervals.Load().(url.Values)
+	assert.Equal(t, "4h", query.Get("interval"))
+	assert.Equal(t, "LINKUSDT", query.Get("symbol"))
+}
+
+func TestContractProxySaysSoWhenTheCoarseCandlesCannotBeHad(t *testing.T) {
+	firstOpen := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	window := vo.AggregatedKCandleFetchWindowVo{
+		Symbol: "LINKUSDT", Interval: "4h", Step: 4 * time.Hour, StartTime: firstOpen, EndTime: firstOpen.Add(8 * time.Hour),
+	}
+	testCases := []struct {
+		name       string
+		tradedBody string
+		tradedCode int
+		markCode   int
+	}{
+		{name: "the traded candles are refused", tradedBody: "[]", tradedCode: http.StatusInternalServerError, markCode: http.StatusOK},
+		{name: "the mark prices are refused", tradedBody: "[" + fourHourKLineJson(firstOpen, "105") + "]",
+			tradedCode: http.StatusOK, markCode: http.StatusInternalServerError},
+		{name: "a traded candle cannot be read",
+			tradedBody: fmt.Sprintf(`[[%d,"x","x","x","x","x",2,"x",1,"x","x","0"]]`, firstOpen.UnixMilli()),
+			tradedCode: http.StatusOK, markCode: http.StatusOK},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestMultiplexer := http.NewServeMux()
+			requestMultiplexer.HandleFunc("/klines", func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.tradedCode)
+				_, _ = writer.Write([]byte(testCase.tradedBody))
+			})
+			requestMultiplexer.HandleFunc("/mark", func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.markCode)
+				_, _ = writer.Write([]byte("[]"))
+			})
+			server := httptest.NewServer(requestMultiplexer)
+			t.Cleanup(server.Close)
+			proxy := marketdata.NewBinanceContractMarketDataProxy(
+				server.URL+"/klines", server.URL+"/mark", server.URL+"/index", server.URL+"/premium", requestTimeout, unpaced())
+
+			_, fetchError := proxy.FetchAggregatedKCandles(t.Context(), window)
+
+			assert.Error(t, fetchError)
+		})
+	}
+}

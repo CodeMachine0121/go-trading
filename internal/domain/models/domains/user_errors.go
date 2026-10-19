@@ -34,3 +34,6 @@ var ErrAccessTokenUnavailable = errors.New("access token cannot be issued")
 func EmailAlreadyRegistered(email string) error {
 	return fmt.Errorf("%w: 電子郵件「%s」已經有人用了", ErrEmailAlreadyRegistered, email)
 }
+
+// ErrAdministratorRequired refuses an activated user who is not an administrator.
+var ErrAdministratorRequired = errors.New("這是管理員功能")

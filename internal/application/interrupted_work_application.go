@@ -14,6 +14,7 @@ type InterruptedWorkApplication struct {
 	kCandleIngestionService         *service.KCandleIngestionService
 	contractKCandleIngestionService *service.ContractKCandleIngestionService
 	backtestRunService              *service.BacktestRunService
+	symbolScreeningRunService       *service.SymbolScreeningRunService
 }
 
 func NewInterruptedWorkApplication(
@@ -22,6 +23,7 @@ func NewInterruptedWorkApplication(
 	kCandleIngestionService *service.KCandleIngestionService,
 	contractKCandleIngestionService *service.ContractKCandleIngestionService,
 	backtestRunService *service.BacktestRunService,
+	symbolScreeningRunService *service.SymbolScreeningRunService,
 ) *InterruptedWorkApplication {
 	return &InterruptedWorkApplication{
 		replicaPresenceService:          replicaPresenceService,
@@ -29,6 +31,7 @@ func NewInterruptedWorkApplication(
 		kCandleIngestionService:         kCandleIngestionService,
 		contractKCandleIngestionService: contractKCandleIngestionService,
 		backtestRunService:              backtestRunService,
+		symbolScreeningRunService:       symbolScreeningRunService,
 	}
 }
 
@@ -95,10 +98,14 @@ func (interruptedWorkApplication *InterruptedWorkApplication) failWorkOutside(
 		}, backtestRunError
 	}
 
+	symbolScreeningRunCount, symbolScreeningRunError := interruptedWorkApplication.symbolScreeningRunService.
+		FailInterruptedRuns(executionContext, liveReplicaNames)
+
 	return dto.InterruptedWorkDto{
 		Answers:              answerCount,
 		HistorySyncs:         historySyncCount,
 		ContractHistorySyncs: contractHistorySyncCount,
 		BacktestRuns:         backtestRunCount,
-	}, nil
+		SymbolScreeningRuns:  symbolScreeningRunCount,
+	}, symbolScreeningRunError
 }

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼、外掛登記、開始外掛授權與換授權另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有設定管理員的端點——所以誰都放行不了自己或別人。管理員（只用在「標的篩選」）同樣在資料庫開通：`UPDATE \"Users\" SET is_admin = true WHERE email = '<那個電子郵件>';`\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼、外掛登記、開始外掛授權與換授權另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -377,6 +377,22 @@
     },
     {
       "key": "backtestRunId",
+      "value": ""
+    },
+    {
+      "key": "adminAccessToken",
+      "value": ""
+    },
+    {
+      "key": "adminStrategyScriptId",
+      "value": ""
+    },
+    {
+      "key": "screeningProfileId",
+      "value": ""
+    },
+    {
+      "key": "screeningRunId",
       "value": ""
     }
   ],
@@ -14056,11 +14072,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                    "pm.test(\"兩個刻度的一份存得下去，各記著自己的刻度\", function () {",
-                    "    pm.response.to.have.status(201);",
-                    "    const intervals = pm.response.json().signalSources.map(source => source.aggregationInterval);",
-                    "    pm.expect(intervals).to.eql([\"1h\", \"1d\"]);",
-                    "});"
+                  "pm.test(\"兩個刻度的一份存得下去，各記著自己的刻度\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const intervals = pm.response.json().signalSources.map(source => source.aggregationInterval);",
+                  "    pm.expect(intervals).to.eql([\"1h\", \"1d\"]);",
+                  "});"
                 ]
               }
             }
@@ -14102,10 +14118,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                    "pm.test(\"刻度不在六種之內的存不下去，而且指名是哪一個來源\", function () {",
-                    "    pm.response.to.have.status(400);",
-                    "    pm.expect(pm.response.json().message).to.include('信號來源 \"B\" 的彙總刻度不對');",
-                    "});"
+                  "pm.test(\"刻度不在六種之內的存不下去，而且指名是哪一個來源\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().message).to.include('信號來源 \"B\" 的彙總刻度不對');",
+                  "});"
                 ]
               }
             }
@@ -18173,6 +18189,530 @@
               "path": [
                 "spot-trade-records",
                 "{{spotTradeId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "標的篩選（管理員）",
+      "description": "只有管理員能用。先由營運者把帳號的 is_admin 設為 true，再把該帳號的權杖放進 adminAccessToken。",
+      "item": [
+        {
+          "name": "目前登入者說出自己是不是管理員",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "新帳號一律不是管理員；管理員由營運者在資料庫開通。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"帶著是否為管理員\", function () { pm.expect(pm.response.json()).to.have.property(\"isAdmin\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "不是管理員 — 查篩選設定被拒",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles"
+              ]
+            },
+            "description": "一般帳號看不到篩選區。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 403\", function () { pm.response.to.have.status(403); });",
+                  "pm.test(\"說這是管理員功能\", function () { pm.expect(pm.response.json().message).to.eql(\"這是管理員功能\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "建立篩選設定 — 只填必要項目",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles"
+              ]
+            },
+            "description": "需先把 adminAccessToken 換成管理員的權杖，並把 adminStrategyScriptId 設為管理員自己的合約信號腳本。沒填的項目用預設值。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"趨勢 V3 {{$timestamp}}\",\n  \"strategyScriptId\": \"{{adminStrategyScriptId}}\",\n  \"aggregationInterval\": \"4h\",\n  \"baselineSymbols\": [\n    \"BTCUSDT\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"沒填的用預設值\", function () {",
+                  "    const profile = pm.response.json();",
+                  "    pm.expect(profile.historyDays).to.eql(730);",
+                  "    pm.expect(profile.segmentCount).to.eql(3);",
+                  "    pm.expect(profile.minimumTradeCount).to.eql(6);",
+                  "    pm.expect(profile.tradingMode).to.eql(\"longOnly\");",
+                  "    pm.collectionVariables.set(\"screeningProfileId\", profile.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "建立篩選設定 — 看盤間隔太細被拒",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles"
+              ]
+            },
+            "description": "只能每 4 小時或每天。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"太細\",\n  \"strategyScriptId\": \"{{adminStrategyScriptId}}\",\n  \"aggregationInterval\": \"15m\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出原因\", function () { pm.expect(pm.response.json().message).to.include(\"看盤間隔只能是每 4 小時或每天\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出我的篩選設定",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"是一個清單\", function () { pm.expect(pm.response.json()).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "修改篩選設定 — 歷史天數改 365",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles/{{screeningProfileId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles",
+                "{{screeningProfileId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"趨勢 V3 改\",\n  \"strategyScriptId\": \"{{adminStrategyScriptId}}\",\n  \"aggregationInterval\": \"4h\",\n  \"historyDays\": 365\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"改好了\", function () { pm.expect(pm.response.json().historyDays).to.eql(365); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送出篩選 — 貼上的清單會被整理",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-runs"
+              ]
+            },
+            "description": "全形逗號、大小寫、重複都會整理掉；回 202，篩選在背後跑。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileId\": \"{{screeningProfileId}}\",\n  \"symbols\": \"linkusdt，ADAUSDT,linkusdt\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 202\", function () { pm.response.to.have.status(202); });",
+                  "pm.test(\"排隊中、兩個標的\", function () {",
+                  "    const run = pm.response.json();",
+                  "    pm.expect(run.status).to.eql(\"queued\");",
+                  "    pm.expect(run.candidateCount).to.eql(2);",
+                  "    pm.collectionVariables.set(\"screeningRunId\", run.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送出篩選 — 已有一筆在排隊被拒",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-runs"
+              ]
+            },
+            "description": "每位管理員同時只能有一筆。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileId\": \"{{screeningProfileId}}\",\n  \"symbols\": \"XRPUSDT\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 429\", function () { pm.response.to.have.status(429); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出我的篩選",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-runs"
+              ]
+            },
+            "description": "新到舊。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"帶總數\", function () { pm.expect(pm.response.json()).to.have.property(\"totalCount\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查看一筆篩選 — 順便等一下",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-runs/{{screeningRunId}}?waitSeconds=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-runs",
+                "{{screeningRunId}}"
+              ],
+              "query": [
+                {
+                  "key": "waitSeconds",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": "最多等 60 秒；候選標的依推薦順序。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"帶候選標的與當時的設定\", function () {",
+                  "    const detail = pm.response.json();",
+                  "    pm.expect(detail.candidates).to.be.an(\"array\");",
+                  "    pm.expect(detail.snapshot.historyDays).to.eql(365);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "取消篩選",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-runs/{{screeningRunId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-runs",
+                "{{screeningRunId}}",
+                "cancel"
+              ]
+            },
+            "description": "已結束的會回 409。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200 或 409\", function () { pm.expect([200, 409]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除篩選設定",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/symbol-screening-profiles/{{screeningProfileId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "symbol-screening-profiles",
+                "{{screeningProfileId}}"
+              ]
+            },
+            "description": "有排隊中或進行中的篩選在用時回 409。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
               ]
             }
           },

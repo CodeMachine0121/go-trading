@@ -14,6 +14,8 @@ type User struct {
 	PasswordProof string `gorm:"size:255;not null"`
 	// IsEnabled defaults to false and nothing in the system writes it, so users cannot let themselves in; activation happens outside.
 	IsEnabled bool `gorm:"not null;default:false"`
+	// IsAdmin is granted outside the system like activation, so nobody can promote themselves.
+	IsAdmin bool `gorm:"not null;default:false"`
 	// FailedSignInCount counts consecutive wrong passwords for lockout.
 	FailedSignInCount int `gorm:"not null;default:0"`
 	// LockedUntil is nil when never locked, distinct from a lock that has already passed.
@@ -39,5 +41,6 @@ func (user User) ToDto() dto.UserDto {
 		ID:        user.ID,
 		Email:     user.Email,
 		IsEnabled: user.IsEnabled,
+		IsAdmin:   user.IsAdmin,
 	}
 }
