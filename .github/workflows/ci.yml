@@ -84,8 +84,9 @@ jobs:
             exit 1
           fi
 
+      # The storage tests alone take close to Go's default ten minutes under -race.
       - name: go test
-        run: go test ./... -count=1 -race
+        run: go test ./... -count=1 -race -timeout 30m
 
       # The script compartment's memory cap is enforced by Linux and measured without
       # the race detector: the detector's shadow memory counts against the cap and
@@ -110,7 +111,7 @@ jobs:
           # Without pipefail the exit status here is tee's, so a storage test that
           # actually failed would be piped straight past this step.
           set -o pipefail
-          go test ./internal/infrastructure/persistence/tests/ -count=1 -v | tee storage.log
+          go test ./internal/infrastructure/persistence/tests/ -count=1 -v -timeout 30m | tee storage.log
           if grep -q '^--- SKIP' storage.log; then
             echo "::error::storage tests skipped — TEST_POSTGRES_DSN never reached them"
             grep '^--- SKIP' storage.log
