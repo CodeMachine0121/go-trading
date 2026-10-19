@@ -6,4 +6,5 @@ type InterruptedWorkDto struct {
 	HistorySyncs         int
 	ContractHistorySyncs int
 	BacktestRuns         int
+	SymbolScreeningRuns  int
 }

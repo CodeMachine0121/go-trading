@@ -36,7 +36,7 @@ func main() {
 	engine := gin.Default()
 	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication, kCandleSummaryApplication,
 		strategyBotJobs, interruptedWorkApplication,
-		contractSeries, backtestRunApplication := registerRoutes(engine, database, applicationConfig)
+		contractSeries, backgroundRuns := registerRoutes(engine, database, applicationConfig)
 
 	// Said alive before sweeping, then whatever is still running without a live replica behind it is marked failed:
 	// a crash never reaches a shutdown hook, and other replicas' work in flight is left alone. A failure is logged, not fatal.
@@ -49,8 +49,9 @@ func main() {
 	}
 	if interrupted != (dto.InterruptedWorkDto{}) {
 		log.Printf("cleared work interrupted by a vanished replica: %d answer(s), %d history sync(s), "+
-			"%d contract history sync(s), %d backtest run(s)", interrupted.Answers, interrupted.HistorySyncs,
-			interrupted.ContractHistorySyncs, interrupted.BacktestRuns)
+			"%d contract history sync(s), %d backtest run(s), %d symbol screening run(s)", interrupted.Answers,
+			interrupted.HistorySyncs, interrupted.ContractHistorySyncs, interrupted.BacktestRuns,
+			interrupted.SymbolScreeningRuns)
 	}
 
 	// Listened for before anything starts, so an interrupt during the startup backfill takes the
@@ -72,7 +73,7 @@ func main() {
 	}
 
 	server := newServer(applicationConfig, engine)
-	server.RegisterOnShutdown(backtestRunApplication.StopWaiting)
+	server.RegisterOnShutdown(backgroundRuns.backtest.StopWaiting)
 
 	if serveError := serve(
 		shutdownSignalled,
@@ -88,7 +89,7 @@ func main() {
 				kCandleSummaryApplication,
 				strategyBotJobs,
 				contractSeries,
-				backtestRunApplication)),
+				backgroundRuns)),
 		liveFollows.Stop,
 		dutyHolder,
 	); serveError != nil {

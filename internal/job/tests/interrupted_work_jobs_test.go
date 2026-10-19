@@ -52,6 +52,9 @@ func newInterruptedWorkJobsUnderTest(t *testing.T) interruptedWorkJobsUnderTest 
 	backtestRunRepository := mocks.NewMockIBacktestRunRepository(controller)
 	backtestRunRepository.EXPECT().FailRunningOutside(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(0, nil).AnyTimes()
+	screeningRunRepository := mocks.NewMockISymbolScreeningRunRepository(controller)
+	screeningRunRepository.EXPECT().FailRunningOutside(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 	catalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
@@ -69,7 +72,10 @@ func newInterruptedWorkJobsUnderTest(t *testing.T) interruptedWorkJobsUnderTest 
 				mocks.NewMockIContractMarketDataProxy(controller), clockProxy, catalog, 5, 24*time.Hour, nil, 2, "replica-a"),
 			service.NewBacktestRunService(backtestRunRepository, mocks.NewMockIBacktestRunResultRepository(controller),
 				mocks.NewMockITransactionRepository(controller), clockProxy, nil, nil,
-				domains.NewBacktestRunAdmissionDomain(3), "replica-a", 30*time.Minute, 100, time.Minute)),
+				domains.NewBacktestRunAdmissionDomain(3), "replica-a", 30*time.Minute, 100, time.Minute),
+			service.NewSymbolScreeningRunService(screeningRunRepository,
+				mocks.NewMockISymbolScreeningCandidateRepository(controller), mocks.NewMockITransactionRepository(controller),
+				clockProxy, nil, nil, "replica-a", 20, 2*time.Hour, 200)),
 		beats:  beats,
 		sweeps: sweeps,
 	}
