@@ -109,8 +109,8 @@ func (runner *symbolScreeningRunner) run() {
 	for index, storedCandidate := range candidates {
 		candidate := domains.NewSymbolScreeningCandidateDomain(storedCandidate).Processing()
 		symbol := storedCandidate.Symbol
-		if saveError := service.candidateRepository.Save(screeningContext, candidate.ToEntity()); saveError != nil {
-			runner.end(errors.Join(runStopped(), saveError), nil, "")
+		if recordError := runner.record(candidate.ToEntity(), index); recordError != nil {
+			runner.end(recordError, nil, "")
 			return
 		}
 
@@ -153,15 +153,11 @@ func (runner *symbolScreeningRunner) run() {
 			}
 		}
 
-		if saveError := service.candidateRepository.Save(screeningContext, candidate.ToEntity()); saveError != nil {
-			runner.end(errors.Join(runStopped(), saveError), nil, "")
+		if recordError := runner.record(candidate.ToEntity(), index+1); recordError != nil {
+			runner.end(recordError, nil, "")
 			return
 		}
 		candidates[index] = candidate.ToEntity()
-		if advanceError := runner.advance(index + 1); advanceError != nil {
-			runner.end(advanceError, nil, "")
-			return
-		}
 	}
 
 	contributionFailureReason := ""
@@ -212,22 +208,37 @@ func (runner *symbolScreeningRunner) run() {
 	runner.end(nil, domains.NewSymbolScreeningRecommendationDomain(candidates).Ranked(), contributionFailureReason)
 }
 
-// advance lands the progress; a refused write means the run was cancelled or swept meanwhile.
-func (runner *symbolScreeningRunner) advance(processedCandidateCount int) error {
+// record lands a candidate together with the progress only while the run is still running, so a run cancelled or swept meanwhile keeps the candidates it was left with.
+func (runner *symbolScreeningRunner) record(candidate entities.SymbolScreeningCandidate, processedCandidateCount int) error {
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
 
-	runner.screeningRun = runner.screeningRun.Advanced(processedCandidateCount)
+	service := runner.runService
+	advanced := runner.screeningRun.Advanced(processedCandidateCount)
 	writeContext, endWrite := context.WithTimeout(context.Background(), symbolScreeningWriteTimeout)
 	defer endWrite()
-	stillRunning, writeError := runner.runService.runRepository.UpdateIfRunning(writeContext, runner.screeningRun.ToEntity())
+	writeError := service.transactionRepository.Atomically(writeContext,
+		func(transactionContext context.Context) error {
+			if saveError := service.candidateRepository.Save(transactionContext, candidate); saveError != nil {
+				return saveError
+			}
+			stillRunning, updateError := service.runRepository.UpdateIfRunning(transactionContext, advanced.ToEntity())
+			if updateError != nil {
+				return updateError
+			}
+			if !stillRunning {
+				return errSymbolScreeningRunEndedElsewhere
+			}
+
+			return nil
+		})
+	if errors.Is(writeError, errSymbolScreeningRunEndedElsewhere) {
+		runner.cancelled = true
+	}
 	if writeError != nil {
 		return writeError
 	}
-	if !stillRunning {
-		runner.cancelled = true
-		return errSymbolScreeningRunEndedElsewhere
-	}
+	runner.screeningRun = advanced
 
 	return nil
 }

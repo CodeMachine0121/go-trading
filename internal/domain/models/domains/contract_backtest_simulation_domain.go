@@ -119,14 +119,14 @@ func (simulationDomain ContractBacktestSimulationDomain) ToDto() dto.ContractBac
 
 	return dto.ContractBacktestResultDto{
 		OpenPositionEntryTime: openPositionEntryTime,
-		TradingMode:     string(simulationDomain.tradingMode.Value()),
-		FillTiming:      string(simulationDomain.fillTiming.Value()),
-		Leverage:        simulationDomain.positionTerms.leverage,
-		StartTime:       equityPointDtos[0].OpenTime,
-		EndTime:         equityPointDtos[len(equityPointDtos)-1].OpenTime,
-		UsedCandleCount: len(simulationDomain.buckets),
-		Summary:         summaryDto,
-		ClosedTrades:    account.ClosedTradeDtos(),
-		EquityCurve:     equityPointDtos,
+		TradingMode:           string(simulationDomain.tradingMode.Value()),
+		FillTiming:            string(simulationDomain.fillTiming.Value()),
+		Leverage:              simulationDomain.positionTerms.leverage,
+		StartTime:             equityPointDtos[0].OpenTime,
+		EndTime:               equityPointDtos[len(equityPointDtos)-1].OpenTime,
+		UsedCandleCount:       len(simulationDomain.buckets),
+		Summary:               summaryDto,
+		ClosedTrades:          account.ClosedTradeDtos(),
+		EquityCurve:           equityPointDtos,
 	}
 }

@@ -74,6 +74,7 @@ func main() {
 
 	server := newServer(applicationConfig, engine)
 	server.RegisterOnShutdown(backgroundRuns.backtest.StopWaiting)
+	server.RegisterOnShutdown(backgroundRuns.symbolScreening.StopWaiting)
 
 	if serveError := serve(
 		shutdownSignalled,

@@ -104,10 +104,10 @@ func (mr *MockISymbolScreeningRunRepositoryMockRecorder) DeleteFinishedBefore(ex
 }
 
 // FailRunningOutside mocks base method.
-func (m *MockISymbolScreeningRunRepository) FailRunningOutside(executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time) (int, error) {
+func (m *MockISymbolScreeningRunRepository) FailRunningOutside(executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time) ([]uint, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FailRunningOutside", executionContext, liveReplicaNames, reason, finishedAt)
-	ret0, _ := ret[0].(int)
+	ret0, _ := ret[0].([]uint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

@@ -13,4 +13,5 @@ type ISymbolScreeningCandidateRepository interface {
 	Save(executionContext context.Context, candidate entities.SymbolScreeningCandidate) error
 	// CancelUnfinished marks every candidate still waiting or being screened as cancelled.
 	CancelUnfinished(executionContext context.Context, runID uint) error
+	CancelUnfinishedOfRuns(executionContext context.Context, runIDs []uint) error
 }

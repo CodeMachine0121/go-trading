@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -138,7 +139,7 @@ func TestSymbolScreeningRunRepositoryQueuesClaimsAndGuardsRuns(t *testing.T) {
 
 	swept, sweepError := runRepository.FailRunningOutside(t.Context(), []string{"replica-b"}, "被重新啟動打斷", screeningSubmittedAt)
 	require.NoError(t, sweepError)
-	assert.Equal(t, 1, swept)
+	assert.Equal(t, []uint{saved.ID}, swept)
 	ended, _, _ := runRepository.FindOneOwned(t.Context(), screeningAdministratorID, saved.ID)
 	assert.Equal(t, "failed", ended.Status)
 	assert.Equal(t, "被重新啟動打斷", ended.FailureReason)
@@ -231,12 +232,13 @@ func TestSymbolScreeningRepositoriesListWhatIsMine(t *testing.T) {
 	_, foreignError := profileRepository.Save(t.Context(), aScreeningProfileFor(otherScreeningAdministratorID, "丙"))
 	require.NoError(t, errors.Join(firstError, secondError, foreignError))
 	older, olderError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "XRPUSDT"))
-	newer, newerError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "LINKUSDT"))
-	require.NoError(t, errors.Join(olderError, newerError))
+	require.NoError(t, olderError)
 	finishedAt := screeningSubmittedAt.Add(time.Hour)
 	older.Status, older.FinishedAt = "cancelled", &finishedAt
 	_, cancelError := runRepository.CancelIfActive(t.Context(), older)
 	require.NoError(t, cancelError)
+	newer, newerError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "LINKUSDT"))
+	require.NoError(t, newerError)
 
 	profiles, listError := profileRepository.FindAllByOwner(t.Context(), screeningAdministratorID)
 	allRuns, allCount, pageError := runRepository.FindPageByOwner(t.Context(), screeningAdministratorID,
@@ -305,6 +307,9 @@ func TestSymbolScreeningRepositoriesSaySoWhenTheStoreIsGone(t *testing.T) {
 		"list candidates":   func() error { _, err := candidateRepository.FindByRun(ctx, 1); return err },
 		"save candidate":    func() error { return candidateRepository.Save(ctx, entities.SymbolScreeningCandidate{ID: 1}) },
 		"cancel candidates": func() error { return candidateRepository.CancelUnfinished(ctx, 1) },
+		"cancel candidates of runs": func() error {
+			return candidateRepository.CancelUnfinishedOfRuns(ctx, []uint{1})
+		},
 		"find candles": func() error {
 			_, err := kCandleRepository.FindInRange(ctx, "X", "4h", time.Now(), time.Now())
 			return err
@@ -383,4 +388,57 @@ func TestCancellingKeepsTheCandidatesAlreadyJudged(t *testing.T) {
 	assert.Equal(t, "幣安沒有這個 USDT 永續合約", after[0].Reason)
 	assert.Equal(t, "cancelled", after[1].Status)
 	assert.Equal(t, "cancelled", after[2].Status)
+}
+
+func TestAnAdministratorHasOneActiveScreeningEvenWhenSubmittingAtOnce(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	first, firstError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "XRPUSDT"))
+	require.NoError(t, firstError)
+
+	_, secondError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "LINKUSDT"))
+	_, otherOwnerError := runRepository.Save(t.Context(), aQueuedScreeningRun(otherScreeningAdministratorID, nil, "LINKUSDT"))
+	cancelledAt := screeningSubmittedAt.Add(time.Minute)
+	first.Status, first.FinishedAt = "cancelled", &cancelledAt
+	_, cancelError := runRepository.CancelIfActive(t.Context(), first)
+	_, afterEndedError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "LINKUSDT"))
+
+	assert.ErrorIs(t, secondError, domains.ErrSymbolScreeningRunAlreadyActive)
+	assert.NoError(t, otherOwnerError)
+	require.NoError(t, cancelError)
+	assert.NoError(t, afterEndedError)
+}
+
+func TestTwoProfilesOfOneAdministratorCannotShareAName(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	repository := persistence.NewSymbolScreeningProfileRepository(database)
+	_, firstError := repository.Save(t.Context(), aScreeningProfileFor(screeningAdministratorID, "趨勢 V3"))
+	require.NoError(t, firstError)
+
+	_, sameNameError := repository.Save(t.Context(), aScreeningProfileFor(screeningAdministratorID, "趨勢 V3"))
+	_, otherOwnerError := repository.Save(t.Context(), aScreeningProfileFor(otherScreeningAdministratorID, "趨勢 V3"))
+
+	assert.ErrorIs(t, sameNameError, domains.ErrSymbolScreeningProfileNameTaken)
+	assert.NoError(t, otherOwnerError)
+}
+
+func TestSweptRunsLeaveNoCandidateWaiting(t *testing.T) {
+	database := newScreeningTestDatabase(t)
+	runRepository := persistence.NewSymbolScreeningRunRepository(database)
+	candidateRepository := persistence.NewSymbolScreeningCandidateRepository(database)
+	swept, sweptError := runRepository.Save(t.Context(), aQueuedScreeningRun(screeningAdministratorID, nil, "FOOUSDT", "LINKUSDT"))
+	spared, sparedError := runRepository.Save(t.Context(), aQueuedScreeningRun(otherScreeningAdministratorID, nil, "ADAUSDT"))
+	require.NoError(t, errors.Join(sweptError, sparedError))
+	sweptCandidates, _ := candidateRepository.FindByRun(t.Context(), swept.ID)
+	sweptCandidates[0].Status = "passed"
+	require.NoError(t, candidateRepository.Save(t.Context(), sweptCandidates[0]))
+
+	require.NoError(t, candidateRepository.CancelUnfinishedOfRuns(t.Context(), []uint{}))
+	require.NoError(t, candidateRepository.CancelUnfinishedOfRuns(t.Context(), []uint{swept.ID}))
+
+	afterSweep, _ := candidateRepository.FindByRun(t.Context(), swept.ID)
+	untouched, _ := candidateRepository.FindByRun(t.Context(), spared.ID)
+	assert.Equal(t, "passed", afterSweep[0].Status)
+	assert.Equal(t, "cancelled", afterSweep[1].Status)
+	assert.Equal(t, "waiting", untouched[0].Status)
 }

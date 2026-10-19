@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -27,6 +29,11 @@ func (runRepository *SymbolScreeningRunRepository) Save(
 	executionContext context.Context, run entities.SymbolScreeningRun,
 ) (entities.SymbolScreeningRun, error) {
 	saved := runRepository.database.within(executionContext).Omit("Owner", "Profile").Create(&run)
+	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](saved.Error)
+	if isPostgresError && postgresError.Code == uniqueViolationCode &&
+		postgresError.ConstraintName == SymbolScreeningOneActiveRunPerOwnerIndex {
+		return entities.SymbolScreeningRun{}, domains.ErrSymbolScreeningRunAlreadyActive
+	}
 	if saved.Error != nil {
 		return entities.SymbolScreeningRun{}, fmt.Errorf("save symbol screening run: %w", saved.Error)
 	}
@@ -184,27 +191,45 @@ func (runRepository *SymbolScreeningRunRepository) CancelIfActive(
 	return cancelled.RowsAffected == 1, nil
 }
 
+// FailRunningOutside answers which runs it failed, so their unfinished candidates can be cancelled too.
 func (runRepository *SymbolScreeningRunRepository) FailRunningOutside(
 	executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time,
-) (int, error) {
+) ([]uint, error) {
 	liveReplicaValues := make([]any, 0, len(liveReplicaNames))
 	for _, liveReplicaName := range liveReplicaNames {
 		liveReplicaValues = append(liveReplicaValues, liveReplicaName)
 	}
-	finishedAtUtc := finishedAt.UTC()
-	swept := runRepository.database.within(executionContext).
+	abandonedIDs := []uint{}
+	found := runRepository.database.within(executionContext).
 		Model(&entities.SymbolScreeningRun{}).
 		Where(clause.Eq{Column: "status", Value: string(vo.SymbolScreeningRunRunning)}).
 		Where(clause.Not(clause.IN{Column: "replica_name", Values: liveReplicaValues})).
+		Pluck("id", &abandonedIDs)
+	if found.Error != nil {
+		return nil, fmt.Errorf("find abandoned symbol screening runs: %w", found.Error)
+	}
+	if len(abandonedIDs) == 0 {
+		return abandonedIDs, nil
+	}
+
+	abandonedValues := make([]any, 0, len(abandonedIDs))
+	for _, abandonedID := range abandonedIDs {
+		abandonedValues = append(abandonedValues, abandonedID)
+	}
+	finishedAtUtc := finishedAt.UTC()
+	swept := runRepository.database.within(executionContext).
+		Model(&entities.SymbolScreeningRun{}).
+		Where(clause.IN{Column: "id", Values: abandonedValues}).
+		Where(clause.Eq{Column: "status", Value: string(vo.SymbolScreeningRunRunning)}).
 		Select("status", "failure_reason", "finished_at").
 		Updates(entities.SymbolScreeningRun{
 			Status: string(vo.SymbolScreeningRunFailed), FailureReason: reason, FinishedAt: &finishedAtUtc,
 		})
 	if swept.Error != nil {
-		return 0, fmt.Errorf("fail running symbol screening runs: %w", swept.Error)
+		return nil, fmt.Errorf("fail running symbol screening runs: %w", swept.Error)
 	}
 
-	return int(swept.RowsAffected), nil
+	return abandonedIDs, nil
 }
 
 func (runRepository *SymbolScreeningRunRepository) DeleteFinishedBefore(

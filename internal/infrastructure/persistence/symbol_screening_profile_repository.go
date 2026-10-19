@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -22,6 +24,10 @@ func (profileRepository *SymbolScreeningProfileRepository) Save(
 	executionContext context.Context, profile entities.SymbolScreeningProfile,
 ) (entities.SymbolScreeningProfile, error) {
 	saved := profileRepository.database.within(executionContext).Omit("Owner").Save(&profile)
+	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](saved.Error)
+	if isPostgresError && postgresError.Code == uniqueViolationCode {
+		return entities.SymbolScreeningProfile{}, domains.ErrSymbolScreeningProfileNameTaken
+	}
 	if saved.Error != nil {
 		return entities.SymbolScreeningProfile{}, fmt.Errorf("save symbol screening profile: %w", saved.Error)
 	}

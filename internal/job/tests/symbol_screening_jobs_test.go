@@ -61,7 +61,9 @@ func newScreeningJobsUnderTest(t *testing.T) screeningJobsUnderTest {
 	marginTierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).Return(nil, nil).AnyTimes()
 	underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, run entities.SymbolScreeningRun) (bool, error) {
-			underTest.endings <- run
+			if run.Status != "running" {
+				underTest.endings <- run
+			}
 			return true, nil
 		}).AnyTimes()
 

@@ -25,8 +25,9 @@ type ISymbolScreeningRunRepository interface {
 	SaveClaim(executionContext context.Context, run entities.SymbolScreeningRun) error
 	UpdateIfRunning(executionContext context.Context, run entities.SymbolScreeningRun) (bool, error)
 	CancelIfActive(executionContext context.Context, run entities.SymbolScreeningRun) (bool, error)
+	// FailRunningOutside answers the identifiers of the runs it failed.
 	FailRunningOutside(
 		executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time,
-	) (int, error)
+	) ([]uint, error)
 	DeleteFinishedBefore(executionContext context.Context, cutoff time.Time) (int, error)
 }

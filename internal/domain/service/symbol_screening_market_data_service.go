@@ -109,8 +109,11 @@ func (marketDataService *SymbolScreeningMarketDataService) Prepare(
 		}
 		kept := make([]entities.SymbolScreeningKCandle, 0, len(fetched))
 		for _, kCandle := range fetched {
-			if !kCandle.MarkClose.Valid {
-				continue
+			// A bar the venue reports no mark price for is marked at its traded prices rather than dropped, so the series stays continuous.
+			markOpen, markHigh, markLow, markClose := kCandle.Open, kCandle.High, kCandle.Low, kCandle.Close
+			if kCandle.MarkClose.Valid {
+				markOpen, markHigh = kCandle.MarkOpen.Decimal, kCandle.MarkHigh.Decimal
+				markLow, markClose = kCandle.MarkLow.Decimal, kCandle.MarkClose.Decimal
 			}
 			kept = append(kept, entities.SymbolScreeningKCandle{
 				Symbol: symbol, Interval: window.Interval, OpenTime: kCandle.OpenTime.UTC(),
@@ -118,8 +121,7 @@ func (marketDataService *SymbolScreeningMarketDataService) Prepare(
 				Volume: kCandle.Volume, QuoteVolume: kCandle.QuoteVolume,
 				TakerBuyBaseVolume: kCandle.TakerBuyBaseVolume, TakerBuyQuoteVolume: kCandle.TakerBuyQuoteVolume,
 				TradeCount: kCandle.TradeCount,
-				MarkOpen:   kCandle.MarkOpen.Decimal, MarkHigh: kCandle.MarkHigh.Decimal,
-				MarkLow: kCandle.MarkLow.Decimal, MarkClose: kCandle.MarkClose.Decimal,
+				MarkOpen:   markOpen, MarkHigh: markHigh, MarkLow: markLow, MarkClose: markClose,
 				FetchedAt: now,
 			})
 		}
@@ -138,11 +140,14 @@ func (marketDataService *SymbolScreeningMarketDataService) Prepare(
 	if findSettlementsError != nil {
 		return listing, nil, domains.ContractReplayInputDomain{}, findSettlementsError
 	}
+	// Kept settlements are reused only when they reach back to the period's lead-in; otherwise all are asked for again.
+	reachesBack := len(storedSettlements) > 0 &&
+		!storedSettlements[0].SettlementTime.After(settlementStart.Add(symbolScreeningSettlementFreshness))
 	settlementsAfter := settlementStart
-	if len(storedSettlements) > 0 {
+	if reachesBack {
 		settlementsAfter = storedSettlements[len(storedSettlements)-1].SettlementTime
 	}
-	if settlementsAfter.Before(period.EndTime().Add(-symbolScreeningSettlementFreshness)) {
+	if !reachesBack || settlementsAfter.Before(period.EndTime().Add(-symbolScreeningSettlementFreshness)) {
 		fetchedSettlements, fetchError := marketDataService.contractFundingRateProxy.FetchFundingRateSettlements(
 			executionContext, symbol, settlementsAfter)
 		if fetchError != nil {
@@ -160,6 +165,9 @@ func (marketDataService *SymbolScreeningMarketDataService) Prepare(
 		}
 		if saveError := marketDataService.settlementRepository.SaveAll(executionContext, keptSettlements); saveError != nil {
 			return listing, nil, domains.ContractReplayInputDomain{}, saveError
+		}
+		if !reachesBack {
+			storedSettlements = nil
 		}
 		storedSettlements = append(storedSettlements, keptSettlements...)
 	}

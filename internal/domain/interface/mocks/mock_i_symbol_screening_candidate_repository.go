@@ -55,6 +55,20 @@ func (mr *MockISymbolScreeningCandidateRepositoryMockRecorder) CancelUnfinished(
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelUnfinished", reflect.TypeOf((*MockISymbolScreeningCandidateRepository)(nil).CancelUnfinished), executionContext, runID)
 }
 
+// CancelUnfinishedOfRuns mocks base method.
+func (m *MockISymbolScreeningCandidateRepository) CancelUnfinishedOfRuns(executionContext context.Context, runIDs []uint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelUnfinishedOfRuns", executionContext, runIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CancelUnfinishedOfRuns indicates an expected call of CancelUnfinishedOfRuns.
+func (mr *MockISymbolScreeningCandidateRepositoryMockRecorder) CancelUnfinishedOfRuns(executionContext, runIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelUnfinishedOfRuns", reflect.TypeOf((*MockISymbolScreeningCandidateRepository)(nil).CancelUnfinishedOfRuns), executionContext, runIDs)
+}
+
 // FindByRun mocks base method.
 func (m *MockISymbolScreeningCandidateRepository) FindByRun(executionContext context.Context, runID uint) ([]entities.SymbolScreeningCandidate, error) {
 	m.ctrl.T.Helper()

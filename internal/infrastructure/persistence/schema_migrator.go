@@ -216,6 +216,9 @@ const ContractTradeOneOpenPerSymbolDirectionIndex = "idx_contract_trade_records_
 // SpotTradeOneOpenPerSymbolIndex keeps one open spot trade not deleted per owner and symbol; its violation means a second trade was started instead of buying more.
 const SpotTradeOneOpenPerSymbolIndex = "idx_spot_trade_records_one_live_open_per_symbol"
 
+// SymbolScreeningOneActiveRunPerOwnerIndex keeps each administrator to one queued or running screening, so two submissions at once cannot both be admitted.
+const SymbolScreeningOneActiveRunPerOwnerIndex = "idx_symbol_screening_runs_one_active_per_owner"
+
 // createPartialIndexes creates partial unique indexes GORM tags cannot express; the status is inlined from the shared constant because PostgreSQL does not accept parameters in an index predicate, and creation is idempotent.
 // Creating it is idempotent, so running this twice is the same as running it once.
 func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
@@ -276,6 +279,17 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	)
 	if createdOpenHoldingIndex.Error != nil {
 		return fmt.Errorf("create index %s: %w", SpotTradeOneOpenPerSymbolIndex, createdOpenHoldingIndex.Error)
+	}
+
+	createdActiveScreeningIndex := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id) WHERE status IN ('%s', '%s')",
+			vo.SymbolScreeningRunQueued, vo.SymbolScreeningRunRunning),
+		clause.Column{Name: SymbolScreeningOneActiveRunPerOwnerIndex},
+		clause.Table{Name: entities.SymbolScreeningRun{}.TableName()},
+	)
+	if createdActiveScreeningIndex.Error != nil {
+		return fmt.Errorf("create index %s: %w", SymbolScreeningOneActiveRunPerOwnerIndex, createdActiveScreeningIndex.Error)
 	}
 
 	return nil

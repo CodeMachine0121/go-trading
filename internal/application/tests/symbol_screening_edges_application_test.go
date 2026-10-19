@@ -317,7 +317,6 @@ func TestSymbolScreeningRunFailsWhenItCannotKeepItsOwnRecords(t *testing.T) {
 	t.Run("the progress cannot be written", func(t *testing.T) {
 		underTest := newSymbolScreeningUnderTest(t, 0)
 		underTest.claimsTheRun(aQueuedRun(), "FOOUSDT")
-		underTest.isNotOnTheVenue("FOOUSDT")
 		gomock.InOrder(
 			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(false, storageUnavailable),
 			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
@@ -389,8 +388,8 @@ func TestSymbolScreeningMarketDataBranches(t *testing.T) {
 	}{
 		{name: "half kept and the rest fetched", listing: screeningListing("LINKUSDT"), stored: firstHalf,
 			fetched: dailyBars("LINKUSDT", fetchStart.Add(400*screeningDay), 0.01)[90:], expectedStatus: "passed"},
-		{name: "a bar without its mark price is left out", listing: screeningListing("LINKUSDT"), fetched: withoutMark,
-			expectedStatus: "rejected", expectedReason: "歷史只有 179 天"},
+		{name: "a bar without its mark price is marked at its traded prices", listing: screeningListing("LINKUSDT"),
+			fetched: withoutMark, expectedStatus: "passed"},
 		{name: "no specification from the venue", listing: noSpecification, expectedStatus: "unfinished",
 			expectedReason: "幣安沒有提供這個合約的交易規格"},
 		{name: "the candles cannot be fetched", listing: screeningListing("LINKUSDT"),
@@ -443,7 +442,11 @@ func TestSymbolScreeningRunOnThisReplica(t *testing.T) {
 		underTest := newSymbolScreeningUnderTest(t, 0)
 		run := aQueuedRun()
 		underTest.claimsTheRun(run, "LINKUSDT", "ADAUSDT")
-		underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Times(0)
+		underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, written entities.SymbolScreeningRun) (bool, error) {
+				assert.Equal(t, "running", written.Status, "only progress may be written while the run is cancelled")
+				return true, nil
+			}).AnyTimes()
 		waiting := underTest.blocksUntilStopped("LINKUSDT")
 		underTest.runRepository.EXPECT().FindOneOwned(gomock.Any(), screeningAdministratorID, screeningRunID).
 			Return(entities.SymbolScreeningRun{ID: screeningRunID, OwnerID: screeningAdministratorID, Status: "running"}, true, nil)
@@ -581,7 +584,7 @@ func TestSymbolScreeningRunEndsWellEvenWhenThingsGoWrong(t *testing.T) {
 		underTest.isNotOnTheVenue("FOOUSDT")
 		tried := make(chan struct{})
 		gomock.InOrder(
-			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil),
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil).Times(2),
 			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
 				DoAndReturn(func(context.Context, entities.SymbolScreeningRun) (bool, error) {
 					close(tried)
@@ -762,7 +765,7 @@ func TestSymbolScreeningRunWhoseVerdictsCannotBeWrittenAtTheEnd(t *testing.T) {
 						return testCase.write()
 					}),
 			)
-			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil)
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil).Times(2)
 			underTest.isNotOnTheVenue("FOOUSDT")
 
 			underTest.startsScreening(t)

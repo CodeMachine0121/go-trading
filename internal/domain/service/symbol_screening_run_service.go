@@ -32,6 +32,9 @@ type SymbolScreeningRunService struct {
 	defaultWarmupBarCount   int
 	running                 atomic.Pointer[symbolScreeningRunner]
 	runnerEnded             sync.WaitGroup
+	// waitingEnded releases reads hanging on for a run to end, so a server shutdown does not wait out their waits.
+	waitingEnded context.Context
+	endWaiting   context.CancelFunc
 }
 
 func NewSymbolScreeningRunService(
@@ -46,6 +49,8 @@ func NewSymbolScreeningRunService(
 	timeAllowance time.Duration,
 	defaultWarmupBarCount int,
 ) *SymbolScreeningRunService {
+	waitingEnded, endWaiting := context.WithCancel(context.Background())
+
 	return &SymbolScreeningRunService{
 		runRepository:           runRepository,
 		candidateRepository:     candidateRepository,
@@ -57,6 +62,8 @@ func NewSymbolScreeningRunService(
 		maximumCandidateCount:   max(maximumCandidateCount, 1),
 		timeAllowance:           timeAllowance,
 		defaultWarmupBarCount:   defaultWarmupBarCount,
+		waitingEnded:            waitingEnded,
+		endWaiting:              endWaiting,
 	}
 }
 
@@ -134,7 +141,8 @@ func (runService *SymbolScreeningRunService) Get(
 		}
 
 		runDomain := domains.NewSymbolScreeningRunDomain(run)
-		if runDomain.IsActive() && runService.clockProxy.Now().Before(deadline) && executionContext.Err() == nil {
+		if runDomain.IsActive() && runService.clockProxy.Now().Before(deadline) &&
+			executionContext.Err() == nil && runService.waitingEnded.Err() == nil {
 			runService.clockProxy.Sleep(symbolScreeningRunWaitPoll)
 			continue
 		}
@@ -219,6 +227,10 @@ func (runService *SymbolScreeningRunService) ClaimAndRun(executionContext contex
 	return true, nil
 }
 
+func (runService *SymbolScreeningRunService) StopWaiting() {
+	runService.endWaiting()
+}
+
 // StopRunner cuts off the run this replica is screening and returns once it is marked interrupted.
 func (runService *SymbolScreeningRunService) StopRunner() {
 	if runner := runService.running.Load(); runner != nil {
@@ -227,11 +239,28 @@ func (runService *SymbolScreeningRunService) StopRunner() {
 	runService.runnerEnded.Wait()
 }
 
+// FailInterruptedRuns fails runs left by vanished replicas together with their unfinished candidates.
 func (runService *SymbolScreeningRunService) FailInterruptedRuns(
 	executionContext context.Context, liveReplicaNames []string,
 ) (int, error) {
-	return runService.runRepository.FailRunningOutside(
-		executionContext, liveReplicaNames, domains.SymbolScreeningInterruptedReason, runService.clockProxy.Now())
+	failedIDs := []uint{}
+	transactionError := runService.transactionRepository.Atomically(executionContext,
+		func(transactionContext context.Context) error {
+			abandonedIDs, failError := runService.runRepository.FailRunningOutside(
+				transactionContext, liveReplicaNames, domains.SymbolScreeningInterruptedReason, runService.clockProxy.Now())
+			if failError != nil {
+				return failError
+			}
+			failedIDs = abandonedIDs
+
+			return runService.candidateRepository.CancelUnfinishedOfRuns(transactionContext, abandonedIDs)
+		})
+
+	if transactionError != nil {
+		return 0, transactionError
+	}
+
+	return len(failedIDs), nil
 }
 
 func (runService *SymbolScreeningRunService) DeleteExpiredRuns(

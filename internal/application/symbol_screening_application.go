@@ -98,6 +98,10 @@ func (screeningApplication *SymbolScreeningApplication) RunClaimedScreening(exec
 	return screeningApplication.runService.ClaimAndRun(executionContext)
 }
 
+func (screeningApplication *SymbolScreeningApplication) StopWaiting() {
+	screeningApplication.runService.StopWaiting()
+}
+
 func (screeningApplication *SymbolScreeningApplication) StopRunner() {
 	screeningApplication.runService.StopRunner()
 }

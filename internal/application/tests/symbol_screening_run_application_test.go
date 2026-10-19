@@ -199,23 +199,27 @@ func TestSymbolScreeningRunStopsEarly(t *testing.T) {
 		assert.Equal(t, "被重新啟動打斷", ending.FailureReason)
 	})
 
-	t.Run("cancelled elsewhere, it stops after the candidate in hand and writes no ending", func(t *testing.T) {
+	t.Run("cancelled elsewhere, it stops at the candidate in hand and writes no ending", func(t *testing.T) {
 		underTest := newSymbolScreeningUnderTest(t, 0)
 		underTest.claimsTheRun(aQueuedRun(), "FOOUSDT", "LINKUSDT")
 		underTest.isNotOnTheVenue("FOOUSDT")
 		refused := make(chan struct{})
-		underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ entities.SymbolScreeningRun) (bool, error) {
-				close(refused)
-				return false, nil
-			}).Times(1)
+		gomock.InOrder(
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).Return(true, nil),
+			underTest.runRepository.EXPECT().UpdateIfRunning(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, written entities.SymbolScreeningRun) (bool, error) {
+					assert.Equal(t, "running", written.Status)
+					close(refused)
+					return false, nil
+				}),
+		)
 
 		underTest.startsScreening(t)
 		<-refused
 		underTest.application.StopRunner()
 
-		assert.Equal(t, "rejected", underTest.candidateSaved("FOOUSDT").Status)
 		assert.Empty(t, underTest.candidateSaved("LINKUSDT").Status)
+		assert.Empty(t, underTest.unfinishedCancelled)
 	})
 }
 
@@ -298,34 +302,60 @@ func TestSymbolScreeningClearsWhatOutlivedItsRetention(t *testing.T) {
 }
 
 func TestSymbolScreeningReusesMarketDataStillKept(t *testing.T) {
-	underTest := newSymbolScreeningUnderTest(t, 0)
-	run := aQueuedRun()
-	run.CandidateCount = 1
-	underTest.claimsTheRun(run, "LINKUSDT")
-	underTest.runWritesSucceed()
-	underTest.scriptTradesEveryTenBars()
-	specification := screeningSpecification
-	underTest.symbolLookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "LINKUSDT").
-		Return(vo.ContractSymbolListingVo{IsListed: true, IsKnownToVenue: true, Specification: specification}, nil)
 	fetchStart := screeningPeriodEnd.Add(-180 * screeningDay)
-	kept := []entities.SymbolScreeningKCandle{}
-	for _, bar := range dailyBars("LINKUSDT", fetchStart.Add(400*screeningDay), 0.01) {
-		kept = append(kept, entities.SymbolScreeningKCandle{
-			Symbol: "LINKUSDT", Interval: "1d", OpenTime: bar.OpenTime, Open: bar.Open, High: bar.High, Low: bar.Low,
-			Close: bar.Close, QuoteVolume: bar.QuoteVolume, MarkOpen: bar.MarkOpen.Decimal, MarkHigh: bar.MarkHigh.Decimal,
-			MarkLow: bar.MarkLow.Decimal, MarkClose: bar.MarkClose.Decimal,
+	settlementStart := fetchStart.Add(-24 * time.Hour)
+
+	testCases := []struct {
+		name                string
+		keptSettlementTimes []time.Time
+		expectedFetchAfter  time.Time
+	}{
+		{name: "kept funding rates reaching back to the lead-in are reused",
+			keptSettlementTimes: []time.Time{settlementStart, screeningPeriodEnd.Add(-4 * time.Hour)}},
+		{name: "kept funding rates missing the start of the period are asked for again from the lead-in",
+			keptSettlementTimes: []time.Time{screeningPeriodEnd.Add(-4 * time.Hour)}, expectedFetchAfter: settlementStart},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newSymbolScreeningUnderTest(t, 0)
+			run := aQueuedRun()
+			run.CandidateCount = 1
+			underTest.claimsTheRun(run, "LINKUSDT")
+			underTest.runWritesSucceed()
+			underTest.scriptTradesEveryTenBars()
+			specification := screeningSpecification
+			underTest.symbolLookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "LINKUSDT").
+				Return(vo.ContractSymbolListingVo{IsListed: true, IsKnownToVenue: true, Specification: specification}, nil)
+			kept := []entities.SymbolScreeningKCandle{}
+			for _, bar := range dailyBars("LINKUSDT", fetchStart.Add(400*screeningDay), 0.01) {
+				kept = append(kept, entities.SymbolScreeningKCandle{
+					Symbol: "LINKUSDT", Interval: "1d", OpenTime: bar.OpenTime, Open: bar.Open, High: bar.High, Low: bar.Low,
+					Close: bar.Close, QuoteVolume: bar.QuoteVolume, MarkOpen: bar.MarkOpen.Decimal, MarkHigh: bar.MarkHigh.Decimal,
+					MarkLow: bar.MarkLow.Decimal, MarkClose: bar.MarkClose.Decimal,
+				})
+			}
+			underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", fetchStart, screeningPeriodEnd).
+				Return(kept, nil)
+			keptSettlements := []entities.SymbolScreeningFundingRateSettlement{}
+			for _, settlementTime := range testCase.keptSettlementTimes {
+				keptSettlements = append(keptSettlements, entities.SymbolScreeningFundingRateSettlement{
+					Symbol: "LINKUSDT", SettlementTime: settlementTime, FundingRate: decimal.Zero,
+				})
+			}
+			underTest.settlementRepository.EXPECT().
+				FindInRange(gomock.Any(), "LINKUSDT", settlementStart, screeningPeriodEnd).Return(keptSettlements, nil)
+			if !testCase.expectedFetchAfter.IsZero() {
+				underTest.fundingRateProxy.EXPECT().
+					FetchFundingRateSettlements(gomock.Any(), "LINKUSDT", testCase.expectedFetchAfter).Return(nil, nil)
+				underTest.settlementRepository.EXPECT().SaveAll(gomock.Any(), gomock.Any()).Return(nil)
+			}
+
+			underTest.startsScreening(t)
+			ending := underTest.endingOf(t)
+
+			assert.Equal(t, "succeeded", ending.Status)
+			assert.Equal(t, "passed", underTest.candidateSaved("LINKUSDT").Status)
 		})
 	}
-	underTest.kCandleRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", "1d", fetchStart, screeningPeriodEnd).
-		Return(kept, nil)
-	underTest.settlementRepository.EXPECT().FindInRange(gomock.Any(), "LINKUSDT", gomock.Any(), screeningPeriodEnd).
-		Return([]entities.SymbolScreeningFundingRateSettlement{{
-			Symbol: "LINKUSDT", SettlementTime: screeningPeriodEnd.Add(-4 * time.Hour), FundingRate: decimal.Zero,
-		}}, nil)
-
-	underTest.startsScreening(t)
-	ending := underTest.endingOf(t)
-
-	assert.Equal(t, "succeeded", ending.Status)
-	assert.Equal(t, "passed", underTest.candidateSaved("LINKUSDT").Status)
 }
