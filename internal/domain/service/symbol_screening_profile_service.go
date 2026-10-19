@@ -130,22 +130,8 @@ func (profileService *SymbolScreeningProfileService) SnapshotFor(
 		return dto.SymbolScreeningSnapshotDto{}, domains.ErrSymbolScreeningProfileNotFound
 	}
 
-	storedDto := stored.ToDto()
-	profileDomain, runnableScript, prepareError := profileService.acceptedProfile(executionContext, ownerID, dto.SymbolScreeningProfileWriteDto{
-		Name:                           storedDto.Name,
-		StrategyScriptID:               storedDto.StrategyScriptID,
-		ParameterValues:                storedDto.ParameterValues,
-		AggregationInterval:            storedDto.AggregationInterval,
-		TradingMode:                    storedDto.TradingMode,
-		Leverage:                       &storedDto.Leverage,
-		EntryCostPercentage:            &storedDto.EntryCostPercentage,
-		SlippagePercentage:             &storedDto.SlippagePercentage,
-		HistoryDays:                    &storedDto.HistoryDays,
-		SegmentCount:                   &storedDto.SegmentCount,
-		MinimumTradeCount:              &storedDto.MinimumTradeCount,
-		MinimumAverageDailyQuoteVolume: &storedDto.MinimumAverageDailyQuoteVolume,
-		BaselineSymbols:                storedDto.BaselineSymbols,
-	}, id)
+	profileDomain, runnableScript, prepareError := profileService.acceptedProfile(
+		executionContext, ownerID, stored.ToWriteDto(), id)
 	if prepareError != nil {
 		return dto.SymbolScreeningSnapshotDto{}, prepareError
 	}

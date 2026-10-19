@@ -54,3 +54,22 @@ func (symbolScreeningProfile SymbolScreeningProfile) ToDto() dto.SymbolScreening
 		UpdatedAt:                      symbolScreeningProfile.UpdatedAt.UTC(),
 	}
 }
+
+// ToWriteDto restates the stored profile as a rewrite, so it can be judged again by the rules that saved it.
+func (symbolScreeningProfile SymbolScreeningProfile) ToWriteDto() dto.SymbolScreeningProfileWriteDto {
+	return dto.SymbolScreeningProfileWriteDto{
+		Name:                           symbolScreeningProfile.Name,
+		StrategyScriptID:               symbolScreeningProfile.StrategyScriptID,
+		ParameterValues:                symbolScreeningProfile.ParameterValues,
+		AggregationInterval:            symbolScreeningProfile.AggregationInterval,
+		TradingMode:                    symbolScreeningProfile.TradingMode,
+		Leverage:                       &symbolScreeningProfile.Leverage,
+		EntryCostPercentage:            &symbolScreeningProfile.EntryCostPercentage,
+		SlippagePercentage:             &symbolScreeningProfile.SlippagePercentage,
+		HistoryDays:                    &symbolScreeningProfile.HistoryDays,
+		SegmentCount:                   &symbolScreeningProfile.SegmentCount,
+		MinimumTradeCount:              &symbolScreeningProfile.MinimumTradeCount,
+		MinimumAverageDailyQuoteVolume: &symbolScreeningProfile.MinimumAverageDailyQuoteVolume,
+		BaselineSymbols:                symbolScreeningProfile.BaselineSymbols,
+	}
+}

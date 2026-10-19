@@ -106,60 +106,57 @@ func (runner *symbolScreeningRunner) run() {
 	}
 
 	closedTradesBySymbol := map[string][]dto.ContractClosedTradeDto{}
-	for index, candidate := range candidates {
-		candidate.Status = string(vo.SymbolScreeningCandidateProcessing)
-		if saveError := service.candidateRepository.Save(screeningContext, candidate); saveError != nil {
+	for index, storedCandidate := range candidates {
+		candidate := domains.NewSymbolScreeningCandidateDomain(storedCandidate).Processing()
+		symbol := storedCandidate.Symbol
+		if saveError := service.candidateRepository.Save(screeningContext, candidate.ToEntity()); saveError != nil {
 			runner.end(errors.Join(runStopped(), saveError), nil, "")
 			return
 		}
 
 		listing, kCandles, replayInput, prepareError := service.marketDataService.Prepare(
-			screeningContext, candidate.Symbol, period, marginTiersBySymbol[candidate.Symbol])
+			screeningContext, symbol, period, marginTiersBySymbol[symbol])
 		if stopped := runStopped(); stopped != nil {
 			runner.end(stopped, nil, "")
 			return
 		}
 		switch {
 		case prepareError != nil:
-			candidate.Status, candidate.Reason = string(vo.SymbolScreeningCandidateUnfinished), prepareError.Error()
+			candidate = candidate.Unfinished(prepareError.Error(), dto.SymbolScreeningFindingsDto{})
 		default:
 			passed, reason, findings := domains.NewSymbolScreeningBasicConditionDomain(
-				candidate.Symbol, listing, kCandles, period, snapshot.MinimumAverageDailyQuoteVolume).Judge()
-			candidate.Findings = findings
+				symbol, listing, kCandles, period, snapshot.MinimumAverageDailyQuoteVolume).Judge()
 			if !passed {
-				candidate.Status, candidate.Stage, candidate.Reason =
-					string(vo.SymbolScreeningCandidateRejected), string(vo.SymbolScreeningStageBasicCondition), reason
+				candidate = candidate.Rejected(vo.SymbolScreeningStageBasicCondition, reason, findings)
 				break
 			}
 
-			results, replayError := replayedTrades(candidate.Symbol, replayInput)
+			results, replayError := replayedTrades(symbol, replayInput)
 			if stopped := runStopped(); stopped != nil {
 				runner.end(stopped, nil, "")
 				return
 			}
 			if replayError != nil {
-				candidate.Status, candidate.Reason = string(vo.SymbolScreeningCandidateUnfinished), replayError.Error()
+				candidate = candidate.Unfinished(replayError.Error(), findings)
 				break
 			}
 
-			passed, reason, candidate.Findings = domains.NewSymbolScreeningPortabilityDomain(
-				period.Segments(), results, snapshot.MinimumTradeCount).Judge(candidate.Findings)
-			candidate.Status, candidate.Stage, candidate.Reason =
-				string(vo.SymbolScreeningCandidatePassed), string(vo.SymbolScreeningStageNone), ""
+			passed, reason, findings = domains.NewSymbolScreeningPortabilityDomain(
+				period.Segments(), results, snapshot.MinimumTradeCount).Judge(findings)
+			candidate = candidate.Passed(findings)
 			if !passed {
-				candidate.Status, candidate.Stage, candidate.Reason =
-					string(vo.SymbolScreeningCandidateRejected), string(vo.SymbolScreeningStagePortability), reason
+				candidate = candidate.Rejected(vo.SymbolScreeningStagePortability, reason, findings)
 			}
 			for _, result := range results {
-				closedTradesBySymbol[candidate.Symbol] = append(closedTradesBySymbol[candidate.Symbol], result.ClosedTrades...)
+				closedTradesBySymbol[symbol] = append(closedTradesBySymbol[symbol], result.ClosedTrades...)
 			}
 		}
 
-		if saveError := service.candidateRepository.Save(screeningContext, candidate); saveError != nil {
+		if saveError := service.candidateRepository.Save(screeningContext, candidate.ToEntity()); saveError != nil {
 			runner.end(errors.Join(runStopped(), saveError), nil, "")
 			return
 		}
-		candidates[index] = candidate
+		candidates[index] = candidate.ToEntity()
 		if advanceError := runner.advance(index + 1); advanceError != nil {
 			runner.end(advanceError, nil, "")
 			return
