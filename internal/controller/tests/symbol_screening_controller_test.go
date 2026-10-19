@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,6 +46,9 @@ func newScreeningRouterUnderTest(t *testing.T) screeningRouterUnderTest {
 		strategyScriptRepo: mocks.NewMockIStrategyScriptRepository(mockController),
 	}
 	candidateRepository := mocks.NewMockISymbolScreeningCandidateRepository(mockController)
+	candidateRepository.EXPECT().FindByRun(gomock.Any(), gomock.Any()).Return([]entities.SymbolScreeningCandidate{
+		{Position: 1, Symbol: "LINKUSDT", Status: "passed"},
+	}, nil).AnyTimes()
 	candidateRepository.EXPECT().CancelUnfinished(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	marketDataService := service.NewSymbolScreeningMarketDataService(
 		mocks.NewMockISymbolScreeningKCandleRepository(mockController),
@@ -62,9 +66,13 @@ func newScreeningRouterUnderTest(t *testing.T) screeningRouterUnderTest {
 
 	door := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
+	engine.GET("/symbol-screening-profiles", door, screeningController.ListProfiles)
 	engine.POST("/symbol-screening-profiles", door, screeningController.CreateProfile)
+	engine.GET("/symbol-screening-profiles/:id", door, screeningController.GetProfile)
+	engine.PUT("/symbol-screening-profiles/:id", door, screeningController.UpdateProfile)
 	engine.DELETE("/symbol-screening-profiles/:id", door, screeningController.DeleteProfile)
 	engine.POST("/symbol-screening-runs", door, screeningController.SubmitRun)
+	engine.GET("/symbol-screening-runs", door, screeningController.ListRuns)
 	engine.GET("/symbol-screening-runs/:id", door, screeningController.GetRun)
 	engine.POST("/symbol-screening-runs/:id/cancel", door, screeningController.CancelRun)
 	underTest.engine = engine
@@ -207,4 +215,109 @@ func TestSymbolScreeningProfileEndpoints(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
+}
+
+func TestSymbolScreeningEndpointsAnswerWhatTheyRead(t *testing.T) {
+	testCases := []struct {
+		name           string
+		method         string
+		target         string
+		body           string
+		arrange        func(underTest screeningRouterUnderTest)
+		expectedCode   int
+		expectedInBody string
+	}{
+		{name: "my profiles", method: http.MethodGet, target: "/symbol-screening-profiles",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.profileRepository.EXPECT().FindAllByOwner(gomock.Any(), signedInViewerID).
+					Return([]entities.SymbolScreeningProfile{{ID: 4, Name: "趨勢 V3"}}, nil)
+			}, expectedCode: http.StatusOK, expectedInBody: `"name":"趨勢 V3"`},
+		{name: "one of my profiles", method: http.MethodGet, target: "/symbol-screening-profiles/4",
+			arrange:      func(underTest screeningRouterUnderTest) { underTest.theProfileAndScriptAreMine() },
+			expectedCode: http.StatusOK, expectedInBody: `"historyDays":730`},
+		{name: "a profile with an unreadable identifier", method: http.MethodGet, target: "/symbol-screening-profiles/0",
+			arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
+		{name: "changing my profile", method: http.MethodPut, target: "/symbol-screening-profiles/4",
+			body: `{"name":"趨勢 V3","strategyScriptId":108,"aggregationInterval":"1d","historyDays":365}`,
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.theProfileAndScriptAreMine()
+				underTest.profileRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, profile entities.SymbolScreeningProfile) (entities.SymbolScreeningProfile, error) {
+						return profile, nil
+					})
+			}, expectedCode: http.StatusOK, expectedInBody: `"historyDays":365`},
+		{name: "changing with an unreadable body", method: http.MethodPut, target: "/symbol-screening-profiles/4",
+			body: `{nope`, arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
+		{name: "changing a profile with an unreadable identifier", method: http.MethodPut,
+			target: "/symbol-screening-profiles/x", body: `{}`, arrange: func(screeningRouterUnderTest) {},
+			expectedCode: http.StatusBadRequest},
+		{name: "deleting my profile", method: http.MethodDelete, target: "/symbol-screening-profiles/4",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.theProfileAndScriptAreMine()
+				underTest.runRepository.EXPECT().CountActiveByProfile(gomock.Any(), uint(4)).Return(0, nil)
+				underTest.profileRepository.EXPECT().DeleteOwned(gomock.Any(), signedInViewerID, uint(4)).Return(nil)
+			}, expectedCode: http.StatusNoContent},
+		{name: "deleting with an unreadable identifier", method: http.MethodDelete, target: "/symbol-screening-profiles/x",
+			arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
+		{name: "my runs", method: http.MethodGet, target: "/symbol-screening-runs?status=queued&limit=5",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.runRepository.EXPECT().FindPageByOwner(gomock.Any(), signedInViewerID,
+					dto.SymbolScreeningRunListQueryDto{Status: "queued", Limit: 5}).
+					Return([]entities.SymbolScreeningRun{{ID: 9, Status: "queued"}}, int64(1), nil)
+			}, expectedCode: http.StatusOK, expectedInBody: `"totalCount":1`},
+		{name: "one of my runs with its candidates", method: http.MethodGet, target: "/symbol-screening-runs/9",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.runRepository.EXPECT().FindOneOwned(gomock.Any(), signedInViewerID, uint(9)).
+					Return(entities.SymbolScreeningRun{ID: 9, Status: "succeeded"}, true, nil)
+			}, expectedCode: http.StatusOK, expectedInBody: `"symbol":"LINKUSDT"`},
+		{name: "cancelling my queued run", method: http.MethodPost, target: "/symbol-screening-runs/9/cancel",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.runRepository.EXPECT().FindOneOwned(gomock.Any(), signedInViewerID, uint(9)).
+					Return(entities.SymbolScreeningRun{ID: 9, OwnerID: signedInViewerID, Status: "queued"}, true, nil)
+				underTest.runRepository.EXPECT().CancelIfActive(gomock.Any(), gomock.Any()).Return(true, nil)
+			}, expectedCode: http.StatusOK, expectedInBody: `"status":"cancelled"`},
+		{name: "cancelling with an unreadable identifier", method: http.MethodPost, target: "/symbol-screening-runs/x/cancel",
+			arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
+		{name: "submitting an unreadable body", method: http.MethodPost, target: "/symbol-screening-runs", body: `[`,
+			arrange: func(screeningRouterUnderTest) {}, expectedCode: http.StatusBadRequest},
+		{name: "a profile naming a script I cannot use", method: http.MethodPost, target: "/symbol-screening-profiles",
+			body: `{"name":"別人的","strategyScriptId":40,"aggregationInterval":"4h"}`,
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.strategyScriptRepo.EXPECT().FindOne(gomock.Any(), uint(40)).
+					Return(entities.StrategyScript{ID: 40, OwnerID: 99}, nil)
+			}, expectedCode: http.StatusNotFound, expectedInBody: "找不到這支策略腳本"},
+		{name: "a broken store answers 502", method: http.MethodGet, target: "/symbol-screening-profiles",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.profileRepository.EXPECT().FindAllByOwner(gomock.Any(), signedInViewerID).
+					Return(nil, errors.New("storage unavailable"))
+			}, expectedCode: http.StatusBadGateway},
+		{name: "a broken store answers 502 for runs too", method: http.MethodGet, target: "/symbol-screening-runs",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.runRepository.EXPECT().FindPageByOwner(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(nil, int64(0), errors.New("storage unavailable"))
+			}, expectedCode: http.StatusBadGateway},
+		{name: "a broken store while reading a profile", method: http.MethodGet, target: "/symbol-screening-profiles/5",
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.profileRepository.EXPECT().FindOneOwned(gomock.Any(), gomock.Any(), uint(5)).
+					Return(entities.SymbolScreeningProfile{}, false, errors.New("storage unavailable"))
+			}, expectedCode: http.StatusBadGateway},
+		{name: "a broken store while changing a profile", method: http.MethodPut, target: "/symbol-screening-profiles/5",
+			body: `{"name":"x","strategyScriptId":108,"aggregationInterval":"4h"}`,
+			arrange: func(underTest screeningRouterUnderTest) {
+				underTest.profileRepository.EXPECT().FindOneOwned(gomock.Any(), gomock.Any(), uint(5)).
+					Return(entities.SymbolScreeningProfile{}, false, errors.New("storage unavailable"))
+			}, expectedCode: http.StatusBadGateway},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newScreeningRouterUnderTest(t)
+			testCase.arrange(underTest)
+
+			recorder := underTest.send(testCase.method, testCase.target, testCase.body)
+
+			require.Equal(t, testCase.expectedCode, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), testCase.expectedInBody)
+		})
+	}
 }

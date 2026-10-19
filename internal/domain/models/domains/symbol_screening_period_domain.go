@@ -74,11 +74,6 @@ func (periodDomain SymbolScreeningPeriodDomain) FetchWindow(symbol string) vo.Ag
 	}
 }
 
-// ExpectedBarCount is how many bars a symbol trading throughout the fetch window has, so a stored copy can be judged complete.
-func (periodDomain SymbolScreeningPeriodDomain) ExpectedBarCount() int {
-	return int(periodDomain.endTime.Sub(periodDomain.FetchStartTime()) / periodDomain.step)
-}
-
 func (periodDomain SymbolScreeningPeriodDomain) Segments() []vo.SymbolScreeningSegmentVo {
 	segmentCount := max(periodDomain.snapshot.SegmentCount, 1)
 	totalSteps := int64(periodDomain.endTime.Sub(periodDomain.startTime) / periodDomain.step)
