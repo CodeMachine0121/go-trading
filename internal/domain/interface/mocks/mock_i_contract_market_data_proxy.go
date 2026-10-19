@@ -41,6 +41,21 @@ func (m *MockIContractMarketDataProxy) EXPECT() *MockIContractMarketDataProxyMoc
 	return m.recorder
 }
 
+// FetchAggregatedKCandles mocks base method.
+func (m *MockIContractMarketDataProxy) FetchAggregatedKCandles(executionContext context.Context, window vo.AggregatedKCandleFetchWindowVo) ([]vo.ContractMarketKCandleVo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FetchAggregatedKCandles", executionContext, window)
+	ret0, _ := ret[0].([]vo.ContractMarketKCandleVo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FetchAggregatedKCandles indicates an expected call of FetchAggregatedKCandles.
+func (mr *MockIContractMarketDataProxyMockRecorder) FetchAggregatedKCandles(executionContext, window any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchAggregatedKCandles", reflect.TypeOf((*MockIContractMarketDataProxy)(nil).FetchAggregatedKCandles), executionContext, window)
+}
+
 // FetchKCandles mocks base method.
 func (m *MockIContractMarketDataProxy) FetchKCandles(executionContext context.Context, window vo.KCandleFetchWindowVo) ([]vo.ContractMarketKCandleVo, error) {
 	m.ctrl.T.Helper()

@@ -14,4 +14,8 @@ type IContractMarketDataProxy interface {
 	FetchKCandles(
 		executionContext context.Context, window vo.KCandleFetchWindowVo,
 	) ([]vo.ContractMarketKCandleVo, error)
+	// FetchAggregatedKCandles reads the venue's own coarse candles, traded figures and mark price only.
+	FetchAggregatedKCandles(
+		executionContext context.Context, window vo.AggregatedKCandleFetchWindowVo,
+	) ([]vo.ContractMarketKCandleVo, error)
 }

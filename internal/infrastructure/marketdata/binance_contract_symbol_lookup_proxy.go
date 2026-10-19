@@ -86,23 +86,23 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) LookUp
 		}
 
 		if !listing.isFollowable() {
-			return vo.ContractSymbolListingVo{}, nil
+			return vo.ContractSymbolListingVo{IsKnownToVenue: perpetualContractTypes[listing.ContractType]}, nil
 		}
 
 		// If the funding interval list fails the contract is still followable, but no specification is returned rather than guessing the interval.
 		fundingIntervals, intervalError := binanceContractSymbolLookupProxy.fetchFundingIntervals(
 			executionContext, symbol)
 		if intervalError != nil {
-			return vo.ContractSymbolListingVo{IsListed: true}, nil
+			return vo.ContractSymbolListingVo{IsListed: true, IsKnownToVenue: true}, nil
 		}
 
 		// An unreadable specification is returned empty and the daily refresh retries.
 		specification, specificationError := listing.toContractTradingSpecificationVo(fundingIntervals)
 		if specificationError != nil {
-			return vo.ContractSymbolListingVo{IsListed: true}, nil
+			return vo.ContractSymbolListingVo{IsListed: true, IsKnownToVenue: true}, nil
 		}
 
-		return vo.ContractSymbolListingVo{IsListed: true, Specification: specification}, nil
+		return vo.ContractSymbolListingVo{IsListed: true, IsKnownToVenue: true, Specification: specification}, nil
 	}
 
 	return vo.ContractSymbolListingVo{}, nil
