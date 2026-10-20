@@ -110,7 +110,8 @@ func TestStrategyBotRunRecordRepositoryRemembersFiftyRoundsForEachSymbol(t *test
 	for round := range 55 {
 		requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 			StrategyBotID: botID, Symbol: "BTCUSDT", RanAt: runRecordRanAt, Result: "hold"}))
-		if round < 3 {
+		// ETH speaks within BTC's last fifty, so a cut counted across symbols would keep fewer than fifty of BTC's.
+		if round >= 50 && round < 53 {
 			requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 				StrategyBotID: botID, Symbol: "ETHUSDT", RanAt: runRecordRanAt, Result: "buy"}))
 		}
@@ -126,8 +127,10 @@ func TestStrategyBotRunRecordRepositoryRemembersFiftyRoundsForEachSymbol(t *test
 	assert.Len(t, bitcoinHistory, 50)
 	require.Len(t, ethereumHistory, 3)
 	assert.Len(t, wholeHistory, 53)
-	// Numbers run across the bot's symbols and never repeat: the first round numbered BTC 1 and ETH 2.
-	assert.Equal(t, 2, ethereumHistory[2].RunNumber)
+	// Numbers run across the bot's symbols and never repeat: round 50 numbered BTC 51 and ETH 52.
+	assert.Equal(t, 52, ethereumHistory[2].RunNumber)
+	assert.Equal(t, 58, bitcoinHistory[0].RunNumber)
+	assert.Equal(t, 6, bitcoinHistory[49].RunNumber)
 	assert.Equal(t, "ETHUSDT", ethereumHistory[0].Symbol)
 	assert.Equal(t, 58, wholeHistory[0].RunNumber)
 	for index := 1; index < len(wholeHistory); index++ {
@@ -162,9 +165,12 @@ func TestContractAutoOrderRepositoryRunsEachSymbolsOrdersInTurnWithoutWaitingOnO
 	}
 	assert.ElementsMatch(t, []int{51, 52}, runNumbers, "each symbol's oldest order goes ahead at once")
 
-	bitcoinHasLater, laterError := testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "BTCUSDT", stored[1].ID)
+	bitcoinHasLater, laterError := testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "BTCUSDT", stored[0].ID)
 	require.NoError(t, laterError)
-	assert.True(t, bitcoinHasLater, "a newer BTC order is queued after the first ETH one")
+	assert.True(t, bitcoinHasLater, "a newer BTC order waits behind the first one")
+	bitcoinHasLater, laterError = testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "BTCUSDT", stored[2].ID)
+	require.NoError(t, laterError)
+	assert.False(t, bitcoinHasLater, "a newer ETH order is no reason to withdraw BTC's")
 	ethereumHasLater, laterError := testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "ETHUSDT", stored[3].ID)
 	require.NoError(t, laterError)
 	assert.False(t, ethereumHasLater, "another symbol's newer order is no reason to withdraw this one")
