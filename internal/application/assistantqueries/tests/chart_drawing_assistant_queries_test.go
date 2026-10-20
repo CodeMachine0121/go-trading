@@ -62,8 +62,8 @@ func newChartDrawingAssistantQueriesUnderTest(t *testing.T) chartDrawingAssistan
 func assistantBoardDrawing(id uint, source string) dto.ChartDrawingDto {
 	return dto.ChartDrawingDto{
 		ID: id, Kind: "horizontalLine",
-		Anchors:   []dto.ChartDrawingAnchorDto{{OpenTime: assistantDrawingHour, Price: decimal.RequireFromString("100")}},
-		Color:     "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: source,
+		Anchors: []dto.ChartDrawingAnchorDto{{OpenTime: assistantDrawingHour, Price: decimal.RequireFromString("100")}},
+		Color:   "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: source,
 	}
 }
 

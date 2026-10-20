@@ -65,8 +65,8 @@ func spotPlace() dto.ChartDrawingBoardPlaceDto {
 func aBoardDrawing(id uint, source vo.ChartDrawingSourceVo) dto.ChartDrawingDto {
 	return dto.ChartDrawingDto{
 		ID: id, Kind: "horizontalLine",
-		Anchors:   []dto.ChartDrawingAnchorDto{{OpenTime: chartDrawingAnchorHour, Price: decimal.RequireFromString("100")}},
-		Color:     "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: string(source),
+		Anchors: []dto.ChartDrawingAnchorDto{{OpenTime: chartDrawingAnchorHour, Price: decimal.RequireFromString("100")}},
+		Color:   "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: string(source),
 	}
 }
 
@@ -182,7 +182,7 @@ func TestChartDrawingApplicationGetBoard(t *testing.T) {
 
 func TestChartDrawingApplicationReplaceBoard(t *testing.T) {
 	newHorizontalLine := dto.ChartDrawingWriteDto{
-		Kind: "horizontalLine",
+		Kind:    "horizontalLine",
 		Anchors: []dto.ChartDrawingAnchorDto{{OpenTime: chartDrawingAnchorHour.Add(48 * time.Hour), Price: decimal.RequireFromString("250")}},
 	}
 

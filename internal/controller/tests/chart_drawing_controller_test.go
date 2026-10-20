@@ -93,8 +93,8 @@ func routedDrawing(id uint, source string) dto.ChartDrawingDto {
 	turnID := uint(34)
 	drawing := dto.ChartDrawingDto{
 		ID: id, Kind: "horizontalLine",
-		Anchors:   []dto.ChartDrawingAnchorDto{{OpenTime: chartDrawingRouteHour, Price: decimal.RequireFromString("61200")}},
-		Color:     "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: source,
+		Anchors: []dto.ChartDrawingAnchorDto{{OpenTime: chartDrawingRouteHour, Price: decimal.RequireFromString("61200")}},
+		Color:   "blue", LineWidth: 1, LineStyle: "solid", Visible: true, Source: source,
 	}
 	if source == "assistant" {
 		drawing.AssistantConversationID = &conversationID
