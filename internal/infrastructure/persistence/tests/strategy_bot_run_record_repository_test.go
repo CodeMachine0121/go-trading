@@ -62,7 +62,7 @@ func TestStrategyBotRunRecordRepositoryNumbersEachRoundInTurn(t *testing.T) {
 	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell"}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 
 	require.Len(t, runRecords, 3)
@@ -82,7 +82,7 @@ func TestStrategyBotRunRecordRepositoryKeepsOnlyTheLastFifty(t *testing.T) {
 			StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
 	}
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 
 	assert.Len(t, runRecords, 50)
@@ -112,13 +112,13 @@ func TestStrategyBotRunRecordRepositoryKeepsEachBotsHistoryToItself(t *testing.T
 	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: secondBot.ID, RanAt: runRecordRanAt, Result: "sell"}))
 
-	firstHistory, findError := repository.FindLatestByBot(t.Context(), firstBotID)
+	firstHistory, findError := repository.FindLatestByBot(t.Context(), firstBotID, "")
 	require.NoError(t, findError)
 	require.Len(t, firstHistory, 1)
 	assert.Equal(t, 1, firstHistory[0].RunNumber)
 	assert.Equal(t, "buy", firstHistory[0].Result)
 
-	secondHistory, findError := repository.FindLatestByBot(t.Context(), secondBot.ID)
+	secondHistory, findError := repository.FindLatestByBot(t.Context(), secondBot.ID, "")
 	require.NoError(t, findError)
 	require.Len(t, secondHistory, 1)
 	assert.Equal(t, 1, secondHistory[0].RunNumber)
@@ -148,7 +148,7 @@ func TestStrategyBotRunRecordRepositorySaysSoWhenStorageCannotAnswer(t *testing.
 		StrategyBotID: 1, RanAt: runRecordRanAt, Result: "buy"})
 	assert.Error(t, appendError)
 
-	_, findError := repository.FindLatestByBot(t.Context(), 1)
+	_, findError := repository.FindLatestByBot(t.Context(), 1, "")
 	assert.Error(t, findError)
 }
 
@@ -157,7 +157,7 @@ func TestStrategyBotRunRecordRepositoryHandsOutAnEmptyHistoryRatherThanAFailure(
 	botID := aBotToRecordAgainst(t, database)
 
 	runRecords, findError := persistence.NewStrategyBotRunRecordRepository(database).
-		FindLatestByBot(t.Context(), botID)
+		FindLatestByBot(t.Context(), botID, "")
 
 	require.NoError(t, findError)
 	assert.Empty(t, runRecords)
@@ -183,7 +183,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersWhatTheRoundSuggested(t *t
 		},
 	}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 
@@ -202,7 +202,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersNothingWhenNothingWasSugge
 	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 
@@ -228,7 +228,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersNothingForAnUnaffordableSt
 			Stake: decimal.NewFromInt(8000), Affordable: false},
 	}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 	assert.False(t, runRecords[0].SuggestedStake.Valid)

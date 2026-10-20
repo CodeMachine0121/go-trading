@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -51,6 +52,9 @@ var retiredIndexes = []retiredIndex{
 	// Counted deleted trades as open, so deleting an open trade blocked recording it again.
 	{entity: &entities.ContractTradeRecord{}, name: "idx_contract_trade_records_one_open_per_symbol_direction"},
 	{entity: &entities.SpotTradeRecord{}, name: "idx_spot_trade_records_one_open_per_symbol"},
+	// A round is now identified per watched symbol, and several symbols share one round.
+	{entity: &entities.PendingMessage{}, name: "idx_pending_messages_bot_round"},
+	{entity: &entities.ContractAutoOrder{}, name: "idx_contract_auto_orders_bot_round"},
 }
 
 // ownerlessTable is a table that gained a required owner column; rows predating it belong to nobody and are deleted.
@@ -91,6 +95,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.BinanceTradingKey{},
 		&entities.TradingStrategy{},
 		&entities.StrategyBot{},
+		&entities.StrategyBotWatchedSymbol{},
 		&entities.TradingStrategySignalSource{},
 		&entities.TradingStrategySignalSourceParameterValue{},
 		&entities.TradingStrategyConditionNode{},
@@ -148,6 +153,11 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)
 	if migrateError != nil {
 		return nil, fmt.Errorf("auto migrate schema: %w", migrateError)
+	}
+
+	// After the sync, so the watched symbols table and the new symbol columns exist to move into.
+	if moveError := schemaMigrator.moveBotSymbolsOntoWatchedSymbols(); moveError != nil {
+		return nil, moveError
 	}
 
 	// After the sync, so copies can be marked as adopted.
@@ -809,6 +819,103 @@ func (schemaMigrator *SchemaMigrator) ownersOf(transaction *gorm.DB, model any) 
 	}
 
 	return owners, nil
+}
+
+// retiredStrategyBotSymbolRow is a bot as stored when it watched exactly one symbol; read once, while moving that symbol and its state onto a watched symbol, after which these columns are dropped.
+type retiredStrategyBotSymbolRow struct {
+	ID                          uint
+	Symbol                      string
+	LastSentSignal              string
+	LastSentRoundDueAt          *time.Time
+	Conflicting                 bool
+	AutoOrderPositionDirection  string
+	AutoOrderPositionQuantity   decimal.Decimal
+	AutoOrderStopLossClientID   string
+	AutoOrderTakeProfitClientID string
+}
+
+func (retiredStrategyBotSymbolRow) TableName() string {
+	return entities.StrategyBot{}.TableName()
+}
+
+// retiredStrategyBotSymbolColumns are the bot columns that now live on its watched symbol.
+var retiredStrategyBotSymbolColumns = []string{
+	"symbol", "last_sent_signal", "last_sent_round_due_at", "conflicting",
+	"auto_order_position_direction", "auto_order_position_quantity",
+	"auto_order_stop_loss_client_id", "auto_order_take_profit_client_id",
+}
+
+// moveBotSymbolsOntoWatchedSymbols gives every bot still storing its one symbol on itself a watched symbol carrying everything it remembered (last sent signal, conflict, auto-order position and protective orders), hands its history and unsent round messages to that symbol, and drops the old columns.
+// It is one transaction, so a failure leaves the old columns and data untouched for the next start; once the columns are gone it does nothing, and a watched symbol already there is never overwritten.
+func (schemaMigrator *SchemaMigrator) moveBotSymbolsOntoWatchedSymbols() error {
+	if !schemaMigrator.database.Migrator().HasColumn(&retiredStrategyBotSymbolRow{}, "symbol") {
+		return nil
+	}
+
+	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
+		// Only the columns this database still has: one last synced before auto orders existed never had the position columns, which then read as flat.
+		migrator := transaction.Migrator()
+		presentColumns := []string{}
+		for _, column := range retiredStrategyBotSymbolColumns {
+			if migrator.HasColumn(&retiredStrategyBotSymbolRow{}, column) {
+				presentColumns = append(presentColumns, column)
+			}
+		}
+
+		retiredRows := []retiredStrategyBotSymbolRow{}
+		// Named columns, because the table was just altered and a cached plan whose result type changed is refused.
+		if readError := transaction.Model(&retiredStrategyBotSymbolRow{}).
+			Select(append([]string{"id"}, presentColumns...)).
+			Order("id ASC").
+			Find(&retiredRows).Error; readError != nil {
+			return fmt.Errorf("read bots watching one symbol: %w", readError)
+		}
+
+		for _, retiredRow := range retiredRows {
+			watchedSymbol := entities.StrategyBotWatchedSymbol{
+				StrategyBotID:               retiredRow.ID,
+				Symbol:                      retiredRow.Symbol,
+				LastSentSignal:              retiredRow.LastSentSignal,
+				LastSentRoundDueAt:          retiredRow.LastSentRoundDueAt,
+				Conflicting:                 retiredRow.Conflicting,
+				AutoOrderPositionDirection:  retiredRow.AutoOrderPositionDirection,
+				AutoOrderPositionQuantity:   retiredRow.AutoOrderPositionQuantity,
+				AutoOrderStopLossClientID:   retiredRow.AutoOrderStopLossClientID,
+				AutoOrderTakeProfitClientID: retiredRow.AutoOrderTakeProfitClientID,
+			}
+			if createError := transaction.
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "symbol"}},
+					DoNothing: true,
+				}).
+				Create(&watchedSymbol).Error; createError != nil {
+				return fmt.Errorf("move bot %d onto its watched symbol: %w", retiredRow.ID, createError)
+			}
+
+			if updateError := transaction.Model(&entities.StrategyBotRunRecord{}).
+				Where(clause.Eq{Column: "strategy_bot_id", Value: retiredRow.ID}).
+				Where(clause.Eq{Column: "symbol", Value: ""}).
+				UpdateColumn("symbol", retiredRow.Symbol).Error; updateError != nil {
+				return fmt.Errorf("hand bot %d history to its watched symbol: %w", retiredRow.ID, updateError)
+			}
+
+			if updateError := transaction.Model(&entities.PendingMessage{}).
+				Where(clause.Eq{Column: "strategy_bot_id", Value: retiredRow.ID}).
+				Where(clause.Eq{Column: "symbol", Value: ""}).
+				Where(clause.Neq{Column: "round_due_at", Value: nil}).
+				UpdateColumn("symbol", retiredRow.Symbol).Error; updateError != nil {
+				return fmt.Errorf("hand bot %d round messages to its watched symbol: %w", retiredRow.ID, updateError)
+			}
+		}
+
+		for _, column := range presentColumns {
+			if dropError := migrator.DropColumn(&retiredStrategyBotSymbolRow{}, column); dropError != nil {
+				return fmt.Errorf("drop moved bot column %s: %w", column, dropError)
+			}
+		}
+
+		return nil
+	})
 }
 
 // schemaMigrationLockKey names the one Postgres advisory lock every migration takes; any fixed number works as long as it never changes.

@@ -31,7 +31,7 @@ func TestStrategyBotRunRecordRepositoryRemembersWhichWayAndHowFarAContractRoundL
 		HasPositionPlan: true, PositionPlan: aContractSuggestion(),
 	}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 
@@ -59,7 +59,7 @@ func TestStrategyBotRunRecordRepositoryKeepsASpotRoundAsItWas(t *testing.T) {
 		HasPositionPlan: true, PositionPlan: spotSuggestion,
 	}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 
@@ -86,7 +86,7 @@ func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(
 		HasPositionPlan: true, PositionPlan: refused,
 	}))
 
-	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID, "")
 	require.NoError(t, findError)
 	require.Len(t, runRecords, 1)
 

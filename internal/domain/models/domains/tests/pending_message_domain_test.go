@@ -208,10 +208,11 @@ func TestNewRoundPendingMessageDomainGivesUpAfterTheIntervalButNeverWithinFiveMi
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			queued := domains.NewRoundPendingMessageDomain(
-				3, 7, attemptedAt.Add(-time.Minute), vo.SignalBuy, "🔖 Run 52", testCase.triggerInterval, attemptedAt).
-				ToEntity()
+				3, 7, "ETHUSDT", attemptedAt.Add(-time.Minute), vo.SignalBuy, "🔖 Run 52", testCase.triggerInterval,
+				attemptedAt).ToEntity()
 
 			assert.Equal(t, testCase.expectedExpiresAt, queued.ExpiresAt)
+			assert.Equal(t, "ETHUSDT", queued.Symbol)
 			assert.Equal(t, string(vo.PendingMessageRound), queued.Kind)
 			assert.Equal(t, string(vo.PendingMessageReady), queued.Status)
 			assert.Equal(t, attemptedAt, queued.NextAttemptAt)

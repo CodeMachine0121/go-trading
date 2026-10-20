@@ -208,12 +208,12 @@ func TestSpotTradeRouterReads(t *testing.T) {
 	t.Run("a spot journal link answers what it fills in, and a forgotten one 404", func(t *testing.T) {
 		fixture := newSpotTradeRouterUnderTest(t)
 		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "abc").
-			Return(entities.StrategyBotRunRecord{StrategyBotID: 3, Result: "sell",
+			Return(entities.StrategyBotRunRecord{StrategyBotID: 3, Symbol: "2330", Result: "sell",
 				ReferencePrice: decimal.NewNullDecimal(decimal.RequireFromString("1100"))}, true, nil)
 		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "gone").
 			Return(entities.StrategyBotRunRecord{}, false, nil)
 		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
-			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, Symbol: "2330", MarketDataKind: "kCandle"}, nil)
+			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "2330"}}, MarketDataKind: "kCandle"}, nil)
 		fixture.spotTradeRecordRepository.EXPECT().FindOpenByOwnerSymbol(gomock.Any(), signedInViewerID, "2330").
 			Return(entities.SpotTradeRecord{}, false, nil)
 

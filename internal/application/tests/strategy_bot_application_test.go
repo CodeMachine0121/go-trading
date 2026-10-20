@@ -48,6 +48,8 @@ type strategyBotApplicationUnderTest struct {
 	autoOrderReadFailure *error
 	// outstandingEntry is whether one of the bot's orders still has its entry order resting at the venue.
 	outstandingEntry *bool
+	// unsettledAutoOrderSymbols are the watched symbols with an auto order not yet done.
+	unsettledAutoOrderSymbols map[string]bool
 }
 
 // newStrategyBotApplicationUnderTest wires real domain services, mocking only storage, the seal, the carrier and the clock.
@@ -100,6 +102,24 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	contractAutoOrderRepository.EXPECT().ExistsOutstandingEntry(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(context.Context, uint) (bool, error) { return outstandingEntry, autoOrderReadFailure }).AnyTimes()
 
+	unsettledAutoOrderSymbols := map[string]bool{}
+	contractAutoOrderRepository.EXPECT().ExistsUnsettled(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uint, symbol string) (bool, error) {
+			return unsettledAutoOrderSymbols[symbol], autoOrderReadFailure
+		}).AnyTimes()
+
+	// A rewrite is one transaction; the mock runs it inline, so the real rollback is a storage test.
+	transactionRepository := mocks.NewMockITransactionRepository(controller)
+	transactionRepository.EXPECT().Atomically(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, work func(context.Context) error) error {
+			return work(executionContext)
+		}).AnyTimes()
+	// The locked read answers whatever the plain read is set up to answer in each test.
+	strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, id uint) (entities.StrategyBot, error) {
+			return strategyBotRepository.FindOne(executionContext, id)
+		}).AnyTimes()
+
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
@@ -108,7 +128,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-				contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, nil, clockProxy),
+				contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, transactionRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			telegramDeliveryService,
 			service.NewBinanceTradingKeyService(
@@ -134,6 +154,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		storedAutoOrders:                        &storedAutoOrders,
 		autoOrderReadFailure:                    &autoOrderReadFailure,
 		outstandingEntry:                        &outstandingEntry,
+		unsettledAutoOrderSymbols:               unsettledAutoOrderSymbols,
 	}
 }
 
@@ -152,7 +173,7 @@ func (underTest strategyBotApplicationUnderTest) announced() []string {
 func aBotWrite() dto.StrategyBotWriteDto {
 	return dto.StrategyBotWriteDto{
 		Name:                   "早盤突破",
-		Symbol:                 "BTCUSDT",
+		Symbols:                []string{"BTCUSDT"},
 		TradingStrategyID:      botsTradingStrategyID,
 		TriggerIntervalMinutes: 5,
 	}
@@ -160,7 +181,7 @@ func aBotWrite() dto.StrategyBotWriteDto {
 
 func storedBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{
-		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}},
 		TradingStrategyID:      botsTradingStrategyID,
 		TradingStrategy:        entities.TradingStrategy{ID: botsTradingStrategyID, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
@@ -243,7 +264,7 @@ func TestStrategyBotApplicationUpdateRefusesWhileTheBotIsRunning(t *testing.T) {
 
 	underTest.expectTheNamedTradingStrategyIsThisPersons()
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(storedBot(vo.StrategyBotRunning), nil)
+		Return(storedBot(vo.StrategyBotRunning), nil).AnyTimes()
 
 	writeDto := aBotWrite()
 	writeDto.ID = strategyBotID
@@ -331,7 +352,7 @@ func TestStrategyBotApplicationStartPutsTheBotToWorkDueImmediately(t *testing.T)
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	stopped := storedBot(vo.StrategyBotStopped)
-	stopped.LastSentSignal = string(vo.SignalBuy)
+	stopped.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
 	stopped.HaltReason = string(vo.StrategyBotHaltScriptFailed)
 
 	underTest.telegramDeliveryRepository.EXPECT().
@@ -345,7 +366,7 @@ func TestStrategyBotApplicationStartPutsTheBotToWorkDueImmediately(t *testing.T)
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
 			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
 			assert.Equal(t, time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC), bot.NextRunAt)
-			assert.Empty(t, bot.LastSentSignal)
+			assert.Empty(t, bot.WatchedSymbols[0].LastSentSignal)
 			assert.Empty(t, bot.HaltReason)
 
 			return nil
@@ -362,7 +383,7 @@ func TestStrategyBotApplicationStartingAlreadyRunningChangesNothing(t *testing.T
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	running := storedBot(vo.StrategyBotRunning)
-	running.LastSentSignal = string(vo.SignalBuy)
+	running.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
 
 	underTest.telegramDeliveryRepository.EXPECT().
 		FindOneByUser(gomock.Any(), strategyBotOwnerID).
@@ -375,7 +396,7 @@ func TestStrategyBotApplicationStartingAlreadyRunningChangesNothing(t *testing.T
 	require.NoError(t, startError)
 	assert.Equal(t, string(vo.StrategyBotRunning), botDto.RunState)
 	// Starting again must not reset the last sent signal into a repeat message.
-	assert.Equal(t, string(vo.SignalBuy), botDto.LastSentSignal)
+	assert.Equal(t, string(vo.SignalBuy), botDto.WatchedSymbols[0].LastSentSignal)
 }
 
 func TestStrategyBotApplicationStoppingAnAlreadyStoppedBotIsNotAFailure(t *testing.T) {
@@ -457,7 +478,7 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 					FindOneByUser(gomock.Any(), strategyBotOwnerID).
 					Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(storedBot(vo.StrategyBotStopped), nil)
+					Return(storedBot(vo.StrategyBotStopped), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
 					CountRunningByOwner(gomock.Any(), strategyBotOwnerID).
 					Return(0, errors.New("the database went away"))
@@ -476,7 +497,7 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 					FindOneByUser(gomock.Any(), strategyBotOwnerID).
 					Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(storedBot(vo.StrategyBotStopped), nil)
+					Return(storedBot(vo.StrategyBotStopped), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
 					CountRunningByOwner(gomock.Any(), strategyBotOwnerID).Return(0, nil)
 				underTest.strategyBotRepository.EXPECT().
@@ -494,7 +515,7 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			name: "stopping when the new state cannot be written",
 			arrange: func(underTest strategyBotApplicationUnderTest) {
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(storedBot(vo.StrategyBotRunning), nil)
+					Return(storedBot(vo.StrategyBotRunning), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
 					UpdateRunState(gomock.Any(), gomock.Any()).
 					Return(errors.New("the database went away"))
@@ -541,7 +562,7 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			arrange: func(underTest strategyBotApplicationUnderTest) {
 				underTest.expectTheNamedTradingStrategyIsThisPersons()
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(storedBot(vo.StrategyBotStopped), nil)
+					Return(storedBot(vo.StrategyBotStopped), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -662,14 +683,14 @@ func TestStrategyBotApplicationListsWhatABotHasBeenDoing(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(storedBot(vo.StrategyBotRunning), nil)
 	underTest.strategyBotRunRecordRepository.EXPECT().
-		FindLatestByBot(gomock.Any(), strategyBotID).
+		FindLatestByBot(gomock.Any(), strategyBotID, "").
 		Return([]entities.StrategyBotRunRecord{
 			{RunNumber: 2, RanAt: time.Date(2026, 9, 16, 13, 5, 0, 0, time.UTC), Result: "buy"},
 			{RunNumber: 1, RanAt: time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC), Result: "hold"},
 		}, nil)
 
 	runRecords, listError := underTest.strategyBotApplication.ListRunRecords(
-		context.Background(), strategyBotOwnerID, strategyBotID)
+		context.Background(), strategyBotOwnerID, strategyBotID, "")
 
 	require.NoError(t, listError)
 	require.Len(t, runRecords, 2)
@@ -685,7 +706,7 @@ func TestStrategyBotApplicationRefusesSomebodyElsesHistory(t *testing.T) {
 		Return(storedBot(vo.StrategyBotRunning), nil)
 
 	_, listError := underTest.strategyBotApplication.ListRunRecords(
-		context.Background(), strategyBotStrangerID, strategyBotID)
+		context.Background(), strategyBotStrangerID, strategyBotID, "")
 
 	require.ErrorIs(t, listError, domains.ErrStrategyBotNotFound)
 }

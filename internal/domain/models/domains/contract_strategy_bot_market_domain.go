@@ -46,8 +46,8 @@ func (contractMarketDomain ContractStrategyBotMarketDomain) Admit(leverage decim
 
 	if contractMarketDomain.hasLadder &&
 		leverage.GreaterThan(decimal.NewFromInt(int64(contractMarketDomain.maximumLeverage))) {
-		return fmt.Errorf("%w: 這個合約標的最高只能開 %d 倍槓桿",
-			ErrStrategyBotValidation, contractMarketDomain.maximumLeverage)
+		return fmt.Errorf("%w: %s 最高只能開 %d 倍槓桿",
+			ErrStrategyBotValidation, contractMarketDomain.symbol, contractMarketDomain.maximumLeverage)
 	}
 
 	return nil

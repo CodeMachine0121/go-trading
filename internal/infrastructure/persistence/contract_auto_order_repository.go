@@ -19,13 +19,13 @@ func NewContractAutoOrderRepository(database *gorm.DB) *ContractAutoOrderReposit
 	return &ContractAutoOrderRepository{database: ambientTransactionDatabase{root: database}}
 }
 
-// Enqueue leans on the round's unique index, so a round booked twice still queues one order.
+// Enqueue leans on the watched symbol's round index, so a round booked twice still queues one order per symbol.
 func (contractAutoOrderRepository *ContractAutoOrderRepository) Enqueue(
 	executionContext context.Context, contractAutoOrder entities.ContractAutoOrder,
 ) error {
 	result := contractAutoOrderRepository.database.within(executionContext).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "round_due_at"}},
+			Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "symbol"}, {Name: "round_due_at"}},
 			DoNothing: true,
 		}).
 		Create(&contractAutoOrder)
@@ -36,7 +36,7 @@ func (contractAutoOrderRepository *ContractAutoOrderRepository) Enqueue(
 	return nil
 }
 
-// FindDispatchCandidates reads the head of each bot's queue in its own step, so a bot whose order is still running holds back its later ones.
+// FindDispatchCandidates reads the head of each bot's queue per symbol in its own step, so a symbol whose order is still running holds back its later ones while other symbols go ahead.
 func (contractAutoOrderRepository *ContractAutoOrderRepository) FindDispatchCandidates(
 	executionContext context.Context, limit int,
 ) ([]entities.ContractAutoOrder, error) {
@@ -45,12 +45,12 @@ func (contractAutoOrderRepository *ContractAutoOrderRepository) FindDispatchCand
 		clause.Eq{Column: "status", Value: string(vo.ContractAutoOrderExecuting)},
 	)
 
-	// MIN(id) per bot is an aggregate GORM has no typed form for; the fragment names columns only and takes no input, as in the pending message queue.
+	// MIN(id) per bot and symbol is an aggregate GORM has no typed form for; the fragment names columns only and takes no input, as in the pending message queue.
 	headIDs := []uint{}
 	if headError := contractAutoOrderRepository.database.within(executionContext).
 		Model(&entities.ContractAutoOrder{}).
 		Where(unsettled).
-		Group("strategy_bot_id").
+		Group("strategy_bot_id, symbol").
 		Pluck("MIN(id)", &headIDs).Error; headError != nil {
 		return nil, fmt.Errorf("find heads of contract auto order queues: %w", headError)
 	}
@@ -133,17 +133,35 @@ func (contractAutoOrderRepository *ContractAutoOrderRepository) SaveProgress(
 }
 
 func (contractAutoOrderRepository *ContractAutoOrderRepository) ExistsUnsettledAfter(
-	executionContext context.Context, strategyBotID uint, id uint,
+	executionContext context.Context, strategyBotID uint, symbol string, id uint,
 ) (bool, error) {
 	count := int64(0)
 	result := contractAutoOrderRepository.database.within(executionContext).
 		Model(&entities.ContractAutoOrder{}).
 		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Where(clause.Gt{Column: "id", Value: id}).
 		Where(clause.Neq{Column: "status", Value: string(vo.ContractAutoOrderSettled)}).
 		Count(&count)
 	if result.Error != nil {
 		return false, fmt.Errorf("find later contract auto orders: %w", result.Error)
+	}
+
+	return count > 0, nil
+}
+
+func (contractAutoOrderRepository *ContractAutoOrderRepository) ExistsUnsettled(
+	executionContext context.Context, strategyBotID uint, symbol string,
+) (bool, error) {
+	count := int64(0)
+	result := contractAutoOrderRepository.database.within(executionContext).
+		Model(&entities.ContractAutoOrder{}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
+		Where(clause.Neq{Column: "status", Value: string(vo.ContractAutoOrderSettled)}).
+		Count(&count)
+	if result.Error != nil {
+		return false, fmt.Errorf("find unsettled contract auto orders of symbol: %w", result.Error)
 	}
 
 	return count > 0, nil

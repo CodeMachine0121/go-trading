@@ -33,7 +33,8 @@ func newStrategyBotTestDatabase(t *testing.T) *gorm.DB {
 
 func aBotRow(name string) entities.StrategyBot {
 	return entities.StrategyBot{
-		OwnerID: botRowOwnerID, Name: name, Symbol: "BTCUSDT",
+		OwnerID: botRowOwnerID, Name: name,
+		WatchedSymbols:         []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}},
 		TradingStrategyID:      botRowTradingStrategyID,
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotStopped),
@@ -52,7 +53,7 @@ func TestStrategyBotRepositorySaveAndReadBackAWholeBot(t *testing.T) {
 	require.NoError(t, findError)
 
 	assert.Equal(t, "早盤突破", readBot.Name)
-	assert.Equal(t, "BTCUSDT", readBot.Symbol)
+	assert.Equal(t, []string{"BTCUSDT"}, readBot.Symbols())
 	assert.Equal(t, botRowTradingStrategyID, readBot.TradingStrategyID)
 	// The trading strategy is preloaded so a listing needs no read per bot.
 	assert.Equal(t, "黃金交叉", readBot.TradingStrategy.Name)
@@ -71,7 +72,7 @@ func TestStrategyBotRepositorySaveReplacesWhatItHadBefore(t *testing.T) {
 
 	rewritten := aBotRow("收盤反轉")
 	rewritten.ID = savedBot.ID
-	rewritten.Symbol = "ETHUSDT"
+	rewritten.WatchedSymbols = []entities.StrategyBotWatchedSymbol{{Symbol: "ETHUSDT"}}
 	rewritten.TradingStrategyID = 2
 	rewritten.TriggerIntervalMinutes = 15
 
@@ -80,7 +81,7 @@ func TestStrategyBotRepositorySaveReplacesWhatItHadBefore(t *testing.T) {
 
 	assert.Equal(t, savedBot.ID, rewrittenBot.ID)
 	assert.Equal(t, "收盤反轉", rewrittenBot.Name)
-	assert.Equal(t, "ETHUSDT", rewrittenBot.Symbol)
+	assert.Equal(t, []string{"ETHUSDT"}, rewrittenBot.Symbols())
 	assert.Equal(t, uint(2), rewrittenBot.TradingStrategyID)
 	assert.Equal(t, 15, rewrittenBot.TriggerIntervalMinutes)
 }
@@ -199,9 +200,9 @@ func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 	dueAt := time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)
 	savedBot.RunState = string(vo.StrategyBotRunning)
 	savedBot.NextRunAt = dueAt
-	savedBot.LastSentSignal = string(vo.SignalBuy)
+	savedBot.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
 	savedBot.HaltReason = string(vo.StrategyBotHaltScriptFailed)
-	savedBot.Conflicting = true
+	savedBot.WatchedSymbols[0].Conflicting = true
 	// A round must not rewrite configuration, so this change must be ignored.
 	savedBot.Name = "這個名字不該被寫進去"
 
@@ -212,9 +213,9 @@ func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 
 	assert.Equal(t, string(vo.StrategyBotRunning), readBot.RunState)
 	assert.Equal(t, dueAt, readBot.NextRunAt.UTC())
-	assert.Equal(t, string(vo.SignalBuy), readBot.LastSentSignal)
+	assert.Equal(t, string(vo.SignalBuy), readBot.WatchedSymbols[0].LastSentSignal)
 	assert.Equal(t, string(vo.StrategyBotHaltScriptFailed), readBot.HaltReason)
-	assert.True(t, readBot.Conflicting)
+	assert.True(t, readBot.WatchedSymbols[0].Conflicting)
 	assert.Equal(t, "早盤突破", readBot.Name)
 }
 
@@ -244,22 +245,22 @@ func TestStrategyBotRepositoryUpdateRunStateClearsRatherThanSkippingEmptyValues(
 	savedBot, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
 	require.NoError(t, saveError)
 
-	savedBot.LastSentSignal = string(vo.SignalBuy)
+	savedBot.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
 	savedBot.HaltReason = string(vo.StrategyBotHaltScriptFailed)
-	savedBot.Conflicting = true
+	savedBot.WatchedSymbols[0].Conflicting = true
 	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
 
 	// Columns are named so these empty values are written rather than skipped.
-	savedBot.LastSentSignal = ""
+	savedBot.WatchedSymbols[0].LastSentSignal = ""
 	savedBot.HaltReason = ""
-	savedBot.Conflicting = false
+	savedBot.WatchedSymbols[0].Conflicting = false
 	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
 
 	readBot, findError := repository.FindOne(t.Context(), savedBot.ID)
 	require.NoError(t, findError)
-	assert.Empty(t, readBot.LastSentSignal)
+	assert.Empty(t, readBot.WatchedSymbols[0].LastSentSignal)
 	assert.Empty(t, readBot.HaltReason)
-	assert.False(t, readBot.Conflicting)
+	assert.False(t, readBot.WatchedSymbols[0].Conflicting)
 }
 
 func TestStrategyBotRepositoryClaimDueAnswersOnlyRunningBotsThatAreDue(t *testing.T) {

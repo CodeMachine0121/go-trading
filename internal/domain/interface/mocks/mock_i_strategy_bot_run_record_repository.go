@@ -74,16 +74,16 @@ func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) FindByJournalLinkIden
 }
 
 // FindLatestByBot mocks base method.
-func (m *MockIStrategyBotRunRecordRepository) FindLatestByBot(executionContext context.Context, strategyBotID uint) ([]entities.StrategyBotRunRecord, error) {
+func (m *MockIStrategyBotRunRecordRepository) FindLatestByBot(executionContext context.Context, strategyBotID uint, symbol string) ([]entities.StrategyBotRunRecord, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindLatestByBot", executionContext, strategyBotID)
+	ret := m.ctrl.Call(m, "FindLatestByBot", executionContext, strategyBotID, symbol)
 	ret0, _ := ret[0].([]entities.StrategyBotRunRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindLatestByBot indicates an expected call of FindLatestByBot.
-func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) FindLatestByBot(executionContext, strategyBotID any) *gomock.Call {
+func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) FindLatestByBot(executionContext, strategyBotID, symbol any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatestByBot", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).FindLatestByBot), executionContext, strategyBotID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatestByBot", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).FindLatestByBot), executionContext, strategyBotID, symbol)
 }

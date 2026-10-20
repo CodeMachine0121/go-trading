@@ -126,7 +126,7 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 				if roundDueAt, speaksForARound := dueMessage.RoundDueAt(); speaksForARound &&
 					dueMessage.ForgetsSignalWhenAbandoned() {
 					if forgetError := pendingMessageService.strategyBotRepository.ForgetSentSignal(
-						executionContext, dueMessage.StrategyBotID(), roundDueAt); forgetError != nil {
+						executionContext, dueMessage.StrategyBotID(), dueMessage.Symbol(), roundDueAt); forgetError != nil {
 						log.Printf("pending message %d expired but its bot could not forget the signal: %v",
 							dueMessage.ID(), forgetError)
 

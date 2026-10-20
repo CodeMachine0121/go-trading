@@ -18,7 +18,7 @@ func aContractBotWrite() dto.StrategyBotWriteDto {
 	return dto.StrategyBotWriteDto{
 		OwnerID:                1,
 		Name:                   "合約突破",
-		Symbol:                 "BTCUSDT",
+		Symbols:                []string{"BTCUSDT"},
 		MarketDataKind:         string(vo.MarketDataKindContractKCandle),
 		TradingStrategyID:      9,
 		TriggerIntervalMinutes: 5,
@@ -179,7 +179,7 @@ func TestContractStrategyBotMarketDomainAdmitsOnlyAFollowedContract(t *testing.T
 			leverage: "1", expectedRefusal: "請先把它加進合約追蹤名單"},
 		{name: "more leverage than the smallest tier allows is refused, naming the ceiling",
 			symbol: entities.ContractTradingSymbol{IsWatched: true}, isRegistered: true,
-			tiers: aLadderToppingAt(125), leverage: "150", expectedRefusal: "這個合約標的最高只能開 125 倍槓桿"},
+			tiers: aLadderToppingAt(125), leverage: "150", expectedRefusal: "BTCUSDT 最高只能開 125 倍槓桿"},
 		{name: "exactly the ceiling is admitted", symbol: entities.ContractTradingSymbol{IsWatched: true},
 			isRegistered: true, tiers: aLadderToppingAt(125), leverage: "125"},
 		{name: "with no ladder there is no ceiling to refuse by",

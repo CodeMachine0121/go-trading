@@ -157,10 +157,38 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 		return dto.StrategyBotDto{}, validationError
 	}
 
-	savedBot, saveError := strategyBotService.strategyBotRepository.Save(
-		executionContext, strategyBotDomain.ToEntity())
-	if saveError != nil {
-		return dto.StrategyBotDto{}, saveError
+	savedBot := entities.StrategyBot{}
+	// Locked, so the symbols checked for removal are the ones the save replaces.
+	transactionError := strategyBotService.transactionRepository.Atomically(executionContext,
+		func(transactionContext context.Context) error {
+			lockedBot, lockError := strategyBotService.strategyBotRepository.FindOneLocked(transactionContext, storedBot.ID)
+			if lockError != nil {
+				return lockError
+			}
+			// Asked again under the lock, since a start pressed meanwhile would have the symbols change under a running round.
+			if editableError := domains.NewStrategyBotRunStateDomain(lockedBot).RequireEditable(); editableError != nil {
+				return editableError
+			}
+
+			for _, droppedSymbol := range strategyBotDomain.WatchedSymbolsDroppedFrom(lockedBot) {
+				hasUnsettledAutoOrder, unsettledError := strategyBotService.contractAutoOrderRepository.ExistsUnsettled(
+					transactionContext, lockedBot.ID, droppedSymbol.Symbol())
+				if unsettledError != nil {
+					return unsettledError
+				}
+				if removableError := droppedSymbol.RequireRemovable(hasUnsettledAutoOrder); removableError != nil {
+					return removableError
+				}
+			}
+
+			saved, saveError := strategyBotService.strategyBotRepository.Save(
+				transactionContext, strategyBotDomain.ToEntity())
+			savedBot = saved
+
+			return saveError
+		})
+	if transactionError != nil {
+		return dto.StrategyBotDto{}, transactionError
 	}
 
 	return savedBot.ToDto(), nil
@@ -381,9 +409,24 @@ func (strategyBotService *StrategyBotService) ClaimStrategyBot(
 	return nil
 }
 
-// DecideRound evaluates the buy and sell conditions against this round's signals, with no I/O, so it can be replayed over history.
+// WatchedSymbolsToPlay are the bot's watched symbols a round runs: while running, all but those halted on their own; a round pressed by hand on a stopped bot tries every symbol, so the owner can see whether a fix worked.
+func (strategyBotService *StrategyBotService) WatchedSymbolsToPlay(
+	botDto dto.StrategyBotDto,
+) []dto.StrategyBotWatchedSymbolDto {
+	isRunning := vo.StrategyBotRunStateVo(botDto.RunState) == vo.StrategyBotRunning
+	watchedSymbolsToPlay := make([]dto.StrategyBotWatchedSymbolDto, 0, len(botDto.WatchedSymbols))
+	for _, watchedSymbolDto := range botDto.WatchedSymbols {
+		if !isRunning || vo.StrategyBotHaltReasonVo(watchedSymbolDto.HaltReason) == vo.StrategyBotHaltNone {
+			watchedSymbolsToPlay = append(watchedSymbolsToPlay, watchedSymbolDto)
+		}
+	}
+
+	return watchedSymbolsToPlay
+}
+
+// DecideRound evaluates the buy and sell conditions against one watched symbol's signals this round, with no I/O, so it can be replayed over history.
 func (strategyBotService *StrategyBotService) DecideRound(
-	botDto dto.StrategyBotDto, tradingStrategyDto dto.TradingStrategyDto,
+	watchedSymbolDto dto.StrategyBotWatchedSymbolDto, tradingStrategyDto dto.TradingStrategyDto,
 	signalsByLabel map[string]vo.SignalVo,
 ) (dto.StrategyBotRoundDecisionDto, error) {
 	declaredLabels := make([]string, 0, len(tradingStrategyDto.SignalSources))
@@ -406,7 +449,7 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	verdictDomain := domains.NewStrategyBotVerdictDomain(
 		buyCondition.Holds(signalsByLabel),
 		sellCondition.Holds(signalsByLabel),
-		botDto.LastSentSignal)
+		watchedSymbolDto.LastSentSignal)
 
 	return dto.StrategyBotRoundDecisionDto{
 		Verdict:     string(verdictDomain.Verdict()),
@@ -423,11 +466,11 @@ func (strategyBotService *StrategyBotService) RequireCurrentMarket(
 		newestCandleOpenTime, hasNewestCandle, strategyBotService.clockProxy.Now())
 }
 
-// ReadRoundFailure decides whether a round failure halts the bot or waits for the next round, kept in one place so there is one list of hopeless failures.
+// ReadRoundFailure decides whether a round failure on a watched symbol halts the bot, halts that symbol or waits for the next round, kept in one place so there is one list of hopeless failures.
 func (strategyBotService *StrategyBotService) ReadRoundFailure(
-	roundError error,
-) dto.StrategyBotRoundOutcomeDto {
-	return domains.NewStrategyBotRoundFailureDomain(roundError).ToOutcomeDto()
+	symbol string, roundError error,
+) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
+	return domains.NewStrategyBotRoundFailureDomain(roundError).ToOutcomeDto(symbol)
 }
 
 // PlanRoundPosition computes the suggested position once so the message and the history show the same figures.
@@ -478,14 +521,14 @@ func (strategyBotService *StrategyBotService) PlanAutoOrderIntent(
 	return domains.NewContractAutoOrderIntentDomain(round).ToDto()
 }
 
-// RecordRound applies any round outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
-// The bot's new state, the round's history, what the round has to say and the release of claimant's claim land in one transaction, so an owner is never told of a round the bot did not keep, nor kept in the dark about one it did.
+// RecordRound applies a whole round's outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
+// The bot's and its watched symbols' new state, each symbol's history, what the round has to say and the release of claimant's claim land in one transaction, so an owner is never told of a round the bot did not keep, nor kept in the dark about one it did, and no round lands on half its symbols.
 // It reports whether the outcome was applied; a bot that moved on meanwhile is left untouched.
 func (strategyBotService *StrategyBotService) RecordRound(
 	executionContext context.Context, id uint, dueAt time.Time, claimant string,
 	outcomeDto dto.StrategyBotRoundOutcomeDto,
 ) (dto.StrategyBotDto, bool, error) {
-	outcome := domains.NewStrategyBotRoundOutcomeDomainOf(outcomeDto)
+	roundOutcome := domains.NewStrategyBotRoundOutcomeDomain(outcomeDto)
 	endedBotDto := dto.StrategyBotDto{}
 	applied := false
 
@@ -505,63 +548,87 @@ func (strategyBotService *StrategyBotService) RecordRound(
 			}
 
 			ranAt := strategyBotService.clockProxy.Now()
-			endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), dueAt, ranAt)
+			endedBot, botHaltReason := roundOutcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), dueAt, ranAt)
 
 			if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
 				transactionContext, endedBot); updateError != nil {
 				return updateError
 			}
 
-			runNumber, appendError := strategyBotService.strategyBotRunRecordRepository.Append(
-				transactionContext, dto.StrategyBotRunRecordWriteDto{
-					StrategyBotID: id,
-					RanAt:         ranAt,
-					Result:        string(outcome.RecordedResult()),
-					// Taken from the outcome because the bot's settings may have changed since the round was decided.
-					PositionPlan:          outcomeDto.PositionPlan,
-					HasPositionPlan:       outcomeDto.HasPositionPlan,
-					ReferencePrice:        outcomeDto.ReferencePrice,
-					JournalLinkIdentifier: outcomeDto.JournalLinkIdentifier,
-				})
-			if appendError != nil {
-				return appendError
-			}
-
-			if outcomeDto.HasMessage {
-				round := outcomeDto.Round
-				round.RunNumber = runNumber
-
-				if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
-					domains.NewRoundPendingMessageDomain(
-						id, storedBot.OwnerID, dueAt, vo.SignalVo(outcomeDto.SentSignal),
-						domains.NewStrategyBotMessageDomain(round).Text(),
-						time.Duration(storedBot.TriggerIntervalMinutes)*time.Minute, ranAt,
-					).ToEntity()); enqueueError != nil {
-					return enqueueError
+			for _, watchedSymbolOutcomeDto := range outcomeDto.WatchedSymbolOutcomes {
+				// A symbol dropped from the bot while the round ran has nowhere to land.
+				if _, isWatched := storedBot.WatchedSymbol(watchedSymbolOutcomeDto.Symbol); !isWatched {
+					continue
 				}
-			}
 
-			// Judged on the locked row, not the round's snapshot: a bot stopped, or switched off, while the round ran sends nothing.
-			// Only contract rounds carry an intent, so spot bots never get this far.
-			if outcomeDto.HasMessage && outcomeDto.HasAutoOrderIntent && storedBot.AutoOrderEnabled &&
-				storedBot.RunState == string(vo.StrategyBotRunning) {
-				if enqueueError := strategyBotService.contractAutoOrderRepository.Enqueue(transactionContext,
-					domains.NewQueuedContractAutoOrderDomain(
-						storedBot, dueAt, runNumber, outcomeDto.AutoOrderIntent, ranAt,
-					).ToEntity()); enqueueError != nil {
-					return enqueueError
+				watchedSymbolOutcome := domains.NewStrategyBotWatchedSymbolRoundOutcomeDomain(watchedSymbolOutcomeDto)
+				runNumber, appendError := strategyBotService.strategyBotRunRecordRepository.Append(
+					transactionContext, dto.StrategyBotRunRecordWriteDto{
+						StrategyBotID: id,
+						Symbol:        watchedSymbolOutcomeDto.Symbol,
+						RanAt:         ranAt,
+						Result:        string(watchedSymbolOutcome.RecordedResult()),
+						// Taken from the outcome because the bot's settings may have changed since the round was decided.
+						PositionPlan:          watchedSymbolOutcomeDto.PositionPlan,
+						HasPositionPlan:       watchedSymbolOutcomeDto.HasPositionPlan,
+						ReferencePrice:        watchedSymbolOutcomeDto.ReferencePrice,
+						JournalLinkIdentifier: watchedSymbolOutcomeDto.JournalLinkIdentifier,
+					})
+				if appendError != nil {
+					return appendError
+				}
+
+				if watchedSymbolOutcomeDto.HasMessage {
+					round := watchedSymbolOutcomeDto.Round
+					round.RunNumber = runNumber
+
+					if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
+						domains.NewRoundPendingMessageDomain(
+							id, storedBot.OwnerID, watchedSymbolOutcomeDto.Symbol, dueAt,
+							vo.SignalVo(watchedSymbolOutcomeDto.SentSignal),
+							domains.NewStrategyBotMessageDomain(round).Text(),
+							time.Duration(storedBot.TriggerIntervalMinutes)*time.Minute, ranAt,
+						).ToEntity()); enqueueError != nil {
+						return enqueueError
+					}
+				}
+
+				// Judged on the locked row, not the round's snapshot: a bot stopped, or switched off, while the round ran sends nothing.
+				// Only contract rounds carry an intent, so spot bots never get this far.
+				if watchedSymbolOutcomeDto.HasMessage && watchedSymbolOutcomeDto.HasAutoOrderIntent &&
+					storedBot.AutoOrderEnabled && storedBot.RunState == string(vo.StrategyBotRunning) {
+					if enqueueError := strategyBotService.contractAutoOrderRepository.Enqueue(transactionContext,
+						domains.NewQueuedContractAutoOrderDomain(
+							storedBot, watchedSymbolOutcomeDto.Symbol, dueAt, runNumber,
+							watchedSymbolOutcomeDto.AutoOrderIntent, ranAt,
+						).ToEntity()); enqueueError != nil {
+						return enqueueError
+					}
+				}
+
+				// A symbol's own halt is told only while the other symbols carry on: a halted bot says it once for all, and a stopped bot has nothing carrying on.
+				if watchedSymbolOutcome.HaltsTheWatchedSymbol() && botHaltReason == vo.StrategyBotHaltNone &&
+					storedBot.RunState == string(vo.StrategyBotRunning) {
+					if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
+						domains.NewLifecyclePendingMessageDomain(
+							id, storedBot.OwnerID,
+							domains.NewStrategyBotLifecycleMessageDomain(
+								storedBot.Name, storedBot.MarketDataKind, []string{watchedSymbolOutcomeDto.Symbol},
+								watchedSymbolOutcome.HaltReason()).WatchedSymbolHaltedText(),
+							ranAt,
+						).ToEntity()); enqueueError != nil {
+						return enqueueError
+					}
 				}
 			}
 
 			// Said only when this round is what stopped the bot.
-			if outcome.HaltsTheBot() {
+			if botHaltReason != vo.StrategyBotHaltNone {
 				if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
 					domains.NewLifecyclePendingMessageDomain(
 						id, storedBot.OwnerID,
 						domains.NewStrategyBotLifecycleMessageDomain(
-							endedBot.Name,
-							domains.NewStrategyBotMarketDomain(endedBot.MarketDataKind, "").SymbolLabel(endedBot.Symbol),
-							vo.StrategyBotHaltReasonVo(endedBot.HaltReason)).StoppedText(),
+							endedBot.Name, endedBot.MarketDataKind, endedBot.Symbols(), botHaltReason).StoppedText(),
 						ranAt,
 					).ToEntity()); enqueueError != nil {
 					return enqueueError
@@ -585,30 +652,36 @@ func (strategyBotService *StrategyBotService) WriteStartedMessage(
 	botDto dto.StrategyBotDto,
 ) string {
 	return domains.NewStrategyBotLifecycleMessageDomain(
-		botDto.Name,
-		domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").SymbolLabel(botDto.Symbol),
-		vo.StrategyBotHaltNone).StartedText()
+		botDto.Name, botDto.MarketDataKind, botDto.Symbols(), vo.StrategyBotHaltNone).StartedText()
 }
 
 func (strategyBotService *StrategyBotService) WriteStoppedMessage(
 	botDto dto.StrategyBotDto,
 ) string {
 	return domains.NewStrategyBotLifecycleMessageDomain(
-		botDto.Name,
-		domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").SymbolLabel(botDto.Symbol),
+		botDto.Name, botDto.MarketDataKind, botDto.Symbols(),
 		vo.StrategyBotHaltReasonVo(botDto.HaltReason)).StoppedText()
 }
 
-// ListRunRecords returns the bot's remembered rounds, newest first, to its owner only.
+// ListRunRecords returns the bot's remembered rounds, newest first, to its owner only; a symbol narrows them to that symbol's, read the way symbols are stored.
 func (strategyBotService *StrategyBotService) ListRunRecords(
-	executionContext context.Context, viewerID uint, id uint,
+	executionContext context.Context, viewerID uint, id uint, symbol string,
 ) ([]dto.StrategyBotRunRecordDto, error) {
 	if _, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id); findError != nil {
 		return nil, findError
 	}
 
+	narrowedSymbol := ""
+	if strings.TrimSpace(symbol) != "" {
+		tradingSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(symbol))
+		if symbolError != nil {
+			return nil, fmt.Errorf("%w: %w", domains.ErrStrategyBotValidation, symbolError)
+		}
+		narrowedSymbol = tradingSymbol.Value()
+	}
+
 	runRecords, listError := strategyBotService.strategyBotRunRecordRepository.FindLatestByBot(
-		executionContext, id)
+		executionContext, id, narrowedSymbol)
 	if listError != nil {
 		return nil, listError
 	}
@@ -660,22 +733,25 @@ func (strategyBotService *StrategyBotService) settle(
 		return strategyBotDomain, nil
 	}
 
-	contractTradingSymbol, isRegistered, findSymbolError := strategyBotService.
-		contractTradingSymbolRepository.FindBySymbol(executionContext, strategyBotDomain.Symbol())
-	if findSymbolError != nil {
-		return domains.StrategyBotDomain{}, findSymbolError
-	}
+	// Every symbol must pass, since each one trades with the bot's whole plan.
+	for _, symbol := range strategyBotDomain.Symbols() {
+		contractTradingSymbol, isRegistered, findSymbolError := strategyBotService.
+			contractTradingSymbolRepository.FindBySymbol(executionContext, symbol)
+		if findSymbolError != nil {
+			return domains.StrategyBotDomain{}, findSymbolError
+		}
 
-	maintenanceMarginTiers, findTiersError := strategyBotService.
-		contractMaintenanceMarginTierRepository.FindBySymbol(executionContext, strategyBotDomain.Symbol())
-	if findTiersError != nil {
-		return domains.StrategyBotDomain{}, findTiersError
-	}
+		maintenanceMarginTiers, findTiersError := strategyBotService.
+			contractMaintenanceMarginTierRepository.FindBySymbol(executionContext, symbol)
+		if findTiersError != nil {
+			return domains.StrategyBotDomain{}, findTiersError
+		}
 
-	if admitError := domains.NewContractStrategyBotMarketDomain(
-		strategyBotDomain.Symbol(), contractTradingSymbol, isRegistered, maintenanceMarginTiers,
-	).Admit(strategyBotDomain.Leverage()); admitError != nil {
-		return domains.StrategyBotDomain{}, admitError
+		if admitError := domains.NewContractStrategyBotMarketDomain(
+			symbol, contractTradingSymbol, isRegistered, maintenanceMarginTiers,
+		).Admit(strategyBotDomain.Leverage()); admitError != nil {
+			return domains.StrategyBotDomain{}, admitError
+		}
 	}
 
 	return strategyBotDomain, nil

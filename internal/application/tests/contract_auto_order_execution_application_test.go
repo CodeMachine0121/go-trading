@@ -117,13 +117,13 @@ func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
 		}).AnyTimes()
 
 	laterOrderQueued := false
-	contractAutoOrderRepository.EXPECT().ExistsUnsettledAfter(gomock.Any(), autoOrderBotID, autoOrderID).
-		DoAndReturn(func(context.Context, uint, uint) (bool, error) {
+	contractAutoOrderRepository.EXPECT().ExistsUnsettledAfter(gomock.Any(), autoOrderBotID, "BTCUSDT", autoOrderID).
+		DoAndReturn(func(context.Context, uint, string, uint) (bool, error) {
 			return laterOrderQueued, failures.laterOrders
 		}).AnyTimes()
 
 	bot := entities.StrategyBot{
-		ID: autoOrderBotID, OwnerID: autoOrderOwnerID, Name: autoOrderBotName, Symbol: "BTCUSDT",
+		ID: autoOrderBotID, OwnerID: autoOrderOwnerID, Name: autoOrderBotName, WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}},
 		MarketDataKind: string(vo.MarketDataKindContractKCandle), RunState: string(vo.StrategyBotRunning),
 		AutoOrderEnabled: true,
 	}
@@ -132,8 +132,8 @@ func newAutoOrderExecutionUnderTest(t *testing.T) autoOrderExecutionUnderTest {
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
 	strategyBotRepository.EXPECT().FindOne(gomock.Any(), autoOrderBotID).
 		DoAndReturn(func(context.Context, uint) (entities.StrategyBot, error) { return bot, failures.findBot }).AnyTimes()
-	strategyBotRepository.EXPECT().UpdateAutoOrderPosition(gomock.Any(), autoOrderBotID, gomock.Any()).
-		DoAndReturn(func(executionContext context.Context, _ uint, position vo.AutoOrderPositionVo) error {
+	strategyBotRepository.EXPECT().UpdateAutoOrderPosition(gomock.Any(), autoOrderBotID, "BTCUSDT", gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, _ uint, _ string, position vo.AutoOrderPositionVo) error {
 			assert.True(t, isInsideTransaction(executionContext), "the bot's position is written outside the step's transaction")
 			if failures.position != nil {
 				return failures.position
@@ -257,10 +257,10 @@ func (underTest autoOrderExecutionUnderTest) queues(order entities.ContractAutoO
 
 // botHolds is the bot's own position before the order runs.
 func (underTest autoOrderExecutionUnderTest) botHolds(direction string, quantity string, stopLossID string, takeProfitID string) {
-	underTest.bot.AutoOrderPositionDirection = direction
-	underTest.bot.AutoOrderPositionQuantity = decimal.RequireFromString(quantity)
-	underTest.bot.AutoOrderStopLossClientID = stopLossID
-	underTest.bot.AutoOrderTakeProfitClientID = takeProfitID
+	underTest.bot.WatchedSymbols[0].AutoOrderPositionDirection = direction
+	underTest.bot.WatchedSymbols[0].AutoOrderPositionQuantity = decimal.RequireFromString(quantity)
+	underTest.bot.WatchedSymbols[0].AutoOrderStopLossClientID = stopLossID
+	underTest.bot.WatchedSymbols[0].AutoOrderTakeProfitClientID = takeProfitID
 }
 
 func (underTest autoOrderExecutionUnderTest) execute(t *testing.T) {
@@ -947,4 +947,52 @@ func TestAFractionalLeverageIsNeverSentToTheVenue(t *testing.T) {
 	settled := underTest.lastSaved(t)
 	assert.Equal(t, string(vo.ContractAutoOrderNotPlaced), settled.Outcome)
 	assert.Equal(t, "交易所不收這一筆：幣安只接受整數槓桿", settled.Reason)
+}
+
+// Another symbol's position is none of this order's business: opening BTC while ETH holds a long neither closes ETH nor adds to it.
+func TestAnAutoOrderActsOnlyOnItsOwnSymbolsPosition(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.bot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+		{Symbol: "ETHUSDT", AutoOrderPositionDirection: "long", AutoOrderPositionQuantity: decimal.RequireFromString("0.5"),
+			AutoOrderStopLossClientID: earlierStopLossID, AutoOrderTakeProfitClientID: earlierTakeProfitID},
+		{Symbol: "BTCUSDT"},
+	}
+	underTest.queues(anAutoOrder("long", "0.002", "1.5", "3"))
+	underTest.entryIsNotAtTheVenue()
+	underTest.accountIsOneWay()
+	underTest.leverageIsSet()
+	underTest.entryOrderFills(t, vo.ContractOrderSideBuy, "0.002", "0.002", "85000")
+	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideSell,
+		"83725.0", "0.002", stopLossClientID, vo.ContractOrderCallVo{})
+	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderTakeProfit, vo.ContractOrderSideSell,
+		"87550.0", "0.002", takeProfitClientID, vo.ContractOrderCallVo{})
+
+	underTest.execute(t)
+
+	position := underTest.lastPosition(t)
+	assert.Equal(t, vo.TargetPositionLong, position.Direction)
+	assert.True(t, position.Quantity.Equal(decimal.RequireFromString("0.002")))
+	assert.Equal(t, stopLossClientID, position.StopLossClientID)
+}
+
+// Closing one symbol closes only what the bot opened on that symbol, however large another symbol's position is.
+func TestAnAutoOrderClosesOnlyItsOwnSymbolsPosition(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.bot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+		{Symbol: "ETHUSDT", AutoOrderPositionDirection: "long", AutoOrderPositionQuantity: decimal.RequireFromString("0.5")},
+		{Symbol: "BTCUSDT", AutoOrderPositionDirection: "long", AutoOrderPositionQuantity: decimal.RequireFromString("0.002"),
+			AutoOrderStopLossClientID: earlierStopLossID, AutoOrderTakeProfitClientID: earlierTakeProfitID},
+	}
+	underTest.queues(anAutoOrder("flat", "", "0", "0"))
+	underTest.venueHasNo(closeClientOrderID)
+	underTest.accountIsOneWay()
+	underTest.venueHolds("0.012", "0")
+	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
+	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+
+	underTest.execute(t)
+
+	position := underTest.lastPosition(t)
+	assert.Empty(t, position.Direction)
+	assert.True(t, position.Quantity.IsZero())
 }

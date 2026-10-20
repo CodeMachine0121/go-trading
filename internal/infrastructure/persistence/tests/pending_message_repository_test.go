@@ -301,7 +301,7 @@ func TestOutboxAndDutyStorageSaySoWhenStorageCannotAnswer(t *testing.T) {
 	assert.Error(t, leaseRepository.Release(t.Context(), "background-jobs", "replica-a"))
 	_, lockedError := strategyBotRepository.FindOneLocked(t.Context(), 1)
 	assert.Error(t, lockedError)
-	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, queuedAt))
+	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, "BTCUSDT", queuedAt))
 }
 
 // A round is booked through three repositories; this proves all three roll back together, which the round's own tests cannot since they mock the transaction.
@@ -314,7 +314,7 @@ func TestTransactionRepositoryRollsBackARoundsStateHistoryAndMessageTogether(t *
 	atomicError := transactionRepository.Atomically(t.Context(), func(transactionContext context.Context) error {
 		bot, findError := strategyBotRepository.FindOneLocked(transactionContext, testBed.botID)
 		require.NoError(t, findError)
-		bot.LastSentSignal = string(vo.SignalBuy)
+		bot.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
 		require.NoError(t, strategyBotRepository.UpdateRunState(transactionContext, bot))
 		_, appendError := strategyBotRunRecordRepository.Append(transactionContext, dto.StrategyBotRunRecordWriteDto{
 			StrategyBotID: testBed.botID, RanAt: queuedAt, Result: "buy"})
@@ -327,8 +327,8 @@ func TestTransactionRepositoryRollsBackARoundsStateHistoryAndMessageTogether(t *
 	require.Error(t, atomicError)
 	storedBot, findError := strategyBotRepository.FindOne(t.Context(), testBed.botID)
 	require.NoError(t, findError)
-	assert.Empty(t, storedBot.LastSentSignal)
-	history, historyError := strategyBotRunRecordRepository.FindLatestByBot(t.Context(), testBed.botID)
+	assert.Empty(t, storedBot.WatchedSymbols[0].LastSentSignal)
+	history, historyError := strategyBotRunRecordRepository.FindLatestByBot(t.Context(), testBed.botID, "")
 	require.NoError(t, historyError)
 	assert.Empty(t, history)
 	assert.Empty(t, testBed.storedMessages(t))

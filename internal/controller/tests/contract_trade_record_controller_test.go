@@ -230,9 +230,9 @@ func TestContractTradeRouterReads(t *testing.T) {
 	t.Run("a journal link answers what it fills in", func(t *testing.T) {
 		fixture := newContractTradeRouterUnderTest(t)
 		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "k3y").
-			Return(entities.StrategyBotRunRecord{StrategyBotID: 3, RunNumber: 412, SuggestedDirection: "long"}, true, nil)
+			Return(entities.StrategyBotRunRecord{StrategyBotID: 3, Symbol: "BTCUSDT", RunNumber: 412, SuggestedDirection: "long"}, true, nil)
 		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
-			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, Symbol: "BTCUSDT",
+			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}},
 				MarketDataKind: string(vo.MarketDataKindContractKCandle)}, nil)
 		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(entities.ContractTradeRecord{}, false, nil)

@@ -19,13 +19,13 @@ func NewPendingMessageRepository(database *gorm.DB) *PendingMessageRepository {
 	return &PendingMessageRepository{database: ambientTransactionDatabase{root: database}}
 }
 
-// Enqueue leans on the round's unique index, so a round booked twice still queues one message.
+// Enqueue leans on the watched symbol's round index, so a round booked twice still queues one message per symbol.
 func (pendingMessageRepository *PendingMessageRepository) Enqueue(
 	executionContext context.Context, pendingMessage entities.PendingMessage,
 ) error {
 	result := pendingMessageRepository.database.within(executionContext).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "round_due_at"}},
+			Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "symbol"}, {Name: "round_due_at"}},
 			DoNothing: true,
 		}).
 		Create(&pendingMessage)

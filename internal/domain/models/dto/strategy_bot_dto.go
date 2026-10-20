@@ -13,7 +13,8 @@ type StrategyBotDto struct {
 	// OwnerID is never serialized; rounds use it to act as the owner since no user is signed in.
 	OwnerID uint   `json:"-"`
 	Name    string `json:"name"`
-	Symbol  string `json:"symbol"`
+	// WatchedSymbols are the symbols the bot applies its trading strategy to, in the order they were added, each with its own state.
+	WatchedSymbols []StrategyBotWatchedSymbolDto `json:"watchedSymbols"`
 	// MarketDataKind is kCandle or contractKCandle and never changes after creation.
 	MarketDataKind         string `json:"marketDataKind"`
 	TriggerIntervalMinutes int    `json:"triggerIntervalMinutes"`
@@ -27,19 +28,22 @@ type StrategyBotDto struct {
 	TradingStrategyID   uint   `json:"tradingStrategyId"`
 	TradingStrategyName string `json:"tradingStrategyName"`
 	RunState            string `json:"runState"`
-	// LastSentSignal is empty since the last start, so the first conclusion after starting
-	// is always sent.
-	LastSentSignal string `json:"lastSentSignal,omitempty"`
-	// HaltReason is empty when running or stopped by the owner.
+	// HaltReason is empty when running or stopped by the owner; a single symbol's halt is on that watched symbol.
 	HaltReason string `json:"haltReason,omitempty"`
-	// Conflicting is not a halt and clears once a round stops conflicting.
-	Conflicting bool `json:"conflicting"`
 	// AutoOrderEnabled lets a running contract bot open and close positions with its owner's Binance trading key; on spot bots it has no effect yet.
 	AutoOrderEnabled bool `json:"autoOrderEnabled"`
 	// AutoOrderEntrySlippageTolerancePercentage is in percent: 0.1 lets an auto order's entry limit sit up to 0.1% from the reference price.
 	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `json:"autoOrderEntrySlippageTolerancePercentage"`
-	// AutoOrderPosition is what a contract bot opened itself and still holds; spot bots have none.
-	AutoOrderPosition *AutoOrderPositionDto `json:"autoOrderPosition,omitempty"`
-	CreatedAt         time.Time             `json:"createdAt"`
-	UpdatedAt         time.Time             `json:"updatedAt"`
+	CreatedAt                                 time.Time       `json:"createdAt"`
+	UpdatedAt                                 time.Time       `json:"updatedAt"`
+}
+
+// Symbols lists the watched symbols in the bot's order.
+func (strategyBotDto StrategyBotDto) Symbols() []string {
+	symbols := make([]string, 0, len(strategyBotDto.WatchedSymbols))
+	for _, watchedSymbolDto := range strategyBotDto.WatchedSymbols {
+		symbols = append(symbols, watchedSymbolDto.Symbol)
+	}
+
+	return symbols
 }

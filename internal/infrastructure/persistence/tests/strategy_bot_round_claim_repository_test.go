@@ -222,15 +222,15 @@ func TestStrategyBotRepositoryForgetSentSignal(t *testing.T) {
 			database := newStrategyBotTestDatabase(t)
 			repository := persistence.NewStrategyBotRepository(database)
 			bot := aDueRunningBot(t, repository, "X")
-			bot.LastSentSignal = string(vo.SignalBuy)
-			bot.LastSentRoundDueAt = &roundSaidIt
+			bot.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
+			bot.WatchedSymbols[0].LastSentRoundDueAt = &roundSaidIt
 			require.NoError(t, repository.UpdateRunState(t.Context(), bot))
 
-			require.NoError(t, repository.ForgetSentSignal(t.Context(), bot.ID, testCase.forgottenRound))
+			require.NoError(t, repository.ForgetSentSignal(t.Context(), bot.ID, "BTCUSDT", testCase.forgottenRound))
 
 			stored, findError := repository.FindOne(t.Context(), bot.ID)
 			require.NoError(t, findError)
-			assert.Equal(t, testCase.expectedSignal, stored.LastSentSignal)
+			assert.Equal(t, testCase.expectedSignal, stored.WatchedSymbols[0].LastSentSignal)
 		})
 	}
 }

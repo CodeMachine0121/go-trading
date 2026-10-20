@@ -10,6 +10,7 @@ import (
 // reported by the bot's own state.
 type StrategyBotRunRecordDto struct {
 	RunNumber int       `json:"runNumber"`
+	Symbol    string    `json:"symbol"`
 	RanAt     time.Time `json:"ranAt"`
 	Result    string    `json:"result"`
 	// Suggested prices are pointers omitted when nothing was suggested, since zero is a

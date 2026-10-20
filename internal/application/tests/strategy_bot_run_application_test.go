@@ -336,14 +336,16 @@ func (underTest strategyBotRunUnderTest) queuedMessages() []entities.PendingMess
 
 func aDueBot(lastSentSignal string) entities.StrategyBot {
 	return entities.StrategyBot{
-		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破",
+		WatchedSymbols: []entities.StrategyBotWatchedSymbol{
+			{StrategyBotID: strategyBotID, Symbol: "BTCUSDT", LastSentSignal: lastSentSignal},
+		},
 		TradingStrategyID:      botsTradingStrategyID,
 		TradingStrategy:        entities.TradingStrategy{ID: botsTradingStrategyID, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotRunning),
 		// 送出前與寫回前都會以此時刻確認這台機器人沒被別人動過。
-		NextRunAt:      botRunNow.Add(-time.Minute),
-		LastSentSignal: lastSentSignal,
+		NextRunAt: botRunNow.Add(-time.Minute),
 	}
 }
 
@@ -431,8 +433,8 @@ func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
-			assert.False(t, bot.Conflicting)
+			assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
+			assert.False(t, bot.WatchedSymbols[0].Conflicting)
 			assert.Equal(t, botRunNow.Add(5*time.Minute), bot.NextRunAt)
 
 			return nil
@@ -487,9 +489,9 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			assert.True(t, bot.Conflicting)
+			assert.True(t, bot.WatchedSymbols[0].Conflicting)
 			// No side is picked, and what it last said stands.
-			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+			assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
 
 			return nil
@@ -617,7 +619,7 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 			// Halting here would switch off every bot in the system each weekend.
 			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
 			assert.Empty(t, bot.HaltReason)
-			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+			assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 
 			return nil
 		})
@@ -1091,7 +1093,7 @@ func TestStrategyBotRunApplicationSpotBotStillOnlySpeaksWithAutoOrderSwitchedOn(
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+			assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 
 			return nil
 		})
@@ -1162,7 +1164,7 @@ func TestStrategyBotRunApplicationQueuesAChangedConclusionWithTheRound(t *testin
 			})
 			underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-					assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+					assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 
 					return nil
 				})

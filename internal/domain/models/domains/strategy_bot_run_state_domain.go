@@ -53,15 +53,18 @@ func (strategyBotRunStateDomain StrategyBotRunStateDomain) RequireStartable(
 	return nil
 }
 
-// Start makes the bot due immediately and clears the last sent signal and halt reason, so the first conclusion after a start is always sent.
+// Start makes the bot due immediately and clears every watched symbol's last sent signal and halt, so the first conclusion after a start is always sent.
 func (strategyBotRunStateDomain StrategyBotRunStateDomain) Start(now time.Time) entities.StrategyBot {
 	startedBot := strategyBotRunStateDomain.bot
 	startedBot.RunState = string(vo.StrategyBotRunning)
 	startedBot.NextRunAt = now.UTC()
-	startedBot.LastSentSignal = ""
-	startedBot.LastSentRoundDueAt = nil
 	startedBot.HaltReason = string(vo.StrategyBotHaltNone)
-	startedBot.Conflicting = false
+
+	startedBot.WatchedSymbols = make([]entities.StrategyBotWatchedSymbol, 0, len(strategyBotRunStateDomain.bot.WatchedSymbols))
+	for _, watchedSymbol := range strategyBotRunStateDomain.bot.WatchedSymbols {
+		startedBot.WatchedSymbols = append(startedBot.WatchedSymbols,
+			NewStrategyBotWatchedSymbolDomain(watchedSymbol).ClearedForStart())
+	}
 
 	return startedBot
 }
@@ -87,31 +90,47 @@ func (strategyBotRunStateDomain StrategyBotRunStateDomain) Halt(
 	return haltedBot
 }
 
-// RoundFinished schedules from now so missed rounds are never made up, and moves the last sent signal, with the round that said it, only when the round queued a message.
-func (strategyBotRunStateDomain StrategyBotRunStateDomain) RoundFinished(
-	dueAt time.Time, now time.Time, sentSignal vo.SignalVo, conflicting bool,
-) entities.StrategyBot {
-	finishedBot := strategyBotRunStateDomain.bot
-	finishedBot.NextRunAt = now.UTC().Add(
-		time.Duration(finishedBot.TriggerIntervalMinutes) * time.Minute)
-	finishedBot.Conflicting = conflicting
+// Rescheduled schedules from now so missed rounds are never made up.
+func (strategyBotRunStateDomain StrategyBotRunStateDomain) Rescheduled(now time.Time) entities.StrategyBot {
+	rescheduledBot := strategyBotRunStateDomain.bot
+	rescheduledBot.NextRunAt = now.UTC().Add(
+		time.Duration(rescheduledBot.TriggerIntervalMinutes) * time.Minute)
 
-	if sentSignal != "" {
-		dueAtUtc := dueAt.UTC()
-		finishedBot.LastSentSignal = string(sentSignal)
-		finishedBot.LastSentRoundDueAt = &dueAtUtc
-	}
-
-	return finishedBot
+	return rescheduledBot
 }
 
-// RoundSkipped only moves the clock, leaving the conflict mark and last sent signal untouched.
-func (strategyBotRunStateDomain StrategyBotRunStateDomain) RoundSkipped(
-	now time.Time,
-) entities.StrategyBot {
-	skippedBot := strategyBotRunStateDomain.bot
-	skippedBot.NextRunAt = now.UTC().Add(
-		time.Duration(skippedBot.TriggerIntervalMinutes) * time.Minute)
+// WithWatchedSymbol replaces the watched symbol of the same symbol, leaving the stored bot it was read from untouched.
+func (strategyBotRunStateDomain StrategyBotRunStateDomain) WithWatchedSymbol(
+	changedSymbol entities.StrategyBotWatchedSymbol,
+) StrategyBotRunStateDomain {
+	changedBot := strategyBotRunStateDomain.bot
+	changedBot.WatchedSymbols = make([]entities.StrategyBotWatchedSymbol, 0, len(strategyBotRunStateDomain.bot.WatchedSymbols))
+	for _, watchedSymbol := range strategyBotRunStateDomain.bot.WatchedSymbols {
+		if watchedSymbol.Symbol == changedSymbol.Symbol {
+			watchedSymbol = changedSymbol
+		}
+		changedBot.WatchedSymbols = append(changedBot.WatchedSymbols, watchedSymbol)
+	}
 
-	return skippedBot
+	return StrategyBotRunStateDomain{bot: changedBot}
+}
+
+// WatchedSymbol is the domain of one of the bot's symbols; false when the bot does not watch it.
+func (strategyBotRunStateDomain StrategyBotRunStateDomain) WatchedSymbol(
+	symbol string,
+) (StrategyBotWatchedSymbolDomain, bool) {
+	watchedSymbol, isWatched := strategyBotRunStateDomain.bot.WatchedSymbol(symbol)
+
+	return NewStrategyBotWatchedSymbolDomain(watchedSymbol), isWatched
+}
+
+// AllWatchedSymbolsHalted is the moment a bot has nothing left to watch and stops as a whole.
+func (strategyBotRunStateDomain StrategyBotRunStateDomain) AllWatchedSymbolsHalted() bool {
+	for _, watchedSymbol := range strategyBotRunStateDomain.bot.WatchedSymbols {
+		if !NewStrategyBotWatchedSymbolDomain(watchedSymbol).IsHalted() {
+			return false
+		}
+	}
+
+	return len(strategyBotRunStateDomain.bot.WatchedSymbols) > 0
 }

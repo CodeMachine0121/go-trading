@@ -21,7 +21,8 @@ func TestStrategyBotServiceRecordRoundFailsWhenItsAutoOrderCannotBeQueued(t *tes
 	controller := gomock.NewController(t)
 	dueAt := time.Date(2026, 10, 4, 6, 30, 0, 0, time.UTC)
 	runningBot := entities.StrategyBot{
-		ID: 3, OwnerID: 7, Name: "合約突破", Symbol: "BTCUSDT", RunState: string(vo.StrategyBotRunning),
+		ID: 3, OwnerID: 7, Name: "合約突破", RunState: string(vo.StrategyBotRunning),
+		WatchedSymbols: []entities.StrategyBotWatchedSymbol{{StrategyBotID: 3, Symbol: "BTCUSDT"}},
 		MarketDataKind: string(vo.MarketDataKindContractKCandle), AutoOrderEnabled: true,
 		TriggerIntervalMinutes: 5, NextRunAt: dueAt,
 	}
@@ -49,8 +50,8 @@ func TestStrategyBotServiceRecordRoundFailsWhenItsAutoOrderCannotBeQueued(t *tes
 		pendingMessageRepository, contractAutoOrderRepository, transactionRepository, clockProxy)
 
 	_, applied, recordError := strategyBotService.RecordRound(t.Context(), 3, dueAt, "replica-a",
-		dto.StrategyBotRoundOutcomeDto{
-			Kind: "concluded", Verdict: string(vo.SignalBuy), SentSignal: string(vo.SignalBuy),
+		dto.StrategyBotRoundOutcomeDto{WatchedSymbolOutcomes: []dto.StrategyBotWatchedSymbolRoundOutcomeDto{{
+			Symbol: "BTCUSDT", Kind: "concluded", Verdict: string(vo.SignalBuy), SentSignal: string(vo.SignalBuy),
 			HasMessage: true, HasAutoOrderIntent: true,
 			Round: dto.StrategyBotRoundDto{
 				BotName: "合約突破", Symbol: "BTCUSDT", MarketDataKind: string(vo.MarketDataKindContractKCandle),
@@ -60,7 +61,7 @@ func TestStrategyBotServiceRecordRoundFailsWhenItsAutoOrderCannotBeQueued(t *tes
 				TargetPosition: "long", OpenQuantity: decimal.RequireFromString("0.002"), HasOpenQuantity: true,
 				Leverage: decimal.NewFromInt(3),
 			},
-		})
+		}}})
 
 	require.ErrorIs(t, recordError, queueFailure)
 	require.False(t, applied)

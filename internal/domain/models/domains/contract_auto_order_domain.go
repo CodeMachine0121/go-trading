@@ -49,10 +49,10 @@ func NewContractAutoOrderDomain(order entities.ContractAutoOrder) ContractAutoOr
 	return ContractAutoOrderDomain{order: order}
 }
 
-// NewQueuedContractAutoOrderDomain queues a round's intent, due at once and worth sending until the deadline after the round ran.
+// NewQueuedContractAutoOrderDomain queues a round's intent for one watched symbol, due at once and worth sending until the deadline after the round ran.
 // The entry tolerance and the entry's fill window come from the bot as it was when the round was booked in.
 func NewQueuedContractAutoOrderDomain(
-	bot entities.StrategyBot, roundDueAt time.Time, runNumber int,
+	bot entities.StrategyBot, symbol string, roundDueAt time.Time, runNumber int,
 	intent dto.ContractAutoOrderIntentDto, ranAt time.Time,
 ) ContractAutoOrderDomain {
 	entryFillDeadline := ranAt.UTC().Add(time.Duration(bot.TriggerIntervalMinutes) * time.Minute)
@@ -61,7 +61,7 @@ func NewQueuedContractAutoOrderDomain(
 		RoundDueAt:                       roundDueAt.UTC(),
 		RunNumber:                        runNumber,
 		OwnerUserID:                      bot.OwnerID,
-		Symbol:                           bot.Symbol,
+		Symbol:                           symbol,
 		EntrySlippageTolerancePercentage: bot.AutoOrderEntrySlippageTolerancePercentage,
 		EntryFillDeadline:                &entryFillDeadline,
 		TargetPosition:                   intent.TargetPosition,

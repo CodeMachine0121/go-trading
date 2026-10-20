@@ -11,12 +11,12 @@ import (
 
 // IStrategyBotRunRecordRepository has its own repository because run history is read independently of the bot.
 type IStrategyBotRunRecordRepository interface {
-	// Append numbers the round, trims beyond the bot's retention window in one operation, and returns the round's number.
+	// Append numbers the record across all the bot's symbols, trims the record's symbol beyond its retention window in one operation, and returns the record's number.
 	Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error)
 
-	// FindLatestByBot returns newest first.
+	// FindLatestByBot returns newest first, only the given symbol's when one is given.
 	FindLatestByBot(
-		executionContext context.Context, strategyBotID uint,
+		executionContext context.Context, strategyBotID uint, symbol string,
 	) ([]entities.StrategyBotRunRecord, error)
 
 	// FindByJournalLinkIdentifier answers false for a blank identifier or a round no longer remembered.

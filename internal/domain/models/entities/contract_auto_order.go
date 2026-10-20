@@ -11,13 +11,13 @@ import (
 // Each finished step is written back before the next begins, so a replica taking over resumes rather than starts again.
 type ContractAutoOrder struct {
 	ID uint `gorm:"primaryKey"`
-	// StrategyBotID with RoundDueAt identifies the round, so a round booked twice still queues one order.
-	StrategyBotID uint      `gorm:"not null;uniqueIndex:idx_contract_auto_orders_bot_round,priority:1"`
-	RoundDueAt    time.Time `gorm:"type:timestamptz;not null;uniqueIndex:idx_contract_auto_orders_bot_round,priority:2"`
+	// StrategyBotID, Symbol and RoundDueAt identify one watched symbol's round, so a round booked twice still queues one order per symbol.
+	StrategyBotID uint      `gorm:"not null;uniqueIndex:idx_contract_auto_orders_bot_symbol_round,priority:1"`
+	Symbol        string    `gorm:"size:64;not null;uniqueIndex:idx_contract_auto_orders_bot_symbol_round,priority:2"`
+	RoundDueAt    time.Time `gorm:"type:timestamptz;not null;uniqueIndex:idx_contract_auto_orders_bot_symbol_round,priority:3"`
 	// RunNumber names the round in the bot's history, so the result can be shown beside it.
-	RunNumber   int    `gorm:"not null"`
-	OwnerUserID uint   `gorm:"not null"`
-	Symbol      string `gorm:"size:64;not null"`
+	RunNumber   int  `gorm:"not null"`
+	OwnerUserID uint `gorm:"not null"`
 	// TargetPosition is long, short or flat.
 	TargetPosition string `gorm:"size:8;not null"`
 	// OpenQuantity is absent when the round had nothing the venue would accept; NoOpenReason then says why.

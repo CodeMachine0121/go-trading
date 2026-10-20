@@ -12,7 +12,7 @@ import (
 
 // IPendingMessageRepository holds messages waiting to be sent; every write after Enqueue is guarded by who holds the message, so two replicas can never both settle one.
 type IPendingMessageRepository interface {
-	// Enqueue takes part in a surrounding transaction; a second message for the same round is silently dropped.
+	// Enqueue takes part in a surrounding transaction; a second message for the same watched symbol's round is silently dropped.
 	Enqueue(executionContext context.Context, pendingMessage entities.PendingMessage) error
 
 	// FindDispatchCandidates returns, oldest first and at most limit, each person's oldest unsettled message plus every unsettled one already expired at moment.

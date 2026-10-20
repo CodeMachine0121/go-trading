@@ -24,6 +24,7 @@ func NewStrategyBotRepository(database *gorm.DB) *StrategyBotRepository {
 	return &StrategyBotRepository{database: ambientTransactionDatabase{root: database}}
 }
 
+// Save writes the bot and its watched symbols in one transaction, so a bot is never left watching half of what was asked.
 func (strategyBotRepository *StrategyBotRepository) Save(
 	executionContext context.Context, bot entities.StrategyBot,
 ) (entities.StrategyBot, error) {
@@ -31,45 +32,83 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	botRow.Owner = entities.User{}
 	botRow.TradingStrategy = entities.TradingStrategy{}
 	botRow.RunRecords = nil
+	botRow.WatchedSymbols = nil
 
-	if botRow.ID == 0 {
-		createError := strategyBotRepository.database.within(executionContext).
-			Omit(clause.Associations).Create(&botRow).Error
-		if createError != nil {
-			return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(createError, bot.Name)
-		}
-
-		return strategyBotRepository.FindOne(executionContext, botRow.ID)
+	symbols := bot.Symbols()
+	// The ORM's IN clause only takes untyped values.
+	symbolValues := make([]any, 0, len(symbols))
+	for _, symbol := range symbols {
+		symbolValues = append(symbolValues, symbol)
 	}
 
-	// Named columns keep a rewrite from touching lifecycle fields or the immutable market kind, and make empty values written rather than skipped.
-	updates := strategyBotRepository.database.within(executionContext).
-		Model(&entities.StrategyBot{}).
-		Where(clause.Eq{Column: "id", Value: botRow.ID}).
-		Select(
-			"name", "symbol", "trading_strategy_id", "trigger_interval_minutes",
-			"position_plan_capital", "position_plan_sizing_mode",
-			"position_plan_sizing_value",
-			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
-			"position_plan_contract_leverage", "auto_order_entry_slippage_tolerance_percentage").
-		Updates(entities.StrategyBot{
-			Name:                                      botRow.Name,
-			Symbol:                                    botRow.Symbol,
-			TradingStrategyID:                         botRow.TradingStrategyID,
-			TriggerIntervalMinutes:                    botRow.TriggerIntervalMinutes,
-			PositionPlanCapital:                       botRow.PositionPlanCapital,
-			PositionPlanSizingMode:                    botRow.PositionPlanSizingMode,
-			PositionPlanSizingValue:                   botRow.PositionPlanSizingValue,
-			PositionPlanStopLossPercentage:            botRow.PositionPlanStopLossPercentage,
-			PositionPlanTakeProfitPercentage:          botRow.PositionPlanTakeProfitPercentage,
-			PositionPlanLeverage:                      botRow.PositionPlanLeverage,
-			AutoOrderEntrySlippageTolerancePercentage: botRow.AutoOrderEntrySlippageTolerancePercentage,
+	transactionError := strategyBotRepository.database.within(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			if botRow.ID == 0 {
+				if createError := transaction.Omit(clause.Associations).Create(&botRow).Error; createError != nil {
+					return createError
+				}
+			} else {
+				// Named columns keep a rewrite from touching lifecycle fields or the immutable market kind, and make empty values written rather than skipped.
+				updateError := transaction.
+					Model(&entities.StrategyBot{}).
+					Where(clause.Eq{Column: "id", Value: botRow.ID}).
+					Select(
+						"name", "trading_strategy_id", "trigger_interval_minutes",
+						"position_plan_capital", "position_plan_sizing_mode",
+						"position_plan_sizing_value",
+						"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
+						"position_plan_contract_leverage", "auto_order_entry_slippage_tolerance_percentage").
+					Updates(entities.StrategyBot{
+						Name:                                      botRow.Name,
+						TradingStrategyID:                         botRow.TradingStrategyID,
+						TriggerIntervalMinutes:                    botRow.TriggerIntervalMinutes,
+						PositionPlanCapital:                       botRow.PositionPlanCapital,
+						PositionPlanSizingMode:                    botRow.PositionPlanSizingMode,
+						PositionPlanSizingValue:                   botRow.PositionPlanSizingValue,
+						PositionPlanStopLossPercentage:            botRow.PositionPlanStopLossPercentage,
+						PositionPlanTakeProfitPercentage:          botRow.PositionPlanTakeProfitPercentage,
+						PositionPlanLeverage:                      botRow.PositionPlanLeverage,
+						AutoOrderEntrySlippageTolerancePercentage: botRow.AutoOrderEntrySlippageTolerancePercentage,
+					}).Error
+				if updateError != nil {
+					return updateError
+				}
+			}
+
+			// Symbols kept are left as they are, with everything they remember; dropped ones go and new ones are added in the listed order.
+			if deleteError := transaction.
+				Where(clause.Eq{Column: "strategy_bot_id", Value: botRow.ID}).
+				Where(clause.Not(clause.IN{Column: "symbol", Values: symbolValues})).
+				Delete(&entities.StrategyBotWatchedSymbol{}).Error; deleteError != nil {
+				return deleteError
+			}
+
+			for _, symbol := range symbols {
+				watchedSymbol := entities.StrategyBotWatchedSymbol{StrategyBotID: botRow.ID, Symbol: symbol}
+				if createError := transaction.
+					Clauses(clause.OnConflict{
+						Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "symbol"}},
+						DoNothing: true,
+					}).
+					Create(&watchedSymbol).Error; createError != nil {
+					return createError
+				}
+			}
+
+			return nil
 		})
-	if updates.Error != nil {
-		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(updates.Error, bot.Name)
+	if transactionError != nil {
+		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(transactionError, bot.Name)
 	}
 
 	return strategyBotRepository.FindOne(executionContext, botRow.ID)
+}
+
+// withWatchedSymbols brings a bot's watched symbols along in the order they were added, so every read sees the whole bot.
+func (strategyBotRepository *StrategyBotRepository) withWatchedSymbols(database *gorm.DB) *gorm.DB {
+	return database.Preload("WatchedSymbols", func(watchedSymbols *gorm.DB) *gorm.DB {
+		return watchedSymbols.Order("id ASC")
+	})
 }
 
 // StrategyBotNameIndex enforces unique bot names per owner; the write path recognises its violation as a name conflict.
@@ -95,7 +134,7 @@ func (strategyBotRepository *StrategyBotRepository) FindOne(
 	bot := entities.StrategyBot{}
 
 	// A string condition, because GORM drops zero-valued struct fields and ID zero would match the first bot.
-	result := strategyBotRepository.database.within(executionContext).
+	result := strategyBotRepository.withWatchedSymbols(strategyBotRepository.database.within(executionContext)).
 		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "id", Value: id}).
 		First(&bot)
@@ -114,7 +153,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 ) ([]entities.StrategyBot, error) {
 	bots := []entities.StrategyBot{}
 
-	result := strategyBotRepository.database.within(executionContext).
+	result := strategyBotRepository.withWatchedSymbols(strategyBotRepository.database.within(executionContext)).
 		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Order("name ASC").
@@ -195,28 +234,44 @@ func (strategyBotRepository *StrategyBotRepository) Delete(
 	return nil
 }
 
-// UpdateRunState writes only lifecycle columns, so a finished round cannot alter the bot's configuration.
+// UpdateRunState writes only lifecycle columns of the bot and its watched symbols in one transaction, so a finished round cannot alter the bot's configuration nor land on half its symbols.
 func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 	executionContext context.Context, bot entities.StrategyBot,
 ) error {
-	result := strategyBotRepository.database.within(executionContext).
-		Model(&entities.StrategyBot{}).
-		Where(clause.Eq{Column: "id", Value: bot.ID}).
-		Select("run_state", "next_run_at", "last_sent_signal", "last_sent_round_due_at", "halt_reason", "conflicting").
-		// UpdateColumns rather than Updates, which would bump UpdatedAt on every round even though nothing was modified.
-		UpdateColumns(entities.StrategyBot{
-			RunState:           bot.RunState,
-			NextRunAt:          bot.NextRunAt,
-			LastSentSignal:     bot.LastSentSignal,
-			LastSentRoundDueAt: bot.LastSentRoundDueAt,
-			HaltReason:         bot.HaltReason,
-			Conflicting:        bot.Conflicting,
-		})
-	if result.Error != nil {
-		return fmt.Errorf("update strategy bot run state: %w", result.Error)
-	}
+	return strategyBotRepository.database.within(executionContext).Transaction(func(transaction *gorm.DB) error {
+		result := transaction.
+			Model(&entities.StrategyBot{}).
+			Where(clause.Eq{Column: "id", Value: bot.ID}).
+			Select("run_state", "next_run_at", "halt_reason").
+			// UpdateColumns rather than Updates, which would bump UpdatedAt on every round even though nothing was modified.
+			UpdateColumns(entities.StrategyBot{
+				RunState:   bot.RunState,
+				NextRunAt:  bot.NextRunAt,
+				HaltReason: bot.HaltReason,
+			})
+		if result.Error != nil {
+			return fmt.Errorf("update strategy bot run state: %w", result.Error)
+		}
 
-	return nil
+		for _, watchedSymbol := range bot.WatchedSymbols {
+			watchedSymbolResult := transaction.
+				Model(&entities.StrategyBotWatchedSymbol{}).
+				Where(clause.Eq{Column: "strategy_bot_id", Value: bot.ID}).
+				Where(clause.Eq{Column: "symbol", Value: watchedSymbol.Symbol}).
+				Select("last_sent_signal", "last_sent_round_due_at", "conflicting", "halt_reason").
+				UpdateColumns(entities.StrategyBotWatchedSymbol{
+					LastSentSignal:     watchedSymbol.LastSentSignal,
+					LastSentRoundDueAt: watchedSymbol.LastSentRoundDueAt,
+					Conflicting:        watchedSymbol.Conflicting,
+					HaltReason:         watchedSymbol.HaltReason,
+				})
+			if watchedSymbolResult.Error != nil {
+				return fmt.Errorf("update watched symbol %s run state: %w", watchedSymbol.Symbol, watchedSymbolResult.Error)
+			}
+		}
+
+		return nil
+	})
 }
 
 func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
@@ -305,9 +360,9 @@ func (strategyBotRepository *StrategyBotRepository) DisableAutoOrderByOwner(
 	return nil
 }
 
-// UpdateAutoOrderPosition writes only the bot's own position columns, so neither a rewrite nor a round can disturb what auto orders opened.
+// UpdateAutoOrderPosition writes only one watched symbol's position columns, so neither a rewrite nor a round can disturb what auto orders opened.
 func (strategyBotRepository *StrategyBotRepository) UpdateAutoOrderPosition(
-	executionContext context.Context, id uint, position vo.AutoOrderPositionVo,
+	executionContext context.Context, id uint, symbol string, position vo.AutoOrderPositionVo,
 ) error {
 	direction := string(position.Direction)
 	if direction == string(vo.TargetPositionFlat) {
@@ -315,11 +370,12 @@ func (strategyBotRepository *StrategyBotRepository) UpdateAutoOrderPosition(
 	}
 
 	result := strategyBotRepository.database.within(executionContext).
-		Model(&entities.StrategyBot{}).
-		Where(clause.Eq{Column: "id", Value: id}).
+		Model(&entities.StrategyBotWatchedSymbol{}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: id}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Select("auto_order_position_direction", "auto_order_position_quantity",
 			"auto_order_stop_loss_client_id", "auto_order_take_profit_client_id").
-		UpdateColumns(entities.StrategyBot{
+		UpdateColumns(entities.StrategyBotWatchedSymbol{
 			AutoOrderPositionDirection:  direction,
 			AutoOrderPositionQuantity:   position.Quantity,
 			AutoOrderStopLossClientID:   position.StopLossClientID,
@@ -368,7 +424,7 @@ func (strategyBotRepository *StrategyBotRepository) ClaimDue(
 				return claimError
 			}
 
-			return transaction.Preload("TradingStrategy").
+			return strategyBotRepository.withWatchedSymbols(transaction).Preload("TradingStrategy").
 				Order("next_run_at ASC").
 				Find(&claimedBots, dueIDs).Error
 		})
@@ -422,13 +478,14 @@ func (strategyBotRepository *StrategyBotRepository) unclaimedAt(moment time.Time
 	)
 }
 
-// FindOneLocked holds the bot's row until the surrounding transaction ends, so a round being booked and a halt from a failed send never overwrite each other.
+// FindOneLocked holds the bot's row and its watched symbols' rows until the surrounding transaction ends, so a round being booked and a halt from a failed send never overwrite each other.
 func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
 	executionContext context.Context, id uint,
 ) (entities.StrategyBot, error) {
 	bot := entities.StrategyBot{}
+	database := strategyBotRepository.database.within(executionContext)
 
-	result := strategyBotRepository.database.within(executionContext).
+	result := database.
 		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 		Where(clause.Eq{Column: "id", Value: id}).
 		First(&bot)
@@ -439,19 +496,29 @@ func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
 		return entities.StrategyBot{}, fmt.Errorf("find strategy bot for update: %w", result.Error)
 	}
 
+	// Locked in their own read, since a preload takes no lock, so forgetting a symbol's signal waits for the round being booked instead of being written over by it.
+	if lockError := database.
+		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: id}).
+		Order("id ASC").
+		Find(&bot.WatchedSymbols).Error; lockError != nil {
+		return entities.StrategyBot{}, fmt.Errorf("find strategy bot watched symbols for update: %w", lockError)
+	}
+
 	return bot, nil
 }
 
-// ForgetSentSignal clears the last sent signal only while it still comes from the round due at roundDueAt, so a later round's signal is never lost.
+// ForgetSentSignal clears one watched symbol's last sent signal only while it still comes from the round due at roundDueAt, so a later round's signal is never lost.
 func (strategyBotRepository *StrategyBotRepository) ForgetSentSignal(
-	executionContext context.Context, id uint, roundDueAt time.Time,
+	executionContext context.Context, id uint, symbol string, roundDueAt time.Time,
 ) error {
 	result := strategyBotRepository.database.within(executionContext).
-		Model(&entities.StrategyBot{}).
-		Where(clause.Eq{Column: "id", Value: id}).
+		Model(&entities.StrategyBotWatchedSymbol{}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: id}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Where(clause.Eq{Column: "last_sent_round_due_at", Value: roundDueAt.UTC()}).
 		Select("last_sent_signal", "last_sent_round_due_at").
-		UpdateColumns(entities.StrategyBot{})
+		UpdateColumns(entities.StrategyBotWatchedSymbol{})
 	if result.Error != nil {
 		return fmt.Errorf("forget strategy bot sent signal: %w", result.Error)
 	}
