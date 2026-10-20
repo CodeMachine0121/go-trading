@@ -151,6 +151,11 @@ func (aggregationIntervalDomain AggregationIntervalDomain) BucketStart(moment ti
 	return bucketStartOf(moment, aggregationIntervalDomain.duration)
 }
 
+// BucketEnd is the last instant of the bucket starting at bucketStart, so a range from one to the other reads exactly one bucket.
+func (aggregationIntervalDomain AggregationIntervalDomain) BucketEnd(bucketStart time.Time) time.Time {
+	return bucketStart.Add(aggregationIntervalDomain.duration - time.Nanosecond)
+}
+
 // bucketStartOf cuts buckets from UTC midnight so a moment always lands in the same bucket; intervals and markets share it to keep that rule in one place.
 func bucketStartOf(moment time.Time, bucketDuration time.Duration) time.Time {
 	return moment.UTC().Truncate(bucketDuration)

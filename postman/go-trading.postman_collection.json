@@ -398,6 +398,18 @@
     {
       "key": "allocatedStrategyBotId",
       "value": ""
+    },
+    {
+      "key": "chartDrawingRevision",
+      "value": "0"
+    },
+    {
+      "key": "chartDrawingStaleRevision",
+      "value": "0"
+    },
+    {
+      "key": "chartDrawingManualId",
+      "value": "0"
     }
   ],
   "event": [
@@ -18460,6 +18472,507 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "看盤繪圖",
+      "item": [
+        {
+          "name": "先放一根 K 線讓助手吸附",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀一份繪圖板",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "description": "從沒畫過的繪圖板是空的一份、版本 0。整份存回要說出根據第幾版，所以先讀。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"說出市場、標的與版本\", function () { const board = pm.response.json(); pm.expect(board.market).to.eql(\"spot\"); pm.expect(board.symbol).to.eql(pm.collectionVariables.get(\"symbol\")); pm.expect(board.revision).to.be.a(\"number\"); pm.expect(board.drawings).to.be.an(\"array\"); });",
+                  "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "整份存回（一條趨勢線、一條水平線）",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "description": "交回的一份取代原本那一份；沒有 id 的是新畫的。只有網頁登入能整份存回，外掛的憑證回 401。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": [\n    {\"kind\": \"trendLine\", \"anchors\": [{\"openTime\": \"{{rangeStart}}\", \"price\": \"60000\"}, {\"openTime\": \"{{rangeEnd}}\", \"price\": \"62000\"}], \"color\": \"blue\", \"lineWidth\": 2, \"lineStyle\": \"solid\"},\n    {\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{rangeEnd}}\", \"price\": \"61000\"}], \"color\": \"red\", \"lineWidth\": 1, \"lineStyle\": \"dashed\", \"locked\": true}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"取代整份、版本加一、來源是手畫\", function () { const board = pm.response.json(); pm.expect(board.drawings).to.have.length(2); pm.expect(board.revision).to.eql(Number(pm.collectionVariables.get(\"chartDrawingRevision\")) + 1); pm.expect(board.drawings.map(d => d.source)).to.eql([\"manual\", \"manual\"]); pm.expect(board.drawings[1].locked).to.eql(true); pm.expect(board.drawings[1].visible).to.eql(true); });",
+                  "pm.collectionVariables.set(\"chartDrawingStaleRevision\", pm.collectionVariables.get(\"chartDrawingRevision\"));",
+                  "pm.collectionVariables.set(\"chartDrawingManualId\", pm.response.json().drawings[0].id);",
+                  "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "用舊版本存回 — 繪圖板已經變了",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision\": {{chartDrawingStaleRevision}},\n  \"drawings\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
+                  "pm.test(\"附上現在那一份\", function () { pm.expect(pm.response.json().board.revision).to.eql(Number(pm.collectionVariables.get(\"chartDrawingRevision\"))); pm.expect(pm.response.json().board.drawings).to.have.length(2); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "存回水平線兩個點 — 整份拒絕",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": [{\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{rangeEnd}}\", \"price\": \"1\"}, {\"openTime\": \"{{rangeEnd}}\", \"price\": \"2\"}]}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"指出第幾個、哪裡不對\", function () { pm.expect(pm.response.json().message).to.include(\"第 1 個繪圖：水平線要 1 個錨點，收到 2 個\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "助手畫一條吸附收盤價的水平線",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}/assistant-drawings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}",
+                "assistant-drawings"
+              ]
+            },
+            "description": "錨點要正好是那個刻度上一根真的 K 線的起始時間；這裡吸附本資料夾第一個請求放下的那一根（收盤 110）。外掛畫的沒有問答。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interval\": \"1m\",\n  \"drawings\": [{\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{openTime}}\", \"snapTo\": \"close\"}]}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"來源是助手、價格取自那一根的收盤價\", function () { const added = pm.response.json().addedDrawings[0]; pm.expect(added.source).to.eql(\"assistant\"); pm.expect(added.assistantTurnId).to.eql(null); pm.expect(added.anchors[0].price).to.eql(\"110\"); });",
+                  "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "助手價格與吸附都給 — 整批拒絕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}/assistant-drawings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}",
+                "assistant-drawings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interval\": \"1m\",\n  \"drawings\": [{\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{openTime}}\", \"price\": \"1\", \"snapTo\": \"low\"}]}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出只能挑一種\", function () { pm.expect(pm.response.json().message).to.include(\"要恰好給一種\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "助手移除手畫的 — 拒絕",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}/assistant-drawings?ids={{chartDrawingManualId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}",
+                "assistant-drawings"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "{{chartDrawingManualId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
+                  "pm.test(\"說出手畫的不能由助手移除\", function () { pm.expect(pm.response.json().message).to.include(\"助手不能移除\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀繪圖板 — 兩種來源都在",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"手畫兩個、助手一個，助手的在最上面\", function () { const sources = pm.response.json().drawings.map(d => d.source); pm.expect(sources).to.eql([\"manual\", \"manual\", \"assistant\"]); });",
+                  "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "移除助手畫的全部",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}/assistant-drawings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}",
+                "assistant-drawings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"只移除助手畫的那一個\", function () { pm.expect(pm.response.json().removedCount).to.eql(1); });",
+                  "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "交回空的一份 — 清空繪圖板",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"一個都不剩\", function () { pm.expect(pm.response.json().drawings).to.eql([]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收掉那一根 K 線",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
                 ]
               }
             }

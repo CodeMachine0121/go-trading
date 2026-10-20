@@ -142,6 +142,8 @@ curl localhost:8080/health
 | `SYMBOL_SCREENING_RUN_POLL_INTERVAL_SECONDS` | `5` | 值班分身多久看一次排隊中的標的篩選；只有值班分身會跑，所以全系統一次只跑一筆 |
 | `SYMBOL_SCREENING_RUN_RETENTION_DAYS` | `90` | 結束的標的篩選連同每個標的的結果保留幾天 |
 | `SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS` | `30` | 篩選直接向幣安取得的 4 小時／1 天 K 線與資金費率保留幾天；與盯盤用的每分鐘 K 線分開存放 |
+| `CHART_DRAWING_BOARD_CAPACITY` | `200` | 一份繪圖板（一位使用者 × 現貨或合約 × 一個交易標的）最多幾個繪圖；整份存回超過、或助手新增後會超過，一律拒絕 |
+| `CHART_DRAWING_ASSISTANT_BATCH_CAPACITY` | `20` | 助手（站內助手或外掛）一次最多新增幾個繪圖 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
 | `LIVE_FOLLOW_RELAY_INTERVAL_SECONDS` | `2` | 不在值班的分身多久讀一次值班分身寫下的台股即時 K 線 |
@@ -303,6 +305,10 @@ curl localhost:8080/health
 | `POST` | `/sessions/renewal` | 帶著**續用憑證**換一對全新的憑證；舊的那一份當場作廢 |
 | `POST` | `/sessions/revocation` | 登出：帶著續用憑證，把整條換發鏈作廢。恆回 `204` |
 | `GET` | `/users/me` | 帶著 `Authorization: Bearer <登入憑證>` 問「我是誰」 |
+| `GET` | `/users/me/chart-drawings/{market}/{symbol}` | 讀出自己在某市場（`spot`／`contract`）某交易標的上的整份**繪圖板**：版本與依疊放順序（下到上）排好的每一個繪圖、各自的來源。沒畫過回空的一份、版本 `0`。見「看盤繪圖」 |
+| `PUT` | `/users/me/chart-drawings/{market}/{symbol}` | **只限網頁登入（外掛回 `401`）**。整份存回：body 給 `revision`（根據第幾版改的）與 `drawings`，取代整份。版本對不上回 `409` 並附上現在那一份 |
+| `POST` | `/users/me/chart-drawings/{market}/{symbol}/assistant-drawings` | 新增一批**助手繪圖**（1 到 20 個），來源一律是助手；每個錨點必須是指定彙總刻度上一根真的 K 線，可吸附開高低收。回 `201` |
+| `DELETE` | `/users/me/chart-drawings/{market}/{symbol}/assistant-drawings?ids=` | 移除助手畫的全部（不給 `ids`）或指名的幾個；指名到手畫的回 `409`、不存在的回 `404`，一個都不刪 |
 | `GET` `POST` | `/symbol-screening-profiles` | **管理員限定**。列出／建立自己的篩選設定（策略腳本必須是自己的、吃合約行情、產出信號、不用訂單流；看盤間隔只能 `4h`／`1d`；沒給的數字用預設值）。不是管理員回 `403`「這是管理員功能」 |
 | `GET` `PUT` `DELETE` | `/symbol-screening-profiles/{id}` | **管理員限定**。讀取／修改／刪除自己的篩選設定；有排隊中或進行中的篩選在用時刪除回 `409`，別人的回 `404` |
 | `POST` | `/symbol-screening-runs` | **管理員限定**。body 給 `profileId` 與用逗號分隔的 `symbols`（全形逗號、大小寫、重複都會整理）。送出當下記下設定與腳本內容，回 `202` 與一筆排隊中的篩選；自己已有一筆在排隊或進行中回 `429` |
@@ -630,9 +636,10 @@ curl localhost:8080/chat/conversations
 ### 助手能做什麼，是一份注入的清單
 
 助手可發動的每一項能力都是一個 `IAssistantQuery` 實作，清單在 `cmd/server/dependencies.go`
-的 `assistantQueriesFor` 組出來。目前十三項：列出交易標的、查 K 線、查彙總 K 線序列、
-算指標、讀策略腳本、列策略腳本、建策略腳本、改策略腳本，以及
-**建交易策略、改交易策略、讀交易策略、列交易策略、回測交易策略**。
+的 `assistantQueriesFor` 組出來。目前十六項：列出交易標的、查 K 線、查彙總 K 線序列、
+算指標、讀策略腳本、列策略腳本、建策略腳本、改策略腳本，
+**建交易策略、改交易策略、讀交易策略、列交易策略、回測交易策略**，以及
+**在 K 線圖上畫線、列出圖上的繪圖、移除自己畫的繪圖**（`create_chart_drawings`、`list_chart_drawings`、`remove_chart_drawings`，見「看盤繪圖」）。
 
 後面那五項讓助手第一次走得完一整圈：**拼出一份交易策略 → 拿歷史重演 → 讀成績單 →
 不滿意就改腳本或改參數 → 再重演**。在那之前它交出一支算式就瞎了——
@@ -644,6 +651,7 @@ curl localhost:8080/chat/conversations
 而真相是那份交易策略根本沒有在做決定。
 
 **沒有刪除策略腳本、沒有刪除交易策略、沒有任何機器人操作，也沒有任何 K 線寫入。**
+（移除繪圖是有的，但它只碰得到**助手自己畫的**——使用者手畫的永遠移除不了。）
 這不是一段防禦碼，是**清單裡沒有那一項**——不存在的能力沒有辦法被誤呼叫，
 也沒有哪次重構能不小心把它放回來。`cmd/server/assistant_queries_test.go` 守著這條界線。
 
@@ -951,7 +959,7 @@ newman run postman/go-trading.postman_collection.json \
        -e postman/go-trading.postman_environment.json
 ```
 
-二十三個資料夾、452 個請求、802 條斷言，含成功路徑與每一種被拒絕的情形。回測送出後先回一筆輪次，緊接著的「看成績單」請求以 `waitSeconds=60` 等它結束再驗成績單，所以整包照順序跑也不會碰到每人同時上限。
+二十五個資料夾、486 個請求、869 條斷言，含成功路徑與每一種被拒絕的情形。回測送出後先回一筆輪次，緊接著的「看成績單」請求以 `waitSeconds=60` 等它結束再驗成績單，所以整包照順序跑也不會碰到每人同時上限。
 其中**永續合約 K 線**一個資料夾就佔 24 個請求 40 條斷言，可以單獨跑：
 
 ```bash
@@ -1205,6 +1213,41 @@ newman run postman/go-trading.postman_collection.json \
 排在名額之外的標的，觀看者照樣看得到已存入的 K 線，但會被明白告知
 **它沒有即時更新**。這句話跟「即時更新斷了」是不同的兩句：斷了的意思是「等一下就會自己好」，
 沒有名額的意思是「等到明天也一樣」。
+
+## 看盤繪圖
+
+看盤工作區畫的趨勢線、水平線、斐波那契回撤……存在服務裡：每一位使用者、每一個市場（`spot` 現貨／`contract` 合約）、
+每一個交易標的各有一份**繪圖板**。同一個代號的現貨與合約是兩份；別人的繪圖板讀不到也改不到。
+
+- **八種繪圖與點數**：`trendLine`、`ray`、`fibonacciRetracement`、`rectangle`、`dateAndPriceRange` 各 2 個錨點；
+  `horizontalLine`、`horizontalRay`、`verticalLine` 各 1 個。錨點＝K 線起始時間（RFC3339）＋價格（十進位字串，必須大於零）。
+- **樣式**：`color` 是調色盤名稱 `red`／`orange`／`yellow`／`green`／`teal`／`cyan`／`blue`／`indigo`／`purple`／`pink`／`gray`／`silver`（不是色碼，
+  前端自己對到亮色／暗色）；`lineWidth` 1–4；`lineStyle` `solid`／`dashed`／`dotted`；`locked`、`visible`。沒給的取那一種繪圖的預設樣式
+  （趨勢線、射線藍色線寬 2；水平線、水平射線、垂直線藍色線寬 1；矩形紫色；斐波那契回撤灰色；日期與價格範圍藍色；實線、不鎖定、顯示）。
+- **來源**：`source` 是 `manual`（手畫）或 `assistant`（助手）；站內助手畫的另帶 `assistantConversationId` 與 `assistantTurnId`，外掛畫的這兩欄是 `null`。
+  **來源由服務記，整份存回改不動**——帶著既有 `id` 的繪圖保留原本的來源與問答，助手畫的被使用者拖過仍是助手畫的；
+  沒有 `id` 或 `id` 不認得的，一律是新的手畫繪圖、拿一個新編號。編號只在同一份繪圖板內有意義，用過不再發。
+- **版本**：繪圖板每改一次版本加一（沒畫過是 `0`）。整份存回要說出根據第幾版（`revision`）；那之後若助手剛畫了線，
+  回 `409`，body 是 `{"message": "...", "board": <現在那一份>}`——**不默默蓋掉助手的線**，前端拿 `board` 重新套用後再存。
+- **整份存回只限網頁登入**：它可以抹掉手畫的線，所以外掛的憑證一律 `401`。外掛只能讀、新增助手繪圖、移除助手繪圖。
+- **助手畫的要釘在真的 K 線上**：新增時給 `interval`（`1m`／`5m`／`15m`／`1h`／`4h`／`1d`），每個錨點的 `openTime` 必須正好是那個刻度上一根
+  **存在的**彙總 K 線的起始時間（現貨看 K 線、合約看合約 K 線）。價格二選一：`price`，或 `snapTo`（`open`／`high`／`low`／`close`）
+  吸附到那一根——兩個都給或都不給一律 `400`。手畫的整份存回**不**比對 K 線。
+- **整批、整份生效**：任何一個繪圖不合規則（指出第幾個、哪裡不對）、超過上限，一律整份／整批拒絕，什麼都不寫。
+- 繪圖不涉及錢，助手的新增與移除**直接生效**，不走待確認修改。
+
+```bash
+curl localhost:8080/users/me/chart-drawings/spot/BTCUSDT -H "Authorization: Bearer $TOKEN"
+# {"market":"spot","symbol":"BTCUSDT","revision":0,"drawings":[]}
+
+curl -X POST localhost:8080/users/me/chart-drawings/spot/BTCUSDT/assistant-drawings \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"interval":"1h","drawings":[{"kind":"horizontalLine","anchors":[{"openTime":"2026-10-19T08:00:00Z","snapTo":"low"}]}]}'
+# 201 {"revision":1,"addedDrawings":[{"id":1,...,"source":"assistant"}]}
+
+curl -X DELETE "localhost:8080/users/me/chart-drawings/spot/BTCUSDT/assistant-drawings" -H "Authorization: Bearer $TOKEN"
+# {"revision":2,"removedCount":1,"removedDrawingIds":[1]}
+```
 
 ## 預設交易標的
 

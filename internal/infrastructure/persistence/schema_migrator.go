@@ -111,6 +111,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ContractMaintenanceMarginTier{},
 		&entities.TradeJournalSetting{},
 		&entities.TradeTag{},
+		&entities.ChartDrawingBoard{},
 		&entities.ContractTradeRecord{},
 		&entities.ContractTradeFill{},
 		&entities.ContractTradeNote{},

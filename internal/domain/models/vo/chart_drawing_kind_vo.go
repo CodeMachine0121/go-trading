@@ -1,0 +1,15 @@
+package vo
+
+// ChartDrawingKindVo is one kind of drawing on the chart workspace; its anchor count and default style live in ChartDrawingKindDomain.
+type ChartDrawingKindVo string
+
+const (
+	ChartDrawingKindTrendLine            ChartDrawingKindVo = "trendLine"
+	ChartDrawingKindRay                  ChartDrawingKindVo = "ray"
+	ChartDrawingKindHorizontalLine       ChartDrawingKindVo = "horizontalLine"
+	ChartDrawingKindHorizontalRay        ChartDrawingKindVo = "horizontalRay"
+	ChartDrawingKindVerticalLine         ChartDrawingKindVo = "verticalLine"
+	ChartDrawingKindFibonacciRetracement ChartDrawingKindVo = "fibonacciRetracement"
+	ChartDrawingKindRectangle            ChartDrawingKindVo = "rectangle"
+	ChartDrawingKindDateAndPriceRange    ChartDrawingKindVo = "dateAndPriceRange"
+)

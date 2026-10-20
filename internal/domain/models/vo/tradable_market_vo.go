@@ -1,6 +1,6 @@
 package vo
 
-// TradableMarketVo is one kind of trading a Binance trading key was allowed when it was stored.
+// TradableMarketVo is spot or contract: the trading a Binance trading key was allowed, and the market a chart drawing board belongs to.
 type TradableMarketVo string
 
 const (

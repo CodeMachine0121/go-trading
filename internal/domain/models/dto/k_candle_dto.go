@@ -18,3 +18,13 @@ type KCandleDto struct {
 	TakerBuyBaseVolume  decimal.NullDecimal `json:"takerBuyBaseVolume"`
 	TakerBuyQuoteVolume decimal.NullDecimal `json:"takerBuyQuoteVolume"`
 }
+
+func (kCandleDto KCandleDto) ToChartDrawingAnchorCandleDto() ChartDrawingAnchorCandleDto {
+	return ChartDrawingAnchorCandleDto{
+		OpenTime: kCandleDto.OpenTime,
+		Open:     kCandleDto.Open,
+		High:     kCandleDto.High,
+		Low:      kCandleDto.Low,
+		Close:    kCandleDto.Close,
+	}
+}
