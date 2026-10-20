@@ -18483,6 +18483,47 @@
       "name": "看盤繪圖",
       "item": [
         {
+          "name": "先放一根 K 線讓助手吸附",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "讀一份繪圖板",
           "request": {
             "method": "GET",
@@ -18682,7 +18723,7 @@
                 "assistant-drawings"
               ]
             },
-            "description": "錨點要正好是那個刻度上一根真的 K 線的起始時間；這裡用 K 線資料夾種下的那一根。外掛畫的沒有問答。",
+            "description": "錨點要正好是那個刻度上一根真的 K 線的起始時間；這裡吸附本資料夾第一個請求放下的那一根（收盤 110）。外掛畫的沒有問答。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"interval\": \"1m\",\n  \"drawings\": [{\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{openTime}}\", \"snapTo\": \"close\"}]}]\n}",
@@ -18700,7 +18741,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.test(\"來源是助手、價格取自那一根\", function () { const added = pm.response.json().addedDrawings[0]; pm.expect(added.source).to.eql(\"assistant\"); pm.expect(added.assistantTurnId).to.eql(null); pm.expect(Number(added.anchors[0].price)).to.be.above(0); });",
+                  "pm.test(\"來源是助手、價格取自那一根的收盤價\", function () { const added = pm.response.json().addedDrawings[0]; pm.expect(added.source).to.eql(\"assistant\"); pm.expect(added.assistantTurnId).to.eql(null); pm.expect(added.anchors[0].price).to.eql(\"110\"); });",
                   "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
                 ]
               }
@@ -18901,6 +18942,37 @@
                 "exec": [
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
                   "pm.test(\"一個都不剩\", function () { pm.expect(pm.response.json().drawings).to.eql([]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收掉那一根 K 線",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
                 ]
               }
             }
