@@ -47,10 +47,6 @@ func NewStrategyBotWatchedSymbolRoundOutcomeDomain(
 	return outcome
 }
 
-func (outcome StrategyBotWatchedSymbolRoundOutcomeDomain) Symbol() string {
-	return outcome.symbol
-}
-
 // HaltsTheBot is a failure every symbol would meet alike, so the whole bot stops.
 func (outcome StrategyBotWatchedSymbolRoundOutcomeDomain) HaltsTheBot() bool {
 	return outcome.kind == strategyBotRoundHalted

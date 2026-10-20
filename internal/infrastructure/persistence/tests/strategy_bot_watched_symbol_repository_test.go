@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -193,4 +194,43 @@ func TestContractAutoOrderRepositoryCountsOnlyUnsettledOrdersAsNotDone(t *testin
 
 	require.NoError(t, unsettledError)
 	assert.False(t, hasUnsettled)
+}
+
+// A bot never lands watching only part of what was asked: a symbol that cannot be stored takes the whole save back.
+func TestStrategyBotRepositorySavesABotAndItsSymbolsTogetherOrNotAtAll(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	bot := aBotRow("半途而廢")
+	bot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+		{Symbol: "BTCUSDT"}, {Symbol: strings.Repeat("X", 65)},
+	}
+
+	_, saveError := repository.Save(t.Context(), bot)
+
+	require.Error(t, saveError)
+	bots, findError := repository.FindAllByOwner(t.Context(), botRowOwnerID)
+	require.NoError(t, findError)
+	assert.Empty(t, bots)
+}
+
+// A round never lands on half its symbols: a symbol whose state cannot be written takes the bot's write back too.
+func TestStrategyBotRepositoryWritesARoundsStateAllOrNothing(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	savedBot := aBotWatching(t, database, "多標的", "BTCUSDT", "ETHUSDT")
+	savedBot.RunState = string(vo.StrategyBotRunning)
+	savedBot.WatchedSymbols[1].HaltReason = strings.Repeat("x", 33)
+
+	updateError := repository.UpdateRunState(t.Context(), savedBot)
+
+	require.Error(t, updateError)
+	readBot, findError := repository.FindOne(t.Context(), savedBot.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, string(vo.StrategyBotStopped), readBot.RunState)
+}
+
+func TestStrategyBotRepositoryReportsARoundStateItCannotWrite(t *testing.T) {
+	repository := persistence.NewStrategyBotRepository(closedDatabase(t))
+
+	require.Error(t, repository.UpdateRunState(t.Context(), aBotRow("讀不到")))
 }

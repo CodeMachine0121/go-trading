@@ -901,10 +901,6 @@ func (schemaMigrator *SchemaMigrator) moveBotSymbolsOntoWatchedSymbols() error {
 
 		migrator := transaction.Migrator()
 		for _, column := range retiredStrategyBotSymbolColumns {
-			if !migrator.HasColumn(&retiredStrategyBotSymbolRow{}, column) {
-				continue
-			}
-
 			if dropError := migrator.DropColumn(&retiredStrategyBotSymbolRow{}, column); dropError != nil {
 				return fmt.Errorf("drop moved bot column %s: %w", column, dropError)
 			}

@@ -115,9 +115,11 @@ func TestContractAutoOrderRepositoryReportsEntryQuestionsItCannotAsk(t *testing.
 
 	_, laterError := repository.ExistsUnsettledAfter(t.Context(), 1, "BTCUSDT", 1)
 	_, entryError := repository.ExistsOutstandingEntry(t.Context(), 1)
+	_, unsettledError := repository.ExistsUnsettled(t.Context(), 1, "BTCUSDT")
 
 	require.Error(t, laterError)
 	require.Error(t, entryError)
+	require.Error(t, unsettledError)
 }
 
 func TestStrategyBotRepositoryKeepsTheEntrySlippageTolerance(t *testing.T) {

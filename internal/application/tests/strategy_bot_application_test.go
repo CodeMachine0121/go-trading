@@ -105,7 +105,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	unsettledAutoOrderSymbols := map[string]bool{}
 	contractAutoOrderRepository.EXPECT().ExistsUnsettled(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ uint, symbol string) (bool, error) {
-			return unsettledAutoOrderSymbols[symbol], nil
+			return unsettledAutoOrderSymbols[symbol], autoOrderReadFailure
 		}).AnyTimes()
 
 	// A rewrite is one transaction; the mock runs it inline, so the real rollback is a storage test.

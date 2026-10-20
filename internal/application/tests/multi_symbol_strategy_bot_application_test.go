@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -111,4 +112,45 @@ func TestStrategyBotApplicationStartRevivesEveryWatchedSymbolButKeepsWhatAutoOrd
 	require.Len(t, underTest.announced(), 1)
 	assert.Contains(t, underTest.announced()[0], "【已啟動】早盤突破 · BTCUSDT、ETHUSDT")
 	assert.Contains(t, underTest.announced()[0], "它開始盯這 2 檔了")
+}
+
+func TestStrategyBotApplicationKeepsTheSymbolsWhenItCannotTellWhetherOneIsDone(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.expectTheNamedTradingStrategyIsThisPersons()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aStoppedBotWatchingBitcoinAndEthereum(""), nil).AnyTimes()
+	*underTest.autoOrderReadFailure = errors.New("the database went away")
+	writeDto := aBotWrite()
+	writeDto.ID = strategyBotID
+
+	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, *underTest.autoOrderReadFailure)
+}
+
+func TestStrategyBotApplicationKeepsTheSymbolsWhenTheBotCannotBeHeld(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.expectTheNamedTradingStrategyIsThisPersons()
+	lockFailure := errors.New("the database went away")
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aStoppedBotWatchingBitcoinAndEthereum(""), nil).Times(1)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(entities.StrategyBot{}, lockFailure)
+	writeDto := aBotWrite()
+	writeDto.ID = strategyBotID
+
+	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, lockFailure)
+}
+
+func TestStrategyBotApplicationRefusesAHistoryNarrowedToAnUnreadableSymbol(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+
+	_, listError := underTest.strategyBotApplication.ListRunRecords(
+		context.Background(), strategyBotOwnerID, strategyBotID, "BTC\x00USDT")
+
+	require.ErrorIs(t, listError, domains.ErrStrategyBotValidation)
 }

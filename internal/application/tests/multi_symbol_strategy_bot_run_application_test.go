@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -360,4 +361,48 @@ func TestAMultiSymbolContractBotSkipsOnlyTheSymbolWhoseMarketStopped(t *testing.
 	require.Len(t, *underTest.appendedRunRecords, 2)
 	assert.Equal(t, "ETHUSDT", (*underTest.appendedRunRecords)[1].Symbol)
 	assert.Equal(t, "hold", (*underTest.appendedRunRecords)[1].Result)
+}
+
+// A symbol dropped while its round ran has nowhere to land, so only the symbols still watched are booked in.
+func TestAMultiSymbolBotBooksOnlyTheSymbolsItStillWatches(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSourcesOn(sourcesBySymbol{
+		"BTCUSDT": {vo.SignalBuy, vo.SignalBuy},
+		"ETHUSDT": {vo.SignalBuy, vo.SignalBuy},
+	})
+	underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT") })
+	claimedBot := aDueBotWatching([2]string{"BTCUSDT", ""}, [2]string{"ETHUSDT", ""})
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
+		Return([]entities.StrategyBot{claimedBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBotWatching([2]string{"BTCUSDT", ""}), nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	assert.Equal(t, "BTCUSDT", (*underTest.appendedRunRecords)[0].Symbol)
+}
+
+// The notice of a symbol halting is part of the round: if it cannot be queued, nothing of the round is kept.
+func TestAMultiSymbolBotKeepsNothingOfARoundWhoseHaltNoticeCannotBeQueued(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSourcesOn(sourcesBySymbol{
+		"BTCUSDT": {vo.SignalHold, vo.SignalHold},
+		"ETHUSDT": {vo.SignalBuy, vo.SignalBuy},
+	}, "ETHUSDT")
+	*underTest.enqueueFailure = errors.New("the database went away")
+	bot := aDueBotWatching([2]string{"BTCUSDT", ""}, [2]string{"ETHUSDT", ""})
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
+		Return([]entities.StrategyBot{bot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(bot, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	assert.Empty(t, underTest.queuedMessages())
+	// Freed on its own so the bot is not kept from every replica until the claim runs out.
+	assert.Contains(t, *underTest.releasedClaims, strategyBotID)
 }
