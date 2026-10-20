@@ -205,18 +205,24 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	watchedSymbolsToPlay := strategyBotRunApplication.strategyBotService.WatchedSymbolsToPlay(botDto)
 	watchedSymbolOutcomes := make([]dto.StrategyBotWatchedSymbolRoundOutcomeDto, len(watchedSymbolsToPlay))
 
-	// Read once per round, as the bot's owner, so every symbol follows the same version and edits to shared rules apply on the next round.
-	tradingStrategyDto, tradingStrategyError := strategyBotRunApplication.tradingStrategyService.
+	// The rules and their scripts are read once per round, as the bot's owner, so every symbol follows the same version and edits apply on the next round.
+	// A trading strategy gone is nearly unreachable since deleting a followed one is refused, but like a script gone it halts rather than skips, so the bot does not silently report itself as running.
+	tradingStrategyDto, roundError := strategyBotRunApplication.tradingStrategyService.
 		GetTradingStrategy(executionContext, botDto.OwnerID, botDto.TradingStrategyID)
-	if tradingStrategyError != nil {
-		// Nearly unreachable since deleting a followed strategy is refused, but it halts
-		// rather than skips so the bot does not silently report itself as running.
-		log.Printf("strategy bot %d: round could not read its trading strategy: %v",
-			botDto.ID, tradingStrategyError)
+	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, len(tradingStrategyDto.SignalSources))
+	for index, signalSource := range tradingStrategyDto.SignalSources {
+		if roundError != nil {
+			break
+		}
+		runnableStrategyScripts[index], roundError = strategyBotRunApplication.strategyScriptService.ResolveOwnedStrategyScript(
+			executionContext, botDto.OwnerID, signalSource.StrategyScriptID)
+	}
+	if roundError != nil {
+		log.Printf("strategy bot %d: round could not read its rules: %v", botDto.ID, roundError)
 
 		for index, watchedSymbolDto := range watchedSymbolsToPlay {
 			watchedSymbolOutcomes[index] = strategyBotRunApplication.strategyBotService.ReadRoundFailure(
-				watchedSymbolDto.Symbol, tradingStrategyError)
+				watchedSymbolDto.Symbol, roundError)
 		}
 
 		return dto.StrategyBotRoundOutcomeDto{WatchedSymbolOutcomes: watchedSymbolOutcomes}
@@ -227,7 +233,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	for index, watchedSymbolDto := range watchedSymbolsToPlay {
 		waitGroup.Go(func() {
 			watchedSymbolOutcomes[index] = strategyBotRunApplication.playWatchedSymbolRound(
-				executionContext, botDto, watchedSymbolDto, tradingStrategyDto)
+				executionContext, botDto, watchedSymbolDto, tradingStrategyDto, runnableStrategyScripts)
 		})
 	}
 	waitGroup.Wait()
@@ -239,6 +245,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRound(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 	watchedSymbolDto dto.StrategyBotWatchedSymbolDto, tradingStrategyDto dto.TradingStrategyDto,
+	runnableStrategyScripts []dto.RunnableStrategyScriptDto,
 ) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
 	symbol := watchedSymbolDto.Symbol
 
@@ -263,7 +270,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRou
 	}
 
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
-		executionContext, botDto, symbol, tradingStrategyDto)
+		executionContext, botDto, symbol, tradingStrategyDto, runnableStrategyScripts)
 	if roundError != nil {
 		// Logged because the history records "hold" either way, indistinguishable from a
 		// healthy round that concluded nothing.
@@ -340,11 +347,11 @@ func suggestingRound(
 	return outcomeDto
 }
 
-// readSignals asks every source concurrently about one symbol and returns the first failure, since a
+// readSignals asks every source concurrently about one symbol, running the scripts the round resolved for them and returns the first failure, since a
 // condition read against partial signals would quietly come out false.
 func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	executionContext context.Context, botDto dto.StrategyBotDto, symbol string,
-	tradingStrategyDto dto.TradingStrategyDto,
+	tradingStrategyDto dto.TradingStrategyDto, runnableStrategyScripts []dto.RunnableStrategyScriptDto,
 ) (map[string]vo.SignalVo, []dto.StrategyBotSourceSignalDto, error) {
 	endTime := strategyBotRunApplication.clockProxy.Now()
 	startTime := endTime.Add(-strategyBotObservationWindowLength)
@@ -371,14 +378,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 		go func() {
 			defer waitGroup.Done()
 
-			runnableStrategyScript, resolveError := strategyBotRunApplication.strategyScriptService.ResolveOwnedStrategyScript(
-				executionContext, botDto.OwnerID, signalSource.StrategyScriptID)
-			if resolveError != nil {
-				sourceErrors[resultIndex] = resolveError
-
-				return
-			}
-
+			runnableStrategyScript := runnableStrategyScripts[resultIndex]
 			result, calculateError := calculateSignal(
 				executionContext, dto.IndicatorCalculationRequestDto{
 					Symbol:              symbol,

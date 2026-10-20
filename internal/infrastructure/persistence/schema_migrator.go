@@ -853,10 +853,19 @@ func (schemaMigrator *SchemaMigrator) moveBotSymbolsOntoWatchedSymbols() error {
 	}
 
 	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
+		// Only the columns this database still has: one last synced before auto orders existed never had the position columns, which then read as flat.
+		migrator := transaction.Migrator()
+		presentColumns := []string{}
+		for _, column := range retiredStrategyBotSymbolColumns {
+			if migrator.HasColumn(&retiredStrategyBotSymbolRow{}, column) {
+				presentColumns = append(presentColumns, column)
+			}
+		}
+
 		retiredRows := []retiredStrategyBotSymbolRow{}
 		// Named columns, because the table was just altered and a cached plan whose result type changed is refused.
 		if readError := transaction.Model(&retiredStrategyBotSymbolRow{}).
-			Select(append([]string{"id"}, retiredStrategyBotSymbolColumns...)).
+			Select(append([]string{"id"}, presentColumns...)).
 			Order("id ASC").
 			Find(&retiredRows).Error; readError != nil {
 			return fmt.Errorf("read bots watching one symbol: %w", readError)
@@ -899,8 +908,7 @@ func (schemaMigrator *SchemaMigrator) moveBotSymbolsOntoWatchedSymbols() error {
 			}
 		}
 
-		migrator := transaction.Migrator()
-		for _, column := range retiredStrategyBotSymbolColumns {
+		for _, column := range presentColumns {
 			if dropError := migrator.DropColumn(&retiredStrategyBotSymbolRow{}, column); dropError != nil {
 				return fmt.Errorf("drop moved bot column %s: %w", column, dropError)
 			}

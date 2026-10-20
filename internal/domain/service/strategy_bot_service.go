@@ -165,6 +165,10 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 			if lockError != nil {
 				return lockError
 			}
+			// Asked again under the lock, since a start pressed meanwhile would have the symbols change under a running round.
+			if editableError := domains.NewStrategyBotRunStateDomain(lockedBot).RequireEditable(); editableError != nil {
+				return editableError
+			}
 
 			for _, droppedSymbol := range strategyBotDomain.WatchedSymbolsDroppedFrom(lockedBot) {
 				hasUnsettledAutoOrder, unsettledError := strategyBotService.contractAutoOrderRepository.ExistsUnsettled(
@@ -405,13 +409,14 @@ func (strategyBotService *StrategyBotService) ClaimStrategyBot(
 	return nil
 }
 
-// WatchedSymbolsToPlay are the bot's watched symbols a round runs: all but those halted on their own.
+// WatchedSymbolsToPlay are the bot's watched symbols a round runs: while running, all but those halted on their own; a round pressed by hand on a stopped bot tries every symbol, so the owner can see whether a fix worked.
 func (strategyBotService *StrategyBotService) WatchedSymbolsToPlay(
 	botDto dto.StrategyBotDto,
 ) []dto.StrategyBotWatchedSymbolDto {
+	isRunning := vo.StrategyBotRunStateVo(botDto.RunState) == vo.StrategyBotRunning
 	watchedSymbolsToPlay := make([]dto.StrategyBotWatchedSymbolDto, 0, len(botDto.WatchedSymbols))
 	for _, watchedSymbolDto := range botDto.WatchedSymbols {
-		if vo.StrategyBotHaltReasonVo(watchedSymbolDto.HaltReason) == vo.StrategyBotHaltNone {
+		if !isRunning || vo.StrategyBotHaltReasonVo(watchedSymbolDto.HaltReason) == vo.StrategyBotHaltNone {
 			watchedSymbolsToPlay = append(watchedSymbolsToPlay, watchedSymbolDto)
 		}
 	}
@@ -601,8 +606,9 @@ func (strategyBotService *StrategyBotService) RecordRound(
 					}
 				}
 
-				// A symbol's own halt is told only when the bot carries on; a halted bot says it once for all.
-				if watchedSymbolOutcome.HaltsTheWatchedSymbol() && botHaltReason == vo.StrategyBotHaltNone {
+				// A symbol's own halt is told only while the other symbols carry on: a halted bot says it once for all, and a stopped bot has nothing carrying on.
+				if watchedSymbolOutcome.HaltsTheWatchedSymbol() && botHaltReason == vo.StrategyBotHaltNone &&
+					storedBot.RunState == string(vo.StrategyBotRunning) {
 					if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
 						domains.NewLifecyclePendingMessageDomain(
 							id, storedBot.OwnerID,

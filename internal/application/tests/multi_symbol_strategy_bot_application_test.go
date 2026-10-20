@@ -189,3 +189,19 @@ func TestStrategyBotApplicationRefusesAContractBotWhenAnyOfItsSymbolsCannotBeTra
 		})
 	}
 }
+
+// A start pressed between the first read and the lock is seen under the lock, so symbols never change under a running round.
+func TestStrategyBotApplicationRefusesARewriteOfABotStartedMeanwhile(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.expectTheNamedTradingStrategyIsThisPersons()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aStoppedBotWatchingBitcoinAndEthereum(""), nil).Times(1)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	writeDto := aBotWrite()
+	writeDto.ID = strategyBotID
+
+	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, domains.ErrStrategyBotRunning)
+}

@@ -68,6 +68,17 @@ func (underTest strategyBotRunUnderTest) expectContractSources(
 		}).AnyTimes()
 }
 
+// expectContractScriptsResolvable makes both scripts resolvable as the owner's contract scripts, for rounds that never get as far as running them.
+func (underTest strategyBotRunUnderTest) expectContractScriptsResolvable() {
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
+				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id),
+				ResultType: "signal", MarketDataKind: string(vo.MarketDataKindContractKCandle),
+			}, nil
+		}).AnyTimes()
+}
+
 // expectTheContractsLatestCandle is the newest one-minute contract candle, closing at
 // this price.
 func (underTest strategyBotRunUnderTest) expectTheContractsLatestCandle(closePrice string) {
@@ -135,7 +146,7 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectTheContractsLatestCandle("100")
+	// The rules are read before any market is, so a script gone halts the bot without asking for a candle.
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
 
@@ -265,6 +276,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
 			underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+			underTest.expectContractScriptsResolvable()
 			underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return(testCase.storedCandles, testCase.readError)
 			underTest.expectNoRoundMessage()
@@ -326,6 +338,7 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectContractScriptsResolvable()
 	// Three hours before the round, and nothing since.
 	underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return(storedContractCandlesAt(at(6, 0)), nil)

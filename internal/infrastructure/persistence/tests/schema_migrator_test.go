@@ -563,3 +563,32 @@ func TestSchemaMigratorLetsEverySymbolOfARoundQueueItsOwnMessageAndOrder(t *test
 		Where(clause.Eq{Column: "round_due_at", Value: roundDueAt}).Count(&orderCount).Error)
 	assert.Equal(t, int64(2), orderCount)
 }
+
+// A database last synced before auto orders existed has no position columns; its bots move over flat.
+func TestSchemaMigratorMovesABotFromBeforeAutoOrdersExisted(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	asTheShapeBeforeBotsWatchedSeveralSymbols(t, database)
+	for _, column := range []string{
+		"auto_order_position_direction", "auto_order_position_quantity",
+		"auto_order_stop_loss_client_id", "auto_order_take_profit_client_id",
+	} {
+		require.NoError(t, database.Exec(`ALTER TABLE "StrategyBots" DROP COLUMN "`+column+`"`).Error)
+	}
+	botID := uint(0)
+	require.NoError(t, database.Raw(
+		`INSERT INTO "StrategyBots"
+		   ("owner_id","name","symbol","trading_strategy_id","trigger_interval_minutes","run_state","next_run_at",
+		    "last_sent_signal","halt_reason","conflicting","created_at","updated_at")
+		 VALUES (1,'舊機器人','ETHUSDT',?,5,'running',now(),'sell','',false,now(),now()) RETURNING id`,
+		botRowTradingStrategyID).Scan(&botID).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	movedBot, findError := persistence.NewStrategyBotRepository(database).FindOne(t.Context(), botID)
+	require.NoError(t, findError)
+	require.Len(t, movedBot.WatchedSymbols, 1)
+	assert.Equal(t, "ETHUSDT", movedBot.WatchedSymbols[0].Symbol)
+	assert.Equal(t, string(vo.SignalSell), movedBot.WatchedSymbols[0].LastSentSignal)
+	assert.Empty(t, movedBot.WatchedSymbols[0].AutoOrderPositionDirection)
+}

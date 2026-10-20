@@ -478,13 +478,14 @@ func (strategyBotRepository *StrategyBotRepository) unclaimedAt(moment time.Time
 	)
 }
 
-// FindOneLocked holds the bot's row until the surrounding transaction ends, so a round being booked and a halt from a failed send never overwrite each other.
+// FindOneLocked holds the bot's row and its watched symbols' rows until the surrounding transaction ends, so a round being booked and a halt from a failed send never overwrite each other.
 func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
 	executionContext context.Context, id uint,
 ) (entities.StrategyBot, error) {
 	bot := entities.StrategyBot{}
+	database := strategyBotRepository.database.within(executionContext)
 
-	result := strategyBotRepository.withWatchedSymbols(strategyBotRepository.database.within(executionContext)).
+	result := database.
 		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 		Where(clause.Eq{Column: "id", Value: id}).
 		First(&bot)
@@ -493,6 +494,15 @@ func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
 	}
 	if result.Error != nil {
 		return entities.StrategyBot{}, fmt.Errorf("find strategy bot for update: %w", result.Error)
+	}
+
+	// Locked in their own read, since a preload takes no lock, so forgetting a symbol's signal waits for the round being booked instead of being written over by it.
+	if lockError := database.
+		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: id}).
+		Order("id ASC").
+		Find(&bot.WatchedSymbols).Error; lockError != nil {
+		return entities.StrategyBot{}, fmt.Errorf("find strategy bot watched symbols for update: %w", lockError)
 	}
 
 	return bot, nil

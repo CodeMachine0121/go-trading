@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -405,4 +406,66 @@ func TestAMultiSymbolBotKeepsNothingOfARoundWhoseHaltNoticeCannotBeQueued(t *tes
 	assert.Empty(t, underTest.queuedMessages())
 	// Freed on its own so the bot is not kept from every replica until the claim runs out.
 	assert.Contains(t, *underTest.releasedClaims, strategyBotID)
+}
+
+// A round pressed by hand on a stopped bot tries every symbol, halted ones too, so the owner can see whether a fix worked; nothing claims the other symbols carry on.
+func TestARoundByHandOnAStoppedBotTriesEverySymbolAndTellsOfNoSymbolHalt(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSourcesOn(sourcesBySymbol{
+		"BTCUSDT": {vo.SignalBuy, vo.SignalBuy},
+		"ETHUSDT": {vo.SignalBuy, vo.SignalBuy},
+	}, "BTCUSDT")
+	underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "【買入】早盤突破 · ETHUSDT") })
+	stoppedBot := aDueBotWatching([2]string{"BTCUSDT", ""}, [2]string{"ETHUSDT", ""})
+	stoppedBot.RunState = string(vo.StrategyBotStopped)
+	stoppedBot.WatchedSymbols[1].HaltReason = string(vo.StrategyBotHaltScriptFailed)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stoppedBot, nil).AnyTimes()
+	storedBot := entities.StrategyBot{}
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, endedBot entities.StrategyBot) error {
+			storedBot = endedBot
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(t.Context(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, runError)
+	require.Len(t, *underTest.appendedRunRecords, 2)
+	assert.Equal(t, string(vo.SignalBuy), lastSentSignalOf(storedBot, "ETHUSDT"))
+	ethereum, _ := storedBot.WatchedSymbol("ETHUSDT")
+	assert.Empty(t, ethereum.HaltReason, "a symbol that concluded again is no longer halted")
+	bitcoin, _ := storedBot.WatchedSymbol("BTCUSDT")
+	assert.Equal(t, string(vo.StrategyBotHaltScriptFailed), bitcoin.HaltReason)
+	assert.Equal(t, string(vo.StrategyBotStopped), storedBot.RunState)
+	assert.Empty(t, storedBot.HaltReason)
+	for _, queued := range underTest.queuedMessages() {
+		assert.NotContains(t, queued.Text, "【標的停擺】")
+	}
+}
+
+// The rules are read once a round, so every symbol runs the same version of each script.
+func TestAMultiSymbolBotReadsEachScriptOnceARound(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	scriptReads := 0
+	scriptReadsMutex := sync.Mutex{}
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			scriptReadsMutex.Lock()
+			defer scriptReadsMutex.Unlock()
+			scriptReads++
+
+			return entities.StrategyScript{
+				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id), ResultType: "signal",
+			}, nil
+		}).AnyTimes()
+	underTest.expectSourcesOn(sourcesBySymbol{
+		"BTCUSDT": {vo.SignalHold, vo.SignalHold},
+		"ETHUSDT": {vo.SignalHold, vo.SignalHold},
+		"SOLUSDT": {vo.SignalHold, vo.SignalHold},
+	})
+
+	underTest.runsTheBot(t, aDueBotWatching([2]string{"BTCUSDT", ""}, [2]string{"ETHUSDT", ""}, [2]string{"SOLUSDT", ""}))
+
+	assert.Equal(t, 2, scriptReads)
 }

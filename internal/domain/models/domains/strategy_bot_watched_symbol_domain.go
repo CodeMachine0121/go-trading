@@ -42,12 +42,13 @@ func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) RequireRemovable(hasUn
 	return nil
 }
 
-// Concluded moves the last sent signal, with the round that said it, only when the round queued a message.
+// Concluded moves the last sent signal, with the round that said it, only when the round queued a message; a symbol that concluded is no longer halted, which only a round pressed by hand on a stopped bot can show, since a running bot passes halted symbols by.
 func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) Concluded(
 	dueAt time.Time, sentSignal vo.SignalVo, conflicting bool,
 ) entities.StrategyBotWatchedSymbol {
 	concludedSymbol := watchedSymbolDomain.watchedSymbol
 	concludedSymbol.Conflicting = conflicting
+	concludedSymbol.HaltReason = string(vo.StrategyBotHaltNone)
 
 	if sentSignal != "" {
 		dueAtUtc := dueAt.UTC()

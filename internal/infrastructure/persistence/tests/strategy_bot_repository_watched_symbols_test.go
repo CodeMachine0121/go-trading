@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -264,4 +265,44 @@ func TestStrategyBotRepositoryReportsARoundStateItCannotWrite(t *testing.T) {
 	repository := persistence.NewStrategyBotRepository(closedDatabase(t))
 
 	require.Error(t, repository.UpdateRunState(t.Context(), aBotRow("讀不到")))
+}
+
+// Forgetting a symbol's signal waits for a round being booked, so the booking cannot write the forgotten signal back.
+func TestStrategyBotRepositoryHoldsTheWatchedSymbolsWhileARoundIsBooked(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	savedBot := aBotWatching(t, database, "多標的", "BTCUSDT")
+	roundDueAt := time.Date(2026, 10, 20, 6, 0, 0, 0, time.UTC)
+	savedBot.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
+	savedBot.WatchedSymbols[0].LastSentRoundDueAt = &roundDueAt
+	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
+
+	forgotten := make(chan error, 1)
+	lockHeld := make(chan struct{})
+	bookingError := persistence.NewTransactionRepository(database).Atomically(t.Context(),
+		func(transactionContext context.Context) error {
+			lockedBot, lockError := repository.FindOneLocked(transactionContext, savedBot.ID)
+			if lockError != nil {
+				return lockError
+			}
+			close(lockHeld)
+			go func() {
+				forgotten <- repository.ForgetSentSignal(context.Background(), savedBot.ID, "BTCUSDT", roundDueAt)
+			}()
+
+			select {
+			case <-forgotten:
+				t.Error("forgetting went ahead while the round held the symbol")
+			case <-time.After(300 * time.Millisecond):
+			}
+
+			return repository.UpdateRunState(transactionContext, lockedBot)
+		})
+	require.NoError(t, bookingError)
+	<-lockHeld
+
+	require.NoError(t, <-forgotten)
+	readBot, findError := repository.FindOne(t.Context(), savedBot.ID)
+	require.NoError(t, findError)
+	assert.Empty(t, readBot.WatchedSymbols[0].LastSentSignal, "the forget lands after the booking, not under it")
 }
