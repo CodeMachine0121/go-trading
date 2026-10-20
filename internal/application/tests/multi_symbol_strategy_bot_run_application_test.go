@@ -164,26 +164,34 @@ func TestAMultiSymbolBotMarksAConflictOnThatSymbolAlone(t *testing.T) {
 	assert.Equal(t, string(vo.StrategyBotRunning), storedBot.RunState)
 }
 
-func TestAMultiSymbolBotSizesEverySymbolWithTheWholePlan(t *testing.T) {
+func TestAMultiSymbolBotSizesEachSymbolWithinItsOwnShare(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectSourcesOn(sourcesBySymbol{
 		"BTCUSDT": {vo.SignalBuy, vo.SignalBuy},
 		"ETHUSDT": {vo.SignalBuy, vo.SignalBuy},
 	})
-	for range 2 {
-		underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "開倉金額 1000") })
-	}
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "資金分配 40%：總金額 1000 中的 400")
+		assert.Contains(t, message, "開倉金額 40")
+	})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "資金分配 60%：總金額 1000 中的 600")
+		assert.Contains(t, message, "開倉金額 60")
+	})
 	bot := aDueBotWatching([2]string{"BTCUSDT", ""}, [2]string{"ETHUSDT", ""})
+	bot.WatchedSymbols[0].AllocationPercentage = decimal.NewFromInt(40)
+	bot.WatchedSymbols[1].AllocationPercentage = decimal.NewFromInt(60)
 	bot.PositionPlanCapital = decimal.NewFromInt(1000)
-	bot.PositionPlanSizingMode = string(vo.PositionSizingModeFixedAmount)
-	bot.PositionPlanSizingValue = decimal.NewFromInt(1000)
+	bot.PositionPlanSizingMode = string(vo.PositionSizingModePercentage)
+	bot.PositionPlanSizingValue = decimal.NewFromInt(10)
 
 	underTest.runsTheBot(t, bot)
 
-	require.Len(t, *underTest.appendedRunRecords, 2)
+	stakes := map[string]string{}
 	for _, appended := range *underTest.appendedRunRecords {
-		assert.True(t, appended.PositionPlan.Stake.Equal(decimal.NewFromInt(1000)), appended.Symbol)
+		stakes[appended.Symbol] = appended.PositionPlan.Stake.String()
 	}
+	assert.Equal(t, map[string]string{"BTCUSDT": "40", "ETHUSDT": "60"}, stakes)
 }
 
 func TestAMultiSymbolBotHaltsOnlyTheSymbolWhoseScriptWillNotRunOnIt(t *testing.T) {

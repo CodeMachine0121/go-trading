@@ -79,6 +79,18 @@ func (strategyBot StrategyBot) Symbols() []string {
 	return symbols
 }
 
+// CapitalAllocationDtos are the shares the bot's watched symbols hold now.
+func (strategyBot StrategyBot) CapitalAllocationDtos() []dto.StrategyBotCapitalAllocationDto {
+	capitalAllocations := make([]dto.StrategyBotCapitalAllocationDto, 0, len(strategyBot.WatchedSymbols))
+	for _, watchedSymbol := range strategyBot.WatchedSymbols {
+		capitalAllocations = append(capitalAllocations, dto.StrategyBotCapitalAllocationDto{
+			Symbol: watchedSymbol.Symbol, AllocationPercentage: watchedSymbol.AllocationPercentage,
+		})
+	}
+
+	return capitalAllocations
+}
+
 func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              strategyBot.PositionPlanCapital,

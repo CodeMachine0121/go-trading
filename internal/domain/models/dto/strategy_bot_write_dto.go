@@ -17,6 +17,10 @@ type StrategyBotWriteDto struct {
 	TriggerIntervalMinutes int
 	// PositionPlan counts as unset when capital is empty.
 	PositionPlan PositionPlanSettingsDto
+	// CapitalAllocations empty means none given: the stored shares are kept when the symbols are unchanged, otherwise the capital is split equally.
+	CapitalAllocations []StrategyBotCapitalAllocationDto
+	// RetainedCapitalAllocations are the stored bot's shares, filled in on rewrite.
+	RetainedCapitalAllocations []StrategyBotCapitalAllocationDto
 	// DeclaredLeverage is validated only on input, not in the per-round plan, so bots saved
 	// before the rule existed keep running; spot bots carry it only to be refused.
 	DeclaredLeverage decimal.Decimal

@@ -40,6 +40,11 @@ type PositionPlanDto struct {
 	// LiquidatesBeforeStop warns the stop lies past the estimated liquidation price, or,
 	// without one, that distance × leverage reaches 100%.
 	LiquidatesBeforeStop bool
+	// PartiallyAllocated means the stake was sized within AllocatedCapital, AllocationPercentage of TotalCapital, rather than the whole capital.
+	PartiallyAllocated   bool
+	TotalCapital         decimal.Decimal
+	AllocationPercentage decimal.Decimal
+	AllocatedCapital     decimal.Decimal
 
 	// ForContract marks a contract suggestion; the fields below are zero on spot.
 	ForContract bool

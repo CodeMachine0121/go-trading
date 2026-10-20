@@ -20,6 +20,9 @@ type PositionPlanDomain struct {
 	exitLevels BacktestExitLevelsDomain
 	// leverage zero means a spot plan whose notional is the stake; allowed values were settled at save time.
 	leverage decimal.Decimal
+	// allocationPercentage is non-zero once the capital has been narrowed to one watched symbol's share of totalCapital.
+	allocationPercentage decimal.Decimal
+	totalCapital         decimal.Decimal
 }
 
 // NewPositionPlanDomain only enforces rules on stored figures, since it reruns every round on old settings; no capital yields the zero value rather than an error.
@@ -49,6 +52,35 @@ func NewPositionPlanDomain(
 		exitLevels: exitLevels,
 		leverage:   settings.Leverage,
 	}, nil
+}
+
+// AllocatedTo narrows the capital to a watched symbol's share, so sizing, exits and leverage all work within that share; a share that is not positive leaves the plan whole.
+func (positionPlanDomain PositionPlanDomain) AllocatedTo(allocationPercentage decimal.Decimal) PositionPlanDomain {
+	if !allocationPercentage.IsPositive() {
+		return positionPlanDomain
+	}
+
+	allocatedPlan := positionPlanDomain
+	allocatedPlan.capital = portionOf(positionPlanDomain.capital, allocationPercentage)
+	allocatedPlan.allocationPercentage = allocationPercentage
+	allocatedPlan.totalCapital = positionPlanDomain.capital
+
+	return allocatedPlan
+}
+
+// allocated marks a suggestion sized within a share smaller than the whole capital, so the reader is told which share it came from.
+func (positionPlanDomain PositionPlanDomain) allocated(positionPlanDto dto.PositionPlanDto) dto.PositionPlanDto {
+	if !positionPlanDomain.allocationPercentage.IsPositive() ||
+		positionPlanDomain.allocationPercentage.GreaterThanOrEqual(oneHundredPercent) {
+		return positionPlanDto
+	}
+
+	positionPlanDto.PartiallyAllocated = true
+	positionPlanDto.TotalCapital = positionPlanDomain.totalCapital
+	positionPlanDto.AllocationPercentage = positionPlanDomain.allocationPercentage
+	positionPlanDto.AllocatedCapital = positionPlanDomain.capital
+
+	return positionPlanDto
 }
 
 // validatedDistance is shared by both exits and by replays so the same input always gets the same refusal.
@@ -97,7 +129,7 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
 	if !affordable {
 		// Not an error: an unaffordable fixed amount is reported rather than printing a stake nobody can put down.
-		return dto.PositionPlanDto{Stake: stake, Affordable: false}, true
+		return positionPlanDomain.allocated(dto.PositionPlanDto{Stake: stake, Affordable: false}), true
 	}
 
 	// A spot plan borrows nothing, the same as 1x.
@@ -134,7 +166,7 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
 
-	return positionPlanDto, true
+	return positionPlanDomain.allocated(positionPlanDto), true
 }
 
 // NeedsVenue reports whether a suggestion needs the venue's rules at all, so a round with nothing affordable to place reads nothing from the venue.
@@ -190,7 +222,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		refusal, _ := tradingRules.RefusalFor(
 			tradingRules.QuantityFor(plainPlan.Stake.Mul(leverage), referencePrice), referencePrice, leverage)
 
-		return dto.PositionPlanDto{
+		return positionPlanDomain.allocated(dto.PositionPlanDto{
 			Stake:           plainPlan.Stake,
 			Affordable:      true,
 			Direction:       plainPlan.Direction,
@@ -199,7 +231,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 			ForContract:     true,
 			VenueRefusal:    refusal.ToDto(),
 			HasVenueRefusal: true,
-		}, true
+		}), true
 	}
 
 	notional := position.Quantity().Mul(position.EntryPrice())
@@ -245,7 +277,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
 
-	return venue.WithFundingEstimate(positionPlanDto), true
+	return venue.WithFundingEstimate(positionPlanDomain.allocated(positionPlanDto)), true
 }
 
 // portionOf is that percentage of an amount; which side of the price it lands on is the caller's concern.

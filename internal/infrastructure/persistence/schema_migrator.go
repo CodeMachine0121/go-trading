@@ -160,6 +160,11 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, moveError
 	}
 
+	// After the move, so bots that watched one symbol on themselves are shared out too.
+	if allocateError := schemaMigrator.allocateWatchedSymbolCapital(); allocateError != nil {
+		return nil, allocateError
+	}
+
 	// After the sync, so copies can be marked as adopted.
 	if copyError := schemaMigrator.copyMarketplaceDependencies(); copyError != nil {
 		return nil, copyError
@@ -911,6 +916,50 @@ func (schemaMigrator *SchemaMigrator) moveBotSymbolsOntoWatchedSymbols() error {
 		for _, column := range presentColumns {
 			if dropError := migrator.DropColumn(&retiredStrategyBotSymbolRow{}, column); dropError != nil {
 				return fmt.Errorf("drop moved bot column %s: %w", column, dropError)
+			}
+		}
+
+		return nil
+	})
+}
+
+// allocateWatchedSymbolCapital gives every bot whose watched symbols' shares are not a valid allocation an equal split; before shares existed every symbol read as 100%, so this splits bots watching several symbols and leaves single-symbol bots and owners' own valid shares alone.
+// Only rows whose share changes are written, so running it again writes nothing.
+func (schemaMigrator *SchemaMigrator) allocateWatchedSymbolCapital() error {
+	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
+		watchedSymbols := []entities.StrategyBotWatchedSymbol{}
+		if readError := transaction.
+			Select("id", "strategy_bot_id", "symbol", "allocation_percentage").
+			Order("id ASC").
+			Find(&watchedSymbols).Error; readError != nil {
+			return fmt.Errorf("read watched symbol shares: %w", readError)
+		}
+
+		watchedSymbolsByBot := map[uint][]entities.StrategyBotWatchedSymbol{}
+		for _, watchedSymbol := range watchedSymbols {
+			watchedSymbolsByBot[watchedSymbol.StrategyBotID] = append(
+				watchedSymbolsByBot[watchedSymbol.StrategyBotID], watchedSymbol)
+		}
+
+		for botID, botWatchedSymbols := range watchedSymbolsByBot {
+			bot := entities.StrategyBot{ID: botID, WatchedSymbols: botWatchedSymbols}
+			capitalAllocation, allocationError := domains.NewStrategyBotCapitalAllocationDomain(
+				bot.Symbols(), nil, bot.CapitalAllocationDtos())
+			if allocationError != nil {
+				return fmt.Errorf("share out bot %d capital: %w", botID, allocationError)
+			}
+
+			for _, watchedSymbol := range botWatchedSymbols {
+				allocationPercentage := capitalAllocation.PercentageOf(watchedSymbol.Symbol)
+				if watchedSymbol.AllocationPercentage.Equal(allocationPercentage) {
+					continue
+				}
+
+				if updateError := transaction.Model(&entities.StrategyBotWatchedSymbol{}).
+					Where(clause.Eq{Column: "id", Value: watchedSymbol.ID}).
+					UpdateColumn("allocation_percentage", allocationPercentage).Error; updateError != nil {
+					return fmt.Errorf("share out bot %d capital to %s: %w", botID, watchedSymbol.Symbol, updateError)
+				}
 			}
 		}
 

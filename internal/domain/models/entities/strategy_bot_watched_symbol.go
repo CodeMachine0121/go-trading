@@ -13,6 +13,8 @@ type StrategyBotWatchedSymbol struct {
 	ID            uint   `gorm:"primaryKey"`
 	StrategyBotID uint   `gorm:"not null;uniqueIndex:idx_strategy_bot_watched_symbols_bot_symbol,priority:1"`
 	Symbol        string `gorm:"size:64;not null;uniqueIndex:idx_strategy_bot_watched_symbols_bot_symbol,priority:2"`
+	// AllocationPercentage is this symbol's share of the bot's total capital; the default of 100 is what every symbol used before shares existed, so a column added to old rows keeps their meaning until the upgrade splits them.
+	AllocationPercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:100"`
 	// LastSentSignal is cleared on start so the first conclusion after starting is always sent.
 	LastSentSignal string `gorm:"size:16;not null;default:''"`
 	// LastSentRoundDueAt names the round whose message carried LastSentSignal, so a message given up forgets the signal only if no later round has said it since.
@@ -45,10 +47,11 @@ func (strategyBotWatchedSymbol StrategyBotWatchedSymbol) ToAutoOrderPositionVo()
 // ToDto shows the auto-order position only on contract bots, the only ones that open positions.
 func (strategyBotWatchedSymbol StrategyBotWatchedSymbol) ToDto(marketDataKind string) dto.StrategyBotWatchedSymbolDto {
 	watchedSymbolDto := dto.StrategyBotWatchedSymbolDto{
-		Symbol:         strategyBotWatchedSymbol.Symbol,
-		LastSentSignal: strategyBotWatchedSymbol.LastSentSignal,
-		Conflicting:    strategyBotWatchedSymbol.Conflicting,
-		HaltReason:     strategyBotWatchedSymbol.HaltReason,
+		Symbol:               strategyBotWatchedSymbol.Symbol,
+		AllocationPercentage: strategyBotWatchedSymbol.AllocationPercentage,
+		LastSentSignal:       strategyBotWatchedSymbol.LastSentSignal,
+		Conflicting:          strategyBotWatchedSymbol.Conflicting,
+		HaltReason:           strategyBotWatchedSymbol.HaltReason,
 	}
 	if marketDataKind == string(vo.MarketDataKindContractKCandle) {
 		watchedSymbolDto.AutoOrderPosition = &dto.AutoOrderPositionDto{
