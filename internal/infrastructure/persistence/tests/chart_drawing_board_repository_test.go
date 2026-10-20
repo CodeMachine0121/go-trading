@@ -114,5 +114,9 @@ func TestChartDrawingBoardRepositoryWritesOnlyOverTheExpectedRevision(t *testing
 		stored, _, findError := repository.FindOne(t.Context(), owner.ID, "spot", "BTCUSDT")
 		require.NoError(t, findError)
 		assert.Len(t, stored.Drawings, 1)
+		othersBoard, othersFound, othersFindError := repository.FindOne(t.Context(), otherOwner.ID, "spot", "BTCUSDT")
+		require.NoError(t, othersFindError)
+		require.True(t, othersFound)
+		assert.Empty(t, othersBoard.Drawings, "the other person sees none of the first person's drawings")
 	})
 }

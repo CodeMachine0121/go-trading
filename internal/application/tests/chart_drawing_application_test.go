@@ -220,6 +220,19 @@ func TestChartDrawingApplicationReplaceBoard(t *testing.T) {
 		assert.Equal(t, "BTCUSDT", saved.Symbol)
 	})
 
+	t.Run("a hand drawing in the future is saved without reading the market", func(t *testing.T) {
+		fixture := newChartDrawingApplicationUnderTest(t)
+		fixture.boardIs(entities.ChartDrawingBoard{Market: "spot"}, false)
+		fixture.savesEcho(0)
+
+		boardDto, replaceError := fixture.application.ReplaceBoard(context.Background(), dto.ChartDrawingBoardReplaceDto{
+			Place: spotPlace(), Revision: 0, Drawings: []dto.ChartDrawingWriteDto{newHorizontalLine},
+		})
+
+		require.NoError(t, replaceError)
+		assert.True(t, boardDto.Drawings[0].Anchors[0].OpenTime.After(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)))
+	})
+
 	t.Run("a board changed since is refused with the board as it is, writing nothing", func(t *testing.T) {
 		fixture := newChartDrawingApplicationUnderTest(t)
 		fixture.boardIs(aStoredBoard(4, aBoardDrawing(1, vo.ChartDrawingSourceAssistant)), true)
@@ -353,6 +366,52 @@ func TestChartDrawingApplicationAddAssistantDrawings(t *testing.T) {
 
 		assert.ErrorIs(t, addError, domains.ErrChartDrawingValidation)
 		assert.ErrorContains(t, addError, "沒有 1h K 線")
+	})
+
+	t.Run("a closed day of a market that closes has no candle to pin to", func(t *testing.T) {
+		mockController := gomock.NewController(t)
+		clockProxy := mocks.NewMockIClockProxy(mockController)
+		clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)).AnyTimes()
+		tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+		tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").
+			Return(entities.TradingSymbol{Symbol: "2330", Market: string(vo.MarketTaiwanStock)}, true, nil)
+		kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return([]entities.KCandle{}, nil).AnyTimes()
+		summaryDayRepository := mocks.NewMockIKCandleSummaryDayRepository(mockController)
+		summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, nil).AnyTimes()
+		marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}, vo.MarketTaiwanStock: {}})
+		taiwanApplication := application.NewChartDrawingApplication(service.NewChartDrawingService(
+			mocks.NewMockIChartDrawingBoardRepository(mockController),
+			service.NewKCandleService(kCandleRepository, summaryDayRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
+			service.NewKCandleContractService(mocks.NewMockIKCandleContractRepository(mockController),
+				mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy, marketCatalog, 1000),
+			vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20}))
+		saturday := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+
+		_, addError := taiwanApplication.AddAssistantDrawings(context.Background(), dto.AssistantChartDrawingBatchDto{
+			Place:    dto.ChartDrawingBoardPlaceDto{OwnerID: chartDrawingOwnerID, Market: "spot", Symbol: "2330"},
+			Interval: "1d",
+			Drawings: []dto.AssistantChartDrawingWriteDto{{
+				Kind: "horizontalLine", Anchors: []dto.AssistantChartDrawingAnchorWriteDto{{OpenTime: saturday, SnapTo: "close"}},
+			}},
+		})
+
+		assert.ErrorIs(t, addError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, addError, "2026-10-17T00:00:00Z 沒有 1d K 線")
+	})
+
+	t.Run("one drawing breaking the rules refuses the batch, naming it, before anything is written", func(t *testing.T) {
+		fixture := newChartDrawingApplicationUnderTest(t)
+		batch := snapLowBatch("spot")
+		batch.Drawings = append(batch.Drawings,
+			dto.AssistantChartDrawingWriteDto{Kind: "trendLine", Anchors: batch.Drawings[0].Anchors},
+			batch.Drawings[0])
+
+		_, addError := fixture.application.AddAssistantDrawings(context.Background(), batch)
+
+		assert.ErrorIs(t, addError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, addError, "第 2 個繪圖：趨勢線要 2 個錨點，收到 1 個")
 	})
 
 	t.Run("a batch that cannot be judged is refused without reading the market", func(t *testing.T) {

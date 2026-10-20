@@ -109,7 +109,7 @@ func TestChartDrawingBoardDomainChecksEveryDrawing(t *testing.T) {
 			refusalText: "線色只能是調色盤上的十二色之一"},
 		{name: "an unknown kind",
 			drawing:     dto.ChartDrawingWriteDto{Kind: "textNote", Anchors: []dto.ChartDrawingAnchorDto{anchorAt("1")}},
-			refusalText: "不認得的繪圖種類「textNote」"},
+			refusalText: "不認得的繪圖種類「textNote」，只能是 trendLine、ray、horizontalLine、horizontalRay、verticalLine、fibonacciRetracement、rectangle、dateAndPriceRange 其中之一"},
 		{name: "an unknown line style",
 			drawing:     dto.ChartDrawingWriteDto{Kind: "horizontalLine", Anchors: []dto.ChartDrawingAnchorDto{anchorAt("1")}, Style: dto.ChartDrawingStyleWriteDto{LineStyle: "wavy"}},
 			refusalText: "線型只能是實線（solid）、虛線（dashed）、點線（dotted）"},

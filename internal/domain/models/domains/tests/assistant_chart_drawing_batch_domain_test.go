@@ -115,10 +115,14 @@ func TestAssistantChartDrawingBatchDomainRefusesWithoutReadingTheMarket(t *testi
 		return assistantBatch("1h", drawings...)
 	}
 
-	t.Run("twenty drawings are one batch", func(t *testing.T) {
-		_, batchError := domains.NewAssistantChartDrawingBatchDomain(batchOfSize(20), chartDrawingLimits)
+	t.Run("twenty drawings are one batch and all of them are drawn", func(t *testing.T) {
+		batch, batchError := domains.NewAssistantChartDrawingBatchDomain(batchOfSize(20), chartDrawingLimits)
+		require.NoError(t, batchError)
 
-		assert.NoError(t, batchError)
+		drawings, drawingsError := batch.ToDrawings([]dto.ChartDrawingAnchorCandleDto{anchorCandle(assistantAnchorMoment)})
+
+		require.NoError(t, drawingsError)
+		assert.Len(t, drawings, 20)
 	})
 
 	t.Run("twenty-one drawings are refused", func(t *testing.T) {
@@ -176,6 +180,9 @@ func TestAssistantChartDrawingBatchDomainPinsAnchorsToCandles(t *testing.T) {
 		assert.Equal(t, uint(34), *drawing.AssistantTurnID)
 		assert.Equal(t, "blue", drawing.Color)
 		assert.Equal(t, 1, drawing.LineWidth)
+		assert.Equal(t, "solid", drawing.LineStyle)
+		assert.False(t, drawing.Locked)
+		assert.True(t, drawing.Visible)
 	})
 
 	t.Run("a connector batch names no answer", func(t *testing.T) {
