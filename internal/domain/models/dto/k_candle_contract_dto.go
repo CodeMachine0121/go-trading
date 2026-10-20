@@ -33,3 +33,14 @@ type KCandleContractDto struct {
 	PremiumIndexLow     decimal.NullDecimal `json:"premiumIndexLow"`
 	PremiumIndexClose   decimal.NullDecimal `json:"premiumIndexClose"`
 }
+
+// ToChartDrawingAnchorCandleDto takes the traded prices, the line the contract chart draws.
+func (kCandleContractDto KCandleContractDto) ToChartDrawingAnchorCandleDto() ChartDrawingAnchorCandleDto {
+	return ChartDrawingAnchorCandleDto{
+		OpenTime: kCandleContractDto.OpenTime,
+		Open:     kCandleContractDto.Open,
+		High:     kCandleContractDto.High,
+		Low:      kCandleContractDto.Low,
+		Close:    kCandleContractDto.Close,
+	}
+}
