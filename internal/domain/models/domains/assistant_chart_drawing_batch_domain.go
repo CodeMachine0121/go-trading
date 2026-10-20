@@ -6,26 +6,17 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/shopspring/decimal"
 )
-
-// assistantChartDrawingAnchorRequest is one anchor the assistant asked for, already checked to name exactly one of a price and a snap.
-type assistantChartDrawingAnchorRequest struct {
-	openTime time.Time
-	price    decimal.NullDecimal
-	snapTo   vo.ChartDrawingAnchorSnapVo
-}
 
 type assistantChartDrawingRequest struct {
 	kind    string
-	anchors []assistantChartDrawingAnchorRequest
+	anchors []AssistantChartDrawingAnchorDomain
 	style   dto.ChartDrawingStyleWriteDto
 }
 
 // AssistantChartDrawingBatchDomain is one batch the assistant draws: every anchor must sit on a real candle of the named interval, and the whole batch lands or none of it.
 type AssistantChartDrawingBatchDomain struct {
 	place      ChartDrawingPlaceDomain
-	interval   AggregationIntervalDomain
 	provenance vo.ChartDrawingProvenanceVo
 	requests   []assistantChartDrawingRequest
 }
@@ -69,38 +60,14 @@ func NewAssistantChartDrawingBatchDomain(
 				"%w: 第 %d 個繪圖：%w", ErrChartDrawingValidation, drawingPosition+1, styleError)
 		}
 
-		anchors := make([]assistantChartDrawingAnchorRequest, 0, len(writeDto.Anchors))
+		anchors := make([]AssistantChartDrawingAnchorDomain, 0, len(writeDto.Anchors))
 		for anchorPosition, anchorDto := range writeDto.Anchors {
-			anchorError := func() error {
-				openTime := anchorDto.OpenTime.UTC()
-				if openTime.IsZero() || interval.BucketStart(openTime) != openTime {
-					return fmt.Errorf("%s 不是 %s K 線的起始時間",
-						openTime.Format(time.RFC3339), interval.Value())
-				}
-
-				snapTo := vo.ChartDrawingAnchorSnapVo(anchorDto.SnapTo)
-				hasSnap := anchorDto.SnapTo != ""
-				if hasSnap == anchorDto.Price.Valid {
-					return fmt.Errorf("價格（price）與吸附（snapTo）要恰好給一種")
-				}
-				if hasSnap && snapTo != vo.ChartDrawingAnchorSnapOpen && snapTo != vo.ChartDrawingAnchorSnapHigh &&
-					snapTo != vo.ChartDrawingAnchorSnapLow && snapTo != vo.ChartDrawingAnchorSnapClose {
-					return fmt.Errorf("吸附只能是 open、high、low、close 其中之一，收到的是「%s」", anchorDto.SnapTo)
-				}
-				if anchorDto.Price.Valid && !anchorDto.Price.Decimal.IsPositive() {
-					return fmt.Errorf("錨點價格必須大於零")
-				}
-
-				anchors = append(anchors, assistantChartDrawingAnchorRequest{
-					openTime: openTime, price: anchorDto.Price, snapTo: snapTo,
-				})
-
-				return nil
-			}()
+			anchor, anchorError := NewAssistantChartDrawingAnchorDomain(anchorDto, interval)
 			if anchorError != nil {
 				return AssistantChartDrawingBatchDomain{}, fmt.Errorf("%w: 第 %d 個繪圖第 %d 個錨點：%w",
 					ErrChartDrawingValidation, drawingPosition+1, anchorPosition+1, anchorError)
 			}
+			anchors = append(anchors, anchor)
 		}
 
 		requests = append(requests, assistantChartDrawingRequest{
@@ -119,7 +86,6 @@ func NewAssistantChartDrawingBatchDomain(
 
 	return AssistantChartDrawingBatchDomain{
 		place:      place,
-		interval:   interval,
 		provenance: provenance,
 		requests:   requests,
 	}, nil
@@ -135,17 +101,12 @@ func (assistantChartDrawingBatchDomain AssistantChartDrawingBatchDomain) AnchorC
 	queries := make([]dto.KCandleSeriesQueryDto, 0)
 	for _, request := range assistantChartDrawingBatchDomain.requests {
 		for _, anchor := range request.anchors {
-			if queriedOpenTimes[anchor.openTime] {
+			query := anchor.CandleQuery(assistantChartDrawingBatchDomain.place.Symbol())
+			if queriedOpenTimes[query.StartTime] {
 				continue
 			}
-			queriedOpenTimes[anchor.openTime] = true
-
-			queries = append(queries, dto.KCandleSeriesQueryDto{
-				Symbol:    assistantChartDrawingBatchDomain.place.Symbol(),
-				StartTime: anchor.openTime,
-				EndTime:   assistantChartDrawingBatchDomain.interval.BucketEnd(anchor.openTime),
-				Interval:  string(assistantChartDrawingBatchDomain.interval.Value()),
-			})
+			queriedOpenTimes[query.StartTime] = true
+			queries = append(queries, query)
 		}
 	}
 
@@ -165,22 +126,12 @@ func (assistantChartDrawingBatchDomain AssistantChartDrawingBatchDomain) ToDrawi
 	for drawingPosition, request := range assistantChartDrawingBatchDomain.requests {
 		anchorDtos := make([]dto.ChartDrawingAnchorDto, 0, len(request.anchors))
 		for anchorPosition, anchor := range request.anchors {
-			anchorCandle, candleExists := candlesByOpenTime[anchor.openTime]
-			if !candleExists {
-				return nil, fmt.Errorf("%w: 第 %d 個繪圖第 %d 個錨點：%s 沒有 %s K 線，錨點要釘在一根真的 K 線上",
-					ErrChartDrawingValidation, drawingPosition+1, anchorPosition+1,
-					anchor.openTime.Format(time.RFC3339), assistantChartDrawingBatchDomain.interval.Value())
+			anchorDto, pinError := anchor.PinnedTo(candlesByOpenTime)
+			if pinError != nil {
+				return nil, fmt.Errorf("%w: 第 %d 個繪圖第 %d 個錨點：%w",
+					ErrChartDrawingValidation, drawingPosition+1, anchorPosition+1, pinError)
 			}
-
-			price := map[vo.ChartDrawingAnchorSnapVo]decimal.Decimal{
-				vo.ChartDrawingAnchorSnapOpen:  anchorCandle.Open,
-				vo.ChartDrawingAnchorSnapHigh:  anchorCandle.High,
-				vo.ChartDrawingAnchorSnapLow:   anchorCandle.Low,
-				vo.ChartDrawingAnchorSnapClose: anchorCandle.Close,
-				"":                             anchor.price.Decimal,
-			}[anchor.snapTo]
-
-			anchorDtos = append(anchorDtos, dto.ChartDrawingAnchorDto{OpenTime: anchor.openTime, Price: price})
+			anchorDtos = append(anchorDtos, anchorDto)
 		}
 
 		drawing, drawingError := NewChartDrawingDomain(

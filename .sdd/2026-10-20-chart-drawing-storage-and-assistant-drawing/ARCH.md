@@ -54,7 +54,7 @@
 | `ChartDrawingStyleDomain` | Domain Model | 線色（十二色）、線寬（1–4）、線型（三種）、鎖定、顯示；沒給的取種類預設（鎖定 false、顯示 true、實線） | `ChartDrawingKindDomain` | US-02 樣式；US-05 預設樣式 |
 | `ChartDrawingDomain` | Domain Model | 一個合法繪圖：種類、錨點（數量對、價格>0）、樣式、來源、問答；`ToDto(id)` | Kind、Style | US-02 全部 |
 | `ChartDrawingBoardDomain` | Domain Model | 一份繪圖板：`Replace(revision, drawings)`（版本比對、保留既有編號的來源與問答、新編號、容量）、`AppendAssistantDrawings`（容量、空位）、`RemoveAssistantDrawings(ids)`（手畫的／不存在的拒絕；沒有可移除時不加版本）、`ToEntity`、`ToDto`、`Revision` | `ChartDrawingDomain`、`ChartDrawingLimitsVo` | US-03、US-05、US-06 |
-| `AssistantChartDrawingBatchDomain` | Domain Model | 助手一批的形狀檢查（1–上限個、刻度六選一、每個錨點價格與吸附恰好一種、樣式）、`AnchorCandleQueries()`（每個不重複起始時間一個剛好一格的序列查詢）、`ToDrawings(candles, origin)`（起始時間必須等於找到那一格的起始時間、吸附或照給的價格） | `AggregationIntervalDomain`、`ChartDrawingDomain` | US-04 全部、US-05 一批 |
+| `AssistantChartDrawingBatchDomain`（錨點交給 `AssistantChartDrawingAnchorDomain`：對齊刻度、價格與吸附恰好一種、`CandleQuery`、`PinnedTo`） | Domain Model | 助手一批的形狀檢查（1–上限個、刻度六選一、每個錨點價格與吸附恰好一種、樣式）、`AnchorCandleQueries()`（每個不重複起始時間一個剛好一格的序列查詢）、`ToDrawings(candles, origin)`（起始時間必須等於找到那一格的起始時間、吸附或照給的價格） | `AggregationIntervalDomain`、`ChartDrawingDomain` | US-04 全部、US-05 一批 |
 | `ChartDrawingService` | Domain Service | 四個用例：讀出、整份存回、助手新增（先查錨點那一根，再套 board domain）、助手移除；衝突時整份存回附上現在那一份、助手操作重讀重試 | `IChartDrawingBoardRepository`、`KCandleService`、`KCandleContractService` | 全部 |
 | `ChartDrawingBoardRepository` | Repository | 一列一份繪圖板的讀取與以版本為條件的寫入 | GORM | US-03 繪圖板已經變了（並行） |
 | `ChartDrawingController` | Controller | 路由 binding、錯誤對映（§7） | `ChartDrawingApplication` | 全部 |
