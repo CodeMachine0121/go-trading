@@ -862,8 +862,8 @@ func TestStrategyBotRouterTakesAListOfSymbolsAndShowsEachOnesState(t *testing.T)
 			storedBot := aStoredStrategyBotRow(vo.StrategyBotStopped)
 			storedBot.MarketDataKind = string(vo.MarketDataKindKCandle)
 			storedBot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
-				{Symbol: "BTCUSDT", LastSentSignal: string(vo.SignalBuy)},
-				{Symbol: "ETHUSDT", Conflicting: true, HaltReason: string(vo.StrategyBotHaltScriptFailed)},
+				{Symbol: "BTCUSDT", AllocationPercentage: decimal.NewFromInt(50), LastSentSignal: string(vo.SignalBuy)},
+				{Symbol: "ETHUSDT", AllocationPercentage: decimal.NewFromInt(50), Conflicting: true, HaltReason: string(vo.StrategyBotHaltScriptFailed)},
 			}
 
 			return storedBot, nil
@@ -878,8 +878,8 @@ func TestStrategyBotRouterTakesAListOfSymbolsAndShowsEachOnesState(t *testing.T)
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.NotContains(t, answer, "symbol")
 	assert.Equal(t, []any{
-		map[string]any{"symbol": "BTCUSDT", "lastSentSignal": "buy", "conflicting": false},
-		map[string]any{"symbol": "ETHUSDT", "conflicting": true, "haltReason": "scriptFailed"},
+		map[string]any{"symbol": "BTCUSDT", "allocationPercentage": "50", "lastSentSignal": "buy", "conflicting": false},
+		map[string]any{"symbol": "ETHUSDT", "allocationPercentage": "50", "conflicting": true, "haltReason": "scriptFailed"},
 	}, answer["watchedSymbols"])
 }
 
@@ -981,4 +981,52 @@ func TestStrategyBotRouterNarrowsTheHistoryToOneSymbol(t *testing.T) {
 			assert.Equal(t, "ETHUSDT", listed[0]["symbol"])
 		})
 	}
+}
+
+func TestStrategyBotRouterTakesEachWatchedSymbolsShareInsideThePositionPlan(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			require.Len(t, bot.WatchedSymbols, 2)
+			assert.Equal(t, "60", bot.WatchedSymbols[0].AllocationPercentage.String())
+			assert.Equal(t, "40", bot.WatchedSymbols[1].AllocationPercentage.String())
+
+			storedBot := aStoredStrategyBotRow(vo.StrategyBotStopped)
+			storedBot.WatchedSymbols = bot.WatchedSymbols
+
+			return storedBot, nil
+		})
+
+	response := fixture.send(http.MethodPost, "/strategy-bots", `{
+		"name": "早盤突破", "symbols": ["BTCUSDT", "ETHUSDT"], "tradingStrategyId": 9, "triggerIntervalMinutes": 5,
+		"positionPlan": {"capital": "1000", "capitalAllocations": [
+			{"symbol": "btcusdt", "allocationPercentage": 60}, {"symbol": "ETHUSDT", "allocationPercentage": "40"}
+		]}
+	}`)
+
+	require.Equal(t, http.StatusCreated, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	watchedSymbols := answer["watchedSymbols"].([]any)
+	require.Len(t, watchedSymbols, 2)
+	assert.Equal(t, "60", watchedSymbols[0].(map[string]any)["allocationPercentage"])
+	assert.Equal(t, "40", watchedSymbols[1].(map[string]any)["allocationPercentage"])
+}
+
+func TestStrategyBotRouterRefusesSharesPastTheWholeAsABadRequest(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	response := fixture.send(http.MethodPost, "/strategy-bots", `{
+		"name": "早盤突破", "symbols": ["BTCUSDT", "ETHUSDT"], "tradingStrategyId": 9, "triggerIntervalMinutes": 5,
+		"positionPlan": {"capital": "1000", "capitalAllocations": [
+			{"symbol": "BTCUSDT", "allocationPercentage": 70}, {"symbol": "ETHUSDT", "allocationPercentage": 40}
+		]}
+	}`)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Contains(t, answer["message"], "分配比例加起來是 110%，不得超過 100%")
 }
