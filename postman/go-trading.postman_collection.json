@@ -394,6 +394,10 @@
     {
       "key": "screeningRunId",
       "value": ""
+    },
+    {
+      "key": "allocatedStrategyBotId",
+      "value": ""
     }
   ],
   "event": [
@@ -15857,7 +15861,7 @@
                 "strategy-bots"
               ]
             },
-            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
+            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。部位資金是整台的總金額；只盯一個標的又沒給分配比例時，那個標的分配 100%。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
@@ -15884,6 +15888,7 @@
                   "});",
                   "pm.test(\"新建的一台自動下單是關著的\", function () { pm.expect(pm.response.json().autoOrderEnabled).to.eql(false); });",
                   "pm.test(\"沒給進場滑價容忍度就是 0.1\", function () { pm.expect(pm.response.json().autoOrderEntrySlippageTolerancePercentage).to.eql(\"0.1\"); });",
+                  "pm.test(\"只盯一個標的就分到全部\", function () { pm.expect(pm.response.json().watchedSymbols[0].allocationPercentage).to.eql(\"100\"); });",
                   "pm.collectionVariables.set(\"strategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -16116,6 +16121,175 @@
                   "pm.test(\"說出是哪一個重複了\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"重複了\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "組起一台多標的機器人並分配資金",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "部位資金（positionPlan.capital）是整台機器人的總金額；合約機器人指的是保證金，名目＝保證金 × 槓桿。positionPlan.capitalAllocations 選填：要給就每一個監聽標的都給一次（symbol + allocationPercentage，單位 %，大於 0、不超過 100、最多兩位小數），加起來不得超過 100，剩下的不動用；不給就平均分配（100 ÷ 標的數，無條件捨去到兩位小數）。每個標的只能用 總金額 × 分配比例 ÷ 100，用不到的不借給別的標的。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"分配資金 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\", \"ETHUSDT\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"sizingMode\": \"allIn\",\n    \"capitalAllocations\": [\n      { \"symbol\": \"{{symbol}}\", \"allocationPercentage\": \"60\" },\n      { \"symbol\": \"ethusdt\", \"allocationPercentage\": \"30\" }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"每個監聽標的帶著自己的分配比例\", function () {",
+                  "    const watchedSymbols = pm.response.json().watchedSymbols;",
+                  "    pm.expect(watchedSymbols[0].allocationPercentage).to.eql(\"60\");",
+                  "    pm.expect(watchedSymbols[1].symbol).to.eql(\"ETHUSDT\");",
+                  "    pm.expect(watchedSymbols[1].allocationPercentage).to.eql(\"30\");",
+                  "});",
+                  "pm.test(\"部位資金是整台的總金額\", function () { pm.expect(pm.response.json().positionPlan.capital).to.eql(\"1000\"); });",
+                  "pm.collectionVariables.set(\"allocatedStrategyBotId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：分配比例加起來超過 100",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "合計可以少於 100（剩下的不動用），不可以超過 100。只給一部分標的、指到不在清單上的標的、同一個標的給兩次、0 或超過 100、超過兩位小數，也都整台拒絕。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"分配過頭 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\", \"ETHUSDT\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"capitalAllocations\": [\n      { \"symbol\": \"{{symbol}}\", \"allocationPercentage\": \"70\" },\n      { \"symbol\": \"ETHUSDT\", \"allocationPercentage\": \"40\" }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出合計多少\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"分配比例加起來是 110%，不得超過 100%\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：只給一部分標的的分配比例",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "要嘛每個監聽標的都給，要嘛都不給。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"分配一半 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\", \"ETHUSDT\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"capitalAllocations\": [\n      { \"symbol\": \"{{symbol}}\", \"allocationPercentage\": \"50\" }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出缺了哪一個\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"ETHUSDT 沒有分配比例\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉那一台分配資金的機器人",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{allocatedStrategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{allocatedStrategyBotId}}"
+              ]
+            },
+            "description": "收尾，讓後面「還有幾台在用這份交易策略」的數字不受影響。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪掉了\", function () { pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
                 ]
               }
             }
@@ -16463,7 +16637,7 @@
                 "{{strategyBotId}}"
               ]
             },
-            "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
+            "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。沒給 positionPlan.capitalAllocations 時：監聽標的與原本相同（順序不論）就保留原本的分配比例，否則平均分配。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
@@ -16487,6 +16661,7 @@
                   "    pm.expect(updated.triggerIntervalMinutes).to.eql(15);",
                   "});",
                   "pm.test(\"沒給進場滑價容忍度就保留原本的\", function () { pm.expect(pm.response.json().autoOrderEntrySlippageTolerancePercentage).to.eql(\"0.1\"); });",
+                  "pm.test(\"監聽標的沒變、沒給分配比例就保留原本的\", function () { pm.expect(pm.response.json().watchedSymbols[0].allocationPercentage).to.eql(\"100\"); });",
                   "pm.test(\"部位規劃也改到了，而且拿掉的那一格真的不在了\", function () {\n    const plan = pm.response.json().positionPlan;\n    pm.expect(plan.capital).to.eql(\"80000\");\n    // 整份改寫就是整份：留白的停利距離要歸零，不是沿用上一版。\n    pm.expect(plan.takeProfitPercentage).to.eql(\"0\");\n});"
                 ]
               }
