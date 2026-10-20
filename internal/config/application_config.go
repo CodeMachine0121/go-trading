@@ -334,15 +334,17 @@ type ApplicationConfig struct {
 	BacktestDefaultWarmupBarCount int
 	BacktestRun                   BacktestRunConfig
 	SymbolScreening               SymbolScreeningConfig
-	BackgroundJobsEnabled         bool
-	Replica                       ReplicaConfig
-	JobLeadership                 JobLeadershipConfig
-	PendingMessage                PendingMessageConfig
-	Ingestion                     IngestionConfig
-	ContractIngestion             ContractIngestionConfig
-	ContractOrderFlow             ContractOrderFlowConfig
-	LiveFollow                    LiveFollowConfig
-	TaiwanStock                   TaiwanStockConfig
+	// ChartDrawingLimits caps one chart drawing board and one assistant batch.
+	ChartDrawingLimits    vo.ChartDrawingLimitsVo
+	BackgroundJobsEnabled bool
+	Replica               ReplicaConfig
+	JobLeadership         JobLeadershipConfig
+	PendingMessage        PendingMessageConfig
+	Ingestion             IngestionConfig
+	ContractIngestion     ContractIngestionConfig
+	ContractOrderFlow     ContractOrderFlowConfig
+	LiveFollow            LiveFollowConfig
+	TaiwanStock           TaiwanStockConfig
 	// MarketRules maps each market to its behaviour so nothing branches on market identity.
 	MarketRules            map[vo.MarketVo]vo.MarketRulesVo
 	Assistant              AssistantConfig
@@ -427,6 +429,10 @@ func loadAsWritten() ApplicationConfig {
 			ProgressWriteEveryBars: positiveIntWithDefault("BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS", 100),
 			StatusCheckInterval: time.Duration(
 				positiveIntWithDefault("BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS", 2)) * time.Second,
+		},
+		ChartDrawingLimits: vo.ChartDrawingLimitsVo{
+			BoardCapacity:          positiveIntWithDefault("CHART_DRAWING_BOARD_CAPACITY", 200),
+			AssistantBatchCapacity: positiveIntWithDefault("CHART_DRAWING_ASSISTANT_BATCH_CAPACITY", 20),
 		},
 		SymbolScreening: SymbolScreeningConfig{
 			MaximumCandidatesPerRun: positiveIntWithDefault("SYMBOL_SCREENING_MAX_CANDIDATES_PER_RUN", 20),

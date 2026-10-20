@@ -780,6 +780,21 @@ func registerRoutes(
 	engine.PUT("/users/me/trade-tags/:id", requiresSignIn, tradeJournalSettingController.RenameTag)
 	engine.DELETE("/users/me/trade-tags/:id", requiresSignIn, tradeJournalSettingController.DeleteTag)
 
+	chartDrawingApplication := application.NewChartDrawingApplication(service.NewChartDrawingService(
+		persistence.NewChartDrawingBoardRepository(database),
+		kCandleService,
+		kCandleContractService,
+		applicationConfig.ChartDrawingLimits,
+	))
+	chartDrawingController := controller.NewChartDrawingController(chartDrawingApplication)
+	engine.GET("/users/me/chart-drawings/:market/:symbol", requiresSignIn, chartDrawingController.GetBoard)
+	// Saving the whole board can erase hand drawings, so only the person in the browser may; connectors reach only the assistant's own drawings.
+	engine.PUT("/users/me/chart-drawings/:market/:symbol", requiresWebSignIn, chartDrawingController.ReplaceBoard)
+	engine.POST("/users/me/chart-drawings/:market/:symbol/assistant-drawings", requiresSignIn,
+		chartDrawingController.AddAssistantDrawings)
+	engine.DELETE("/users/me/chart-drawings/:market/:symbol/assistant-drawings", requiresSignIn,
+		chartDrawingController.RemoveAssistantDrawings)
+
 	// Rewrites of what a person already has wait for their confirmation; each applier carries out one kind.
 	assistantRevisionApplication := application.NewAssistantRevisionApplication(
 		service.NewAssistantRevisionService(
@@ -810,7 +825,9 @@ func registerRoutes(
 			tradingStrategyApplication,
 			tradingStrategyBacktestApplication,
 			assistantRevisionApplication,
+			chartDrawingApplication,
 			applicationConfig.Assistant.CandleLimit,
+			applicationConfig.ChartDrawingLimits,
 		),
 		clock.NewSystemClockProxy(),
 		applicationConfig.Assistant.RecentMessageLimit,
@@ -991,8 +1008,8 @@ type contractSeriesApplications struct {
 	maintenanceMargin *application.ContractMaintenanceMarginTierApplication
 }
 
-// assistantQueriesFor is the complete list of what the assistant may do; deleting and bot control are
-// absent by design, and each query calls the same use case a person does.
+// assistantQueriesFor is the complete list of what the assistant may do; deleting scripts and strategies and bot
+// control are absent by design (removing chart drawings reaches only the assistant's own), and each query calls the same use case a person does.
 func assistantQueriesFor(
 	tradingSymbolApplication *application.TradingSymbolApplication,
 	kCandleApplication *application.KCandleApplication,
@@ -1001,7 +1018,9 @@ func assistantQueriesFor(
 	tradingStrategyApplication *application.TradingStrategyApplication,
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication,
 	assistantRevisionApplication *application.AssistantRevisionApplication,
+	chartDrawingApplication *application.ChartDrawingApplication,
 	candleLimit int,
+	chartDrawingLimits vo.ChartDrawingLimitsVo,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
 		assistantqueries.NewTradingSymbolListAssistantQuery(tradingSymbolApplication),
@@ -1017,6 +1036,9 @@ func assistantQueriesFor(
 		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication, assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyUpdateAssistantQuery(assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyBacktestAssistantQuery(tradingStrategyBacktestApplication),
+		assistantqueries.NewChartDrawingCreateAssistantQuery(chartDrawingApplication, chartDrawingLimits),
+		assistantqueries.NewChartDrawingListAssistantQuery(chartDrawingApplication),
+		assistantqueries.NewChartDrawingRemoveAssistantQuery(chartDrawingApplication),
 	}
 }
 
