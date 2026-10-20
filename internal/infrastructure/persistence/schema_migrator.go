@@ -943,11 +943,9 @@ func (schemaMigrator *SchemaMigrator) allocateWatchedSymbolCapital() error {
 
 		for botID, botWatchedSymbols := range watchedSymbolsByBot {
 			bot := entities.StrategyBot{ID: botID, WatchedSymbols: botWatchedSymbols}
-			capitalAllocation, allocationError := domains.NewStrategyBotCapitalAllocationDomain(
+			// Given no shares of its own it never refuses: invalid stored shares fall back to an equal split.
+			capitalAllocation, _ := domains.NewStrategyBotCapitalAllocationDomain(
 				bot.Symbols(), nil, bot.CapitalAllocationDtos())
-			if allocationError != nil {
-				return fmt.Errorf("share out bot %d capital: %w", botID, allocationError)
-			}
 
 			for _, watchedSymbol := range botWatchedSymbols {
 				allocationPercentage := capitalAllocation.PercentageOf(watchedSymbol.Symbol)

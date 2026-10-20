@@ -102,3 +102,17 @@ func TestASymbolWhoseShareCannotCoverTheFixedAmountNeitherSuggestsNorOrders(t *t
 	assert.False(t, queued.OpenQuantity.Valid)
 	assert.Equal(t, "這個標的分到的資金不足，押不下 50，不下單", queued.NoOpenReason)
 }
+
+func TestAContractSymbolRefusedByTheVenueStillNamesItsShare(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	smallestNotional := aContractSpecification()
+	smallestNotional.MinimumNotional = decimal.NewNullDecimal(decimal.NewFromInt(200))
+	underTest.expectTheVenue(smallestNotional, nil, "")
+
+	underTest.runsAContractRound(t, aContractBotHoldingHalf(), vo.ContractTradingModeLongOnly, vo.SignalBuy, vo.SignalBuy)
+
+	require.Len(t, underTest.queuedMessages(), 1)
+	assert.Contains(t, underTest.queuedMessages()[0].Text, "資金分配 50%：總金額 120 中的 60")
+	require.Len(t, *underTest.queuedAutoOrders, 1)
+	assert.Equal(t, "交易所不收這一筆：名目 170 低於最小名目 200", (*underTest.queuedAutoOrders)[0].NoOpenReason)
+}
