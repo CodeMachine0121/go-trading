@@ -116,3 +116,17 @@ func TestAContractSymbolRefusedByTheVenueStillNamesItsShare(t *testing.T) {
 	require.Len(t, *underTest.queuedAutoOrders, 1)
 	assert.Equal(t, "交易所不收這一筆：名目 170 低於最小名目 200", (*underTest.queuedAutoOrders)[0].NoOpenReason)
 }
+
+func TestASymbolHoldingAThirdNamesItsShareInTheMessage(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSourcesOn(sourcesBySymbol{"BTCUSDT": {vo.SignalBuy, vo.SignalBuy}})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "　・資金分配 33.33%：總金額 1000 中的 333.3")
+		assert.Contains(t, message, "開倉金額 333.3")
+	})
+	bot := aDueBotWatching([2]string{"BTCUSDT", ""})
+	bot.WatchedSymbols[0].AllocationPercentage = decimal.RequireFromString("33.33")
+	bot.PositionPlanCapital = decimal.NewFromInt(1000)
+
+	underTest.runsTheBot(t, bot)
+}
