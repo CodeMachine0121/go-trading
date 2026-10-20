@@ -42,7 +42,12 @@ func TestStrategyBotRepositoryRewriteKeepsTheSymbolsStillListedAsTheyWere(t *tes
 	savedBot.WatchedSymbols[0].LastSentRoundDueAt = &roundDueAt
 	savedBot.WatchedSymbols[1].Conflicting = true
 	savedBot.WatchedSymbols[1].HaltReason = string(vo.StrategyBotHaltScriptFailed)
+	savedBot.WatchedSymbols[1].LastSentSignal = string(vo.SignalSell)
+	savedBot.WatchedSymbols[1].LastSentRoundDueAt = &roundDueAt
 	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), savedBot.ID, "ETHUSDT", vo.AutoOrderPositionVo{
+		Direction: vo.TargetPositionShort, Quantity: decimal.RequireFromString("0.5"),
+	}))
 	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), savedBot.ID, "BTCUSDT", vo.AutoOrderPositionVo{
 		Direction: vo.TargetPositionLong, Quantity: decimal.RequireFromString("0.01"),
 		StopLossClientID: "gt-ao-1-sl", TakeProfitClientID: "gt-ao-1-tp",
@@ -74,6 +79,32 @@ func TestStrategyBotRepositoryRewriteKeepsTheSymbolsStillListedAsTheyWere(t *tes
 	ethereum, _ := readdedBot.WatchedSymbol("ETHUSDT")
 	assert.False(t, ethereum.Conflicting)
 	assert.Empty(t, ethereum.HaltReason)
+	assert.Empty(t, ethereum.LastSentSignal)
+	assert.Nil(t, ethereum.LastSentRoundDueAt)
+	assert.Empty(t, ethereum.AutoOrderPositionDirection)
+	assert.True(t, ethereum.AutoOrderPositionQuantity.IsZero())
+}
+
+// Dropping a symbol keeps what it did: its past rounds can still be read.
+func TestStrategyBotRepositoryKeepsADroppedSymbolsHistory(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	runRecordRepository := persistence.NewStrategyBotRunRecordRepository(database)
+	savedBot := aBotWatching(t, database, "多標的", "BTCUSDT", "ETHUSDT")
+	requireAppended(t)(runRecordRepository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: savedBot.ID, Symbol: "ETHUSDT", RanAt: runRecordRanAt, Result: "sell"}))
+
+	rewritten := aBotRow("多標的")
+	rewritten.ID = savedBot.ID
+	rewritten.WatchedSymbols = []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}}
+	rewrittenBot, rewriteError := repository.Save(t.Context(), rewritten)
+	require.NoError(t, rewriteError)
+
+	assert.Equal(t, []string{"BTCUSDT"}, rewrittenBot.Symbols())
+	ethereumHistory, findError := runRecordRepository.FindLatestByBot(t.Context(), savedBot.ID, "ETHUSDT")
+	require.NoError(t, findError)
+	require.Len(t, ethereumHistory, 1)
+	assert.Equal(t, "sell", ethereumHistory[0].Result)
 }
 
 func TestStrategyBotRepositoryWritesEachSymbolsRoundStateToThatSymbolAlone(t *testing.T) {

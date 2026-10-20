@@ -154,3 +154,38 @@ func TestStrategyBotApplicationRefusesAHistoryNarrowedToAnUnreadableSymbol(t *te
 
 	require.ErrorIs(t, listError, domains.ErrStrategyBotValidation)
 }
+
+func TestStrategyBotApplicationRefusesAContractBotWhenAnyOfItsSymbolsCannotBeTraded(t *testing.T) {
+	testCases := []struct {
+		name            string
+		dogeWatched     bool
+		dogeLadder      []entities.ContractMaintenanceMarginTier
+		expectedRefusal string
+	}{
+		{name: "one symbol nobody follows", dogeWatched: false, expectedRefusal: "DOGEUSDT 不在合約追蹤名單上"},
+		{name: "one symbol allowing less leverage than the bot's", dogeWatched: true,
+			dogeLadder:      []entities.ContractMaintenanceMarginTier{{Symbol: "DOGEUSDT", Tier: 1, MaximumLeverage: 20}},
+			expectedRefusal: "DOGEUSDT 最高只能開 20 倍槓桿"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotApplicationUnderTest(t)
+			underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindContractKCandle)
+			underTest.expectTheContract(true, aLadderAllowing(125))
+			underTest.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "DOGEUSDT").
+				Return(entities.ContractTradingSymbol{Symbol: "DOGEUSDT", IsWatched: testCase.dogeWatched}, true, nil)
+			underTest.contractMaintenanceMarginTierRepository.EXPECT().FindBySymbol(gomock.Any(), "DOGEUSDT").
+				Return(testCase.dogeLadder, nil)
+			writeDto := aContractBotWrite()
+			writeDto.Symbols = []string{"BTCUSDT", "DOGEUSDT"}
+			writeDto.DeclaredLeverage = decimal.NewFromInt(50)
+
+			_, createError := underTest.strategyBotApplication.CreateStrategyBot(
+				context.Background(), strategyBotOwnerID, writeDto)
+
+			require.ErrorIs(t, createError, domains.ErrStrategyBotValidation)
+			assert.ErrorContains(t, createError, testCase.expectedRefusal)
+		})
+	}
+}

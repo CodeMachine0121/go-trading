@@ -974,3 +974,25 @@ func TestAnAutoOrderActsOnlyOnItsOwnSymbolsPosition(t *testing.T) {
 	assert.True(t, position.Quantity.Equal(decimal.RequireFromString("0.002")))
 	assert.Equal(t, stopLossClientID, position.StopLossClientID)
 }
+
+// Closing one symbol closes only what the bot opened on that symbol, however large another symbol's position is.
+func TestAnAutoOrderClosesOnlyItsOwnSymbolsPosition(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.bot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+		{Symbol: "ETHUSDT", AutoOrderPositionDirection: "long", AutoOrderPositionQuantity: decimal.RequireFromString("0.5")},
+		{Symbol: "BTCUSDT", AutoOrderPositionDirection: "long", AutoOrderPositionQuantity: decimal.RequireFromString("0.002"),
+			AutoOrderStopLossClientID: earlierStopLossID, AutoOrderTakeProfitClientID: earlierTakeProfitID},
+	}
+	underTest.queues(anAutoOrder("flat", "", "0", "0"))
+	underTest.venueHasNo(closeClientOrderID)
+	underTest.accountIsOneWay()
+	underTest.venueHolds("0.012", "0")
+	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
+	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+
+	underTest.execute(t)
+
+	position := underTest.lastPosition(t)
+	assert.Empty(t, position.Direction)
+	assert.True(t, position.Quantity.IsZero())
+}

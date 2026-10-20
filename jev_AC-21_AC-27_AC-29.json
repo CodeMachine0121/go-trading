@@ -1,0 +1,29 @@
+{
+ "AC-21": {
+  "clause": "AC-21",
+  "status": "violation",
+  "route": "escalate",
+  "reason": "violation",
+  "agree": false,
+  "jev_test": "asserts-oracle 0.81",
+  "jev_code": "diverges 0.24"
+ },
+ "AC-27": {
+  "clause": "AC-27",
+  "status": "conforms",
+  "route": "escalate",
+  "reason": "low confidence",
+  "agree": true,
+  "jev_test": "asserts-oracle 0.93",
+  "jev_code": "produces-oracle 0.39"
+ },
+ "AC-29": {
+  "clause": "AC-29",
+  "status": "conforms",
+  "route": "escalate",
+  "reason": "low confidence",
+  "agree": true,
+  "jev_test": "asserts-oracle 0.84",
+  "jev_code": "produces-oracle 0.23"
+ }
+}
