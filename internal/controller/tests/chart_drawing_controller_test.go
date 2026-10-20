@@ -259,7 +259,7 @@ func TestChartDrawingRouterAssistantDrawings(t *testing.T) {
 		fixture.boardIs(routedBoard(5, routedDrawing(1, "manual"), routedDrawing(2, "assistant"), routedDrawing(3, "assistant")))
 		fixture.savesEcho()
 
-		response := fixture.send(http.MethodDelete, "/users/me/chart-drawings/spot/BTCUSDT/assistant-drawings?ids=3", "")
+		response := fixture.send(http.MethodDelete, "/users/me/chart-drawings/spot/BTCUSDT/assistant-drawings?ids=3,", "")
 
 		require.Equal(t, http.StatusOK, response.Code)
 		assert.JSONEq(t, `{"revision":6,"removedCount":1,"removedDrawingIds":[3]}`, response.Body.String())

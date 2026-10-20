@@ -52,10 +52,6 @@ func (chartDrawingKindDomain ChartDrawingKindDomain) Value() vo.ChartDrawingKind
 	return chartDrawingKindDomain.entry.value
 }
 
-func (chartDrawingKindDomain ChartDrawingKindDomain) AnchorCount() int {
-	return chartDrawingKindDomain.entry.anchorCount
-}
-
 // RequireAnchorCount names the kind in its own words so the refusal reads like the chart's toolbar.
 func (chartDrawingKindDomain ChartDrawingKindDomain) RequireAnchorCount(givenCount int) error {
 	if givenCount != chartDrawingKindDomain.entry.anchorCount {
