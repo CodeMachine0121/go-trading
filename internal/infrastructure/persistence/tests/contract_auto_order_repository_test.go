@@ -190,28 +190,28 @@ func TestStrategyBotRepositoryWritesOnlyTheBotsOwnPosition(t *testing.T) {
 	testBed := newContractAutoOrderTestBed(t)
 	repository := persistence.NewStrategyBotRepository(testBed.database)
 
-	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, "BTCUSDT", vo.AutoOrderPositionVo{
 		Direction: vo.TargetPositionLong, Quantity: decimal.RequireFromString("0.002"),
 		StopLossClientID: "gt-ao-41-sl", TakeProfitClientID: "gt-ao-41-tp",
 	}))
 	held, _ := repository.FindOne(t.Context(), testBed.botID)
-	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{}))
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, "BTCUSDT", vo.AutoOrderPositionVo{}))
 	flat, _ := repository.FindOne(t.Context(), testBed.botID)
 
-	assert.Equal(t, "long", held.AutoOrderPositionDirection)
-	assert.True(t, held.AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.002")))
-	assert.Equal(t, "gt-ao-41-sl", held.AutoOrderStopLossClientID)
-	assert.Equal(t, "gt-ao-41-tp", held.AutoOrderTakeProfitClientID)
+	assert.Equal(t, "long", held.WatchedSymbols[0].AutoOrderPositionDirection)
+	assert.True(t, held.WatchedSymbols[0].AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.002")))
+	assert.Equal(t, "gt-ao-41-sl", held.WatchedSymbols[0].AutoOrderStopLossClientID)
+	assert.Equal(t, "gt-ao-41-tp", held.WatchedSymbols[0].AutoOrderTakeProfitClientID)
 	assert.Equal(t, "合約突破", held.Name)
-	assert.Empty(t, flat.AutoOrderPositionDirection)
-	assert.True(t, flat.AutoOrderPositionQuantity.IsZero())
-	assert.Empty(t, flat.AutoOrderStopLossClientID)
+	assert.Empty(t, flat.WatchedSymbols[0].AutoOrderPositionDirection)
+	assert.True(t, flat.WatchedSymbols[0].AutoOrderPositionQuantity.IsZero())
+	assert.Empty(t, flat.WatchedSymbols[0].AutoOrderStopLossClientID)
 }
 
 func TestARewriteOfTheBotLeavesItsOwnPositionAlone(t *testing.T) {
 	testBed := newContractAutoOrderTestBed(t)
 	repository := persistence.NewStrategyBotRepository(testBed.database)
-	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, "BTCUSDT", vo.AutoOrderPositionVo{
 		Direction: vo.TargetPositionShort, Quantity: decimal.RequireFromString("0.003"),
 	}))
 	bot, _ := repository.FindOne(t.Context(), testBed.botID)
@@ -223,8 +223,8 @@ func TestARewriteOfTheBotLeavesItsOwnPositionAlone(t *testing.T) {
 
 	rewritten, _ := repository.FindOne(t.Context(), testBed.botID)
 	assert.Equal(t, "改名了", rewritten.Name)
-	assert.Equal(t, "short", rewritten.AutoOrderPositionDirection)
-	assert.True(t, rewritten.AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.003")))
+	assert.Equal(t, "short", rewritten.WatchedSymbols[0].AutoOrderPositionDirection)
+	assert.True(t, rewritten.WatchedSymbols[0].AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.003")))
 }
 
 func TestDisablingAutoOrderByOwnerStaysWithinTheKindsGiven(t *testing.T) {
@@ -272,7 +272,7 @@ func TestContractAutoOrderRepositoryReportsStorageItCannotReach(t *testing.T) {
 	require.Error(t, saveError)
 	require.Error(t, findError)
 	require.Error(t, botRepository.DisableAutoOrderByOwner(t.Context(), 1, nil))
-	require.Error(t, botRepository.UpdateAutoOrderPosition(t.Context(), 1, vo.AutoOrderPositionVo{}))
+	require.Error(t, botRepository.UpdateAutoOrderPosition(t.Context(), 1, "BTCUSDT", vo.AutoOrderPositionVo{}))
 }
 
 func TestContractAutoOrderRepositoryFindsNothingForNoRounds(t *testing.T) {
@@ -298,19 +298,19 @@ func TestAFlatPositionIsStoredWithoutADirection(t *testing.T) {
 	testBed := newContractAutoOrderTestBed(t)
 	repository := persistence.NewStrategyBotRepository(testBed.database)
 
-	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, "BTCUSDT", vo.AutoOrderPositionVo{
 		Direction: vo.TargetPositionFlat, Quantity: decimal.Zero,
 	}))
 
 	stored, _ := repository.FindOne(t.Context(), testBed.botID)
-	assert.Empty(t, stored.AutoOrderPositionDirection)
+	assert.Empty(t, stored.WatchedSymbols[0].AutoOrderPositionDirection)
 }
 
 // Pulling the brake stops new orders; what the bot already opened is still its own to close later.
 func TestSwitchingAutoOrderOffLeavesTheBotsOwnPositionAlone(t *testing.T) {
 	testBed := newContractAutoOrderTestBed(t)
 	repository := persistence.NewStrategyBotRepository(testBed.database)
-	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, "BTCUSDT", vo.AutoOrderPositionVo{
 		Direction: vo.TargetPositionLong, Quantity: decimal.RequireFromString("0.002"),
 		StopLossClientID: "gt-ao-41-sl", TakeProfitClientID: "gt-ao-41-tp",
 	}))
@@ -319,8 +319,8 @@ func TestSwitchingAutoOrderOffLeavesTheBotsOwnPositionAlone(t *testing.T) {
 
 	switchedOff, _ := repository.FindOne(t.Context(), testBed.botID)
 	assert.False(t, switchedOff.AutoOrderEnabled)
-	assert.Equal(t, "long", switchedOff.AutoOrderPositionDirection)
-	assert.True(t, switchedOff.AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.002")))
-	assert.Equal(t, "gt-ao-41-sl", switchedOff.AutoOrderStopLossClientID)
-	assert.Equal(t, "gt-ao-41-tp", switchedOff.AutoOrderTakeProfitClientID)
+	assert.Equal(t, "long", switchedOff.WatchedSymbols[0].AutoOrderPositionDirection)
+	assert.True(t, switchedOff.WatchedSymbols[0].AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.002")))
+	assert.Equal(t, "gt-ao-41-sl", switchedOff.WatchedSymbols[0].AutoOrderStopLossClientID)
+	assert.Equal(t, "gt-ao-41-tp", switchedOff.WatchedSymbols[0].AutoOrderTakeProfitClientID)
 }

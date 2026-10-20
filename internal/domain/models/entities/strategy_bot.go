@@ -8,13 +8,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// StrategyBot is one standing bot following a trading strategy on one market; its run state is persisted so it survives restarts.
+// StrategyBot is one standing bot following a trading strategy on the symbols it watches; its run state is persisted so it survives restarts.
 type StrategyBot struct {
 	ID uint `gorm:"primaryKey"`
 	// OwnerID is never on the rewrite column list, so a bot cannot change hands.
 	OwnerID uint   `gorm:"not null;index:idx_strategy_bots_owner;uniqueIndex:idx_strategy_bots_owner_name"`
 	Name    string `gorm:"size:128;not null;uniqueIndex:idx_strategy_bots_owner_name"`
-	Symbol  string `gorm:"size:64;not null"`
 	// MarketDataKind is fixed at creation; blank rows predate the choice and are K candle bots.
 	MarketDataKind string `gorm:"size:32;not null;default:kCandle"`
 	// TradingStrategyID has no foreign key because existing rows carried zero during the migration; deleting a followed strategy is refused a layer up instead.
@@ -34,14 +33,8 @@ type StrategyBot struct {
 	RunState string `gorm:"size:16;not null;index:idx_strategy_bots_run_state_next_run_at,priority:1"`
 	// NextRunAt is measured from the last actual round, so missed rounds are never made up.
 	NextRunAt time.Time `gorm:"type:timestamptz;index:idx_strategy_bots_run_state_next_run_at,priority:2"`
-	// LastSentSignal is cleared on start so the first conclusion after starting is always sent.
-	LastSentSignal string `gorm:"size:16;not null;default:''"`
-	// LastSentRoundDueAt names the round whose message carried LastSentSignal, so a message given up forgets the signal only if no later round has said it since.
-	LastSentRoundDueAt *time.Time `gorm:"type:timestamptz"`
-	// HaltReason is empty unless the system stopped this bot itself.
+	// HaltReason is empty unless the system stopped this whole bot itself; a single symbol's halt lives on that watched symbol.
 	HaltReason string `gorm:"size:32;not null;default:''"`
-	// Conflicting is not a halt; it clears on the next non-conflicting round.
-	Conflicting bool `gorm:"not null;default:false"`
 	// RoundClaimedBy and RoundClaimedUntil say which replica is running this bot's round and until when; a claim past its time is free to take, so a replica that dies mid-round never strands its bot.
 	RoundClaimedBy    string     `gorm:"size:255;not null;default:''"`
 	RoundClaimedUntil *time.Time `gorm:"type:timestamptz"`
@@ -49,13 +42,11 @@ type StrategyBot struct {
 	AutoOrderEnabled bool `gorm:"not null;default:false"`
 	// AutoOrderEntrySlippageTolerancePercentage is how far, in percent of the reference price, an auto order's entry limit may sit from it; the default reaches existing rows when the column is added.
 	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0.1"`
-	// AutoOrderPosition* is what the bot opened with auto orders and has not closed: a direction (empty when flat), a quantity and the protective orders guarding it. Neither Save nor UpdateRunState names them.
-	AutoOrderPositionDirection  string          `gorm:"size:8;not null;default:''"`
-	AutoOrderPositionQuantity   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
-	AutoOrderStopLossClientID   string          `gorm:"size:64;not null;default:''"`
-	AutoOrderTakeProfitClientID string          `gorm:"size:64;not null;default:''"`
-	CreatedAt                   time.Time       `gorm:"type:timestamptz;not null"`
-	UpdatedAt                   time.Time       `gorm:"type:timestamptz;not null"`
+	CreatedAt                                 time.Time       `gorm:"type:timestamptz;not null"`
+	UpdatedAt                                 time.Time       `gorm:"type:timestamptz;not null"`
+
+	// WatchedSymbols are read in the order they were added.
+	WatchedSymbols []StrategyBotWatchedSymbol `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// TradingStrategy has no constraint so it adds no foreign key; see TradingStrategyID.
@@ -68,14 +59,24 @@ type StrategyBot struct {
 	ContractAutoOrders []ContractAutoOrder `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
-// AutoOrderPositionVo reads the bot's own position together with the orders guarding it.
-func (strategyBot StrategyBot) ToAutoOrderPositionVo() vo.AutoOrderPositionVo {
-	return vo.AutoOrderPositionVo{
-		Direction:          vo.TargetPositionVo(strategyBot.AutoOrderPositionDirection),
-		Quantity:           strategyBot.AutoOrderPositionQuantity,
-		StopLossClientID:   strategyBot.AutoOrderStopLossClientID,
-		TakeProfitClientID: strategyBot.AutoOrderTakeProfitClientID,
+// WatchedSymbol finds one of the bot's watched symbols; false when the bot does not watch it.
+func (strategyBot StrategyBot) WatchedSymbol(symbol string) (StrategyBotWatchedSymbol, bool) {
+	for _, watchedSymbol := range strategyBot.WatchedSymbols {
+		if watchedSymbol.Symbol == symbol {
+			return watchedSymbol, true
+		}
 	}
+
+	return StrategyBotWatchedSymbol{}, false
+}
+
+func (strategyBot StrategyBot) Symbols() []string {
+	symbols := make([]string, 0, len(strategyBot.WatchedSymbols))
+	for _, watchedSymbol := range strategyBot.WatchedSymbols {
+		symbols = append(symbols, watchedSymbol.Symbol)
+	}
+
+	return symbols
 }
 
 func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {
@@ -100,19 +101,16 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		marketDataKind = string(vo.MarketDataKindKCandle)
 	}
 
-	var autoOrderPosition *dto.AutoOrderPositionDto
-	if marketDataKind == string(vo.MarketDataKindContractKCandle) {
-		autoOrderPosition = &dto.AutoOrderPositionDto{
-			Direction: strategyBot.AutoOrderPositionDirection,
-			Quantity:  strategyBot.AutoOrderPositionQuantity,
-		}
+	watchedSymbolDtos := make([]dto.StrategyBotWatchedSymbolDto, 0, len(strategyBot.WatchedSymbols))
+	for _, watchedSymbol := range strategyBot.WatchedSymbols {
+		watchedSymbolDtos = append(watchedSymbolDtos, watchedSymbol.ToDto(marketDataKind))
 	}
 
 	return dto.StrategyBotDto{
 		ID:                     strategyBot.ID,
 		OwnerID:                strategyBot.OwnerID,
 		Name:                   strategyBot.Name,
-		Symbol:                 strategyBot.Symbol,
+		WatchedSymbols:         watchedSymbolDtos,
 		MarketDataKind:         marketDataKind,
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
 		PositionPlan:           strategyBot.PositionPlanSettingsDto(),
@@ -120,13 +118,10 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		TradingStrategyID:      strategyBot.TradingStrategyID,
 		TradingStrategyName:    strategyBot.TradingStrategy.Name,
 		RunState:               strategyBot.RunState,
-		LastSentSignal:         strategyBot.LastSentSignal,
 		HaltReason:             strategyBot.HaltReason,
-		Conflicting:            strategyBot.Conflicting,
 		AutoOrderEnabled:       strategyBot.AutoOrderEnabled,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBot.AutoOrderEntrySlippageTolerancePercentage,
-		AutoOrderPosition:                         autoOrderPosition,
-		CreatedAt:                                 strategyBot.CreatedAt.UTC(),
-		UpdatedAt:                                 strategyBot.UpdatedAt.UTC(),
+		CreatedAt: strategyBot.CreatedAt.UTC(),
+		UpdatedAt: strategyBot.UpdatedAt.UTC(),
 	}
 }

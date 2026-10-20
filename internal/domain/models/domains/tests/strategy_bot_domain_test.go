@@ -1,11 +1,13 @@
 package domains_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +19,7 @@ func aBotWriteDto() dto.StrategyBotWriteDto {
 	return dto.StrategyBotWriteDto{
 		OwnerID:                7,
 		Name:                   "早盤突破",
-		Symbol:                 "BTCUSDT",
+		Symbols:                []string{"BTCUSDT"},
 		TradingStrategyID:      9,
 		TriggerIntervalMinutes: 5,
 	}
@@ -31,7 +33,7 @@ func TestNewStrategyBotDomainAcceptsAWellFormedBot(t *testing.T) {
 
 	assert.Equal(t, uint(7), botEntity.OwnerID)
 	assert.Equal(t, "早盤突破", botEntity.Name)
-	assert.Equal(t, "BTCUSDT", botEntity.Symbol)
+	assert.Equal(t, []string{"BTCUSDT"}, botEntity.Symbols())
 	assert.Equal(t, uint(9), botEntity.TradingStrategyID)
 	assert.Equal(t, 5, botEntity.TriggerIntervalMinutes)
 	assert.Equal(t, string(vo.StrategyBotStopped), botEntity.RunState)
@@ -40,14 +42,14 @@ func TestNewStrategyBotDomainAcceptsAWellFormedBot(t *testing.T) {
 func TestNewStrategyBotDomainKeepsNeitherBlanksNorAnIdentifierItWasNotGiven(t *testing.T) {
 	writeDto := aBotWriteDto()
 	writeDto.Name = "  早盤突破  "
-	writeDto.Symbol = "  BTCUSDT  "
+	writeDto.Symbols = []string{"  BTCUSDT  "}
 
 	strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
 	require.NoError(t, buildError)
 
 	botEntity := strategyBot.ToEntity()
 	assert.Equal(t, "早盤突破", botEntity.Name)
-	assert.Equal(t, "BTCUSDT", botEntity.Symbol)
+	assert.Equal(t, []string{"BTCUSDT"}, botEntity.Symbols())
 }
 
 func TestNewStrategyBotDomainRefusals(t *testing.T) {
@@ -82,8 +84,27 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 		},
 		{
 			name:            "no symbol to watch",
-			mutate:          func(writeDto *dto.StrategyBotWriteDto) { writeDto.Symbol = "  " },
-			expectedMessage: "要盯哪一個交易標的",
+			mutate:          func(writeDto *dto.StrategyBotWriteDto) { writeDto.Symbols = nil },
+			expectedMessage: "必須指定這台機器人要盯哪些交易標的",
+		},
+		{
+			name: "one more symbol than a bot may watch",
+			mutate: func(writeDto *dto.StrategyBotWriteDto) {
+				writeDto.Symbols = distinctWatchedSymbols(11)
+			},
+			expectedMessage: "一台機器人最多盯 10 個交易標的",
+		},
+		{
+			name: "the same symbol twice, written in different cases",
+			mutate: func(writeDto *dto.StrategyBotWriteDto) {
+				writeDto.Symbols = []string{"BTCUSDT", "btcusdt"}
+			},
+			expectedMessage: "交易標的 BTCUSDT 重複了",
+		},
+		{
+			name:            "a blank among the symbols",
+			mutate:          func(writeDto *dto.StrategyBotWriteDto) { writeDto.Symbols = []string{"BTCUSDT", "  "} },
+			expectedMessage: "必須指定交易標的",
 		},
 		{
 			name:            "a trigger interval of nothing",
@@ -143,12 +164,12 @@ func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			writeDto := aBotWriteDto()
-			writeDto.Symbol = testCase.writtenSymbol
+			writeDto.Symbols = []string{testCase.writtenSymbol}
 
 			strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
 			require.NoError(t, buildError)
 
-			assert.Equal(t, testCase.expectedSymbol, strategyBot.ToEntity().Symbol)
+			assert.Equal(t, []string{testCase.expectedSymbol}, strategyBot.ToEntity().Symbols())
 		})
 	}
 }
@@ -289,4 +310,62 @@ func TestNewStrategyBotDomainRefusesANegativeMultiplierRatherThanReadingItAsOne(
 	require.Error(t, buildError)
 	assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
 	assert.Contains(t, buildError.Error(), "槓桿倍數不得小於 1 倍")
+}
+
+// distinctWatchedSymbols makes count different symbols.
+func distinctWatchedSymbols(count int) []string {
+	symbols := make([]string, 0, count)
+	for index := range count {
+		symbols = append(symbols, fmt.Sprintf("COIN%dUSDT", index))
+	}
+
+	return symbols
+}
+
+func TestNewStrategyBotDomainWatchesEverySymbolItIsGiven(t *testing.T) {
+	testCases := []struct {
+		name            string
+		writtenSymbols  []string
+		expectedSymbols []string
+	}{
+		{name: "two symbols in the owner's order, in one case",
+			writtenSymbols: []string{"btcusdt", "ETHUSDT"}, expectedSymbols: []string{"BTCUSDT", "ETHUSDT"}},
+		{name: "exactly one", writtenSymbols: []string{"SOLUSDT"}, expectedSymbols: []string{"SOLUSDT"}},
+		{name: "exactly as many as a bot may watch",
+			writtenSymbols: distinctWatchedSymbols(10), expectedSymbols: distinctWatchedSymbols(10)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aBotWriteDto()
+			writeDto.Symbols = testCase.writtenSymbols
+
+			strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
+			require.NoError(t, buildError)
+
+			botEntity := strategyBot.ToEntity()
+			assert.Equal(t, testCase.expectedSymbols, botEntity.Symbols())
+			for _, watchedSymbol := range botEntity.WatchedSymbols {
+				assert.Empty(t, watchedSymbol.LastSentSignal)
+				assert.Empty(t, watchedSymbol.HaltReason)
+			}
+		})
+	}
+}
+
+func TestStrategyBotDomainNamesTheWatchedSymbolsARewriteDrops(t *testing.T) {
+	storedBot := entities.StrategyBot{WatchedSymbols: []entities.StrategyBotWatchedSymbol{
+		{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}, {Symbol: "SOLUSDT"},
+	}}
+	writeDto := aBotWriteDto()
+	writeDto.Symbols = []string{"SOLUSDT", "BTCUSDT", "XRPUSDT"}
+
+	strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
+	require.NoError(t, buildError)
+
+	droppedSymbols := []string{}
+	for _, droppedSymbol := range strategyBot.WatchedSymbolsDroppedFrom(storedBot) {
+		droppedSymbols = append(droppedSymbols, droppedSymbol.Symbol())
+	}
+	assert.Equal(t, []string{"ETHUSDT"}, droppedSymbols)
 }

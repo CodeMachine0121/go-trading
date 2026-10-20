@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,10 @@ type strategyBotRouterUnderTest struct {
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 	// outstandingEntry is whether the bot still has an entry order resting at the venue.
 	outstandingEntry *bool
+	// unsettledAutoOrderSymbols are the watched symbols with an auto order not yet done.
+	unsettledAutoOrderSymbols map[string]bool
+	// listedRunSymbols are the symbols each history read was narrowed to.
+	listedRunSymbols *[]string
 }
 
 func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
@@ -45,9 +50,14 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
 	strategyBotRunRecordRepository.EXPECT().Append(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
+	listedRunSymbols := []string{}
 	strategyBotRunRecordRepository.EXPECT().
-		FindLatestByBot(gomock.Any(), gomock.Any()).
-		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()
+		FindLatestByBot(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uint, symbol string) ([]entities.StrategyBotRunRecord, error) {
+			listedRunSymbols = append(listedRunSymbols, symbol)
+
+			return []entities.StrategyBotRunRecord{{RunNumber: 7, Symbol: "ETHUSDT", Result: "buy"}}, nil
+		}).AnyTimes()
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(mockController)
 
@@ -80,10 +90,25 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	contractAutoOrderRepository := contractAutoOrderRepositoryNotInvolved(t)
 	contractAutoOrderRepository.EXPECT().ExistsOutstandingEntry(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(context.Context, uint) (bool, error) { return outstandingEntry, nil }).AnyTimes()
+	unsettledAutoOrderSymbols := map[string]bool{}
+	contractAutoOrderRepository.EXPECT().ExistsUnsettled(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uint, symbol string) (bool, error) {
+			return unsettledAutoOrderSymbols[symbol], nil
+		}).AnyTimes()
+	transactionRepository := mocks.NewMockITransactionRepository(mockController)
+	transactionRepository.EXPECT().Atomically(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, work func(context.Context) error) error {
+			return work(executionContext)
+		}).AnyTimes()
+	// The locked read answers whatever the plain read is set up to answer in each test.
+	strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, id uint) (entities.StrategyBot, error) {
+			return strategyBotRepository.FindOne(executionContext, id)
+		}).AnyTimes()
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository,
 		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-		contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, nil, clockProxy)
+		contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, transactionRepository, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
@@ -139,6 +164,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
 	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
 	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
+	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 	engine.POST("/strategy-bots/:id/auto-order", requiresSignIn, strategyBotController.EnableAutoOrder)
 	engine.DELETE("/strategy-bots/:id/auto-order", requiresSignIn, strategyBotController.DisableAutoOrder)
@@ -154,6 +180,8 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		outstandingEntry:                        &outstandingEntry,
+		unsettledAutoOrderSymbols:               unsettledAutoOrderSymbols,
+		listedRunSymbols:                        &listedRunSymbols,
 	}
 }
 
@@ -172,7 +200,7 @@ func (fixture strategyBotRouterUnderTest) send(
 // aStrategyBotBody names a trading strategy rather than carrying its rules.
 const aStrategyBotBody = `{
 	"name": "早盤突破",
-	"symbol": "BTCUSDT",
+	"symbols": ["BTCUSDT"],
 	"tradingStrategyId": 9,
 	"triggerIntervalMinutes": 5
 }`
@@ -187,7 +215,7 @@ func (fixture strategyBotRouterUnderTest) expectResolvableTradingStrategy() {
 
 func aStoredStrategyBotRow(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{
-		ID: 3, OwnerID: signedInViewerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		ID: 3, OwnerID: signedInViewerID, Name: "早盤突破", WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}},
 		TradingStrategyID:      9,
 		TradingStrategy:        entities.TradingStrategy{ID: 9, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
@@ -245,7 +273,7 @@ func TestStrategyBotRouterRewritesAndDeletes(t *testing.T) {
 	fixture.expectResolvableTradingStrategy()
 
 	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
-		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).Times(2)
+		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).Times(3)
 	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
 	fixture.strategyBotRepository.EXPECT().Delete(gomock.Any(), uint(3)).Return(nil)
@@ -279,9 +307,9 @@ func TestStrategyBotRouterCarriesTheEntrySlippageTolerance(t *testing.T) {
 		expectedTolerance string
 	}{
 		{name: "建立時沒給就是 0.1", body: aStrategyBotBody, expectedTolerance: "0.1"},
-		{name: "建立時給 0", body: `{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+		{name: "建立時給 0", body: `{"name":"早盤突破","symbols":["BTCUSDT"],"tradingStrategyId":9,"triggerIntervalMinutes":5,
 			"autoOrderEntrySlippageTolerancePercentage":0}`, expectedTolerance: "0"},
-		{name: "建立時給 5", body: `{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+		{name: "建立時給 5", body: `{"name":"早盤突破","symbols":["BTCUSDT"],"tradingStrategyId":9,"triggerIntervalMinutes":5,
 			"autoOrderEntrySlippageTolerancePercentage":"5"}`, expectedTolerance: "5"},
 		{name: "改寫時沒給就保留", body: aStrategyBotBody, stored: "0.3", expectedTolerance: "0.3"},
 	}
@@ -295,7 +323,7 @@ func TestStrategyBotRouterCarriesTheEntrySlippageTolerance(t *testing.T) {
 				method, path = http.MethodPut, "/strategy-bots/3"
 				storedRow := aStoredStrategyBotRow(vo.StrategyBotStopped)
 				storedRow.AutoOrderEntrySlippageTolerancePercentage = decimal.RequireFromString(testCase.stored)
-				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(storedRow, nil)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(storedRow, nil).AnyTimes()
 			}
 			fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
@@ -320,7 +348,7 @@ func TestStrategyBotRouterRefusesAnEntrySlippageToleranceOutOfRange(t *testing.T
 			// No Save expectation: saving fails the test.
 
 			response := fixture.send(http.MethodPost, "/strategy-bots",
-				`{"name":"早盤突破","symbol":"BTCUSDT","tradingStrategyId":9,"triggerIntervalMinutes":5,
+				`{"name":"早盤突破","symbols":["BTCUSDT"],"tradingStrategyId":9,"triggerIntervalMinutes":5,
 				"autoOrderEntrySlippageTolerancePercentage":`+tolerance+`}`)
 
 			require.Equal(t, http.StatusBadRequest, response.Code)
@@ -384,7 +412,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 			},
 			method:         http.MethodPost,
 			target:         "/strategy-bots",
-			body:           `{"name": "", "symbol": "BTCUSDT", "triggerIntervalMinutes": 5}`,
+			body:           `{"name": "", "symbols": ["BTCUSDT"], "triggerIntervalMinutes": 5}`,
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
@@ -572,7 +600,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 			arrange: func(fixture strategyBotRouterUnderTest) {
 				fixture.expectResolvableTradingStrategy()
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
-					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).AnyTimes()
 				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -617,7 +645,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 // aPositionPlannedStrategyBotBody is the same bot with a position plan.
 const aPositionPlannedStrategyBotBody = `{
 	"name": "早盤突破",
-	"symbol": "BTCUSDT",
+	"symbols": ["BTCUSDT"],
 	"tradingStrategyId": 9,
 	"triggerIntervalMinutes": 5,
 	"positionPlan": {
@@ -821,4 +849,136 @@ func TestStrategyBotRouterAutoOrder(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, fixture.send(http.MethodPost, "/strategy-bots/zero/auto-order", "").Code)
 		assert.Equal(t, http.StatusBadRequest, fixture.send(http.MethodDelete, "/strategy-bots/0/auto-order", "").Code)
 	})
+}
+
+func TestStrategyBotRouterTakesAListOfSymbolsAndShowsEachOnesState(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			assert.Equal(t, []string{"BTCUSDT", "ETHUSDT"}, bot.Symbols())
+
+			storedBot := aStoredStrategyBotRow(vo.StrategyBotStopped)
+			storedBot.MarketDataKind = string(vo.MarketDataKindKCandle)
+			storedBot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+				{Symbol: "BTCUSDT", LastSentSignal: string(vo.SignalBuy)},
+				{Symbol: "ETHUSDT", Conflicting: true, HaltReason: string(vo.StrategyBotHaltScriptFailed)},
+			}
+
+			return storedBot, nil
+		})
+
+	response := fixture.send(http.MethodPost, "/strategy-bots", `{
+		"name": "早盤突破", "symbols": ["btcusdt", "ETHUSDT"], "tradingStrategyId": 9, "triggerIntervalMinutes": 5
+	}`)
+
+	require.Equal(t, http.StatusCreated, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.NotContains(t, answer, "symbol")
+	assert.Equal(t, []any{
+		map[string]any{"symbol": "BTCUSDT", "lastSentSignal": "buy", "conflicting": false},
+		map[string]any{"symbol": "ETHUSDT", "conflicting": true, "haltReason": "scriptFailed"},
+	}, answer["watchedSymbols"])
+}
+
+func TestStrategyBotRouterRefusesRemovingASymbolThatIsNotYetFlat(t *testing.T) {
+	testCases := []struct {
+		name                string
+		ethereumPosition    string
+		ethereumOrderInWork bool
+		expectedReason      string
+		expectedMessage     string
+	}{
+		{
+			name: "a symbol still holding what auto orders opened", ethereumPosition: "long",
+			expectedReason: "watchedSymbolHoldsPosition", expectedMessage: "ETHUSDT 還有機器人持倉，要先讓它空手才能移除",
+		},
+		{
+			name: "a symbol with an auto order not yet done", ethereumOrderInWork: true,
+			expectedReason: "watchedSymbolAutoOrderOutstanding", expectedMessage: "ETHUSDT 還有沒做完的自動下單，要等它做完才能移除",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.expectResolvableTradingStrategy()
+			storedBot := aStoredStrategyBotRow(vo.StrategyBotStopped)
+			storedBot.WatchedSymbols = []entities.StrategyBotWatchedSymbol{
+				{Symbol: "BTCUSDT"},
+				{Symbol: "ETHUSDT", AutoOrderPositionDirection: testCase.ethereumPosition},
+			}
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(storedBot, nil).AnyTimes()
+			fixture.unsettledAutoOrderSymbols["ETHUSDT"] = testCase.ethereumOrderInWork
+
+			response := fixture.send(http.MethodPut, "/strategy-bots/3", aStrategyBotBody)
+
+			require.Equal(t, http.StatusConflict, response.Code)
+			answer := map[string]string{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+			assert.Equal(t, testCase.expectedReason, answer["reason"])
+			assert.Contains(t, answer["message"], testCase.expectedMessage)
+		})
+	}
+}
+
+func TestStrategyBotRouterRefusesAListOfSymbolsItCannotWatch(t *testing.T) {
+	testCases := []struct {
+		name            string
+		symbols         string
+		expectedMessage string
+	}{
+		{name: "no symbols at all", symbols: `[]`, expectedMessage: "必須指定這台機器人要盯哪些交易標的"},
+		{name: "the same symbol twice", symbols: `["BTCUSDT", "btcusdt"]`, expectedMessage: "交易標的 BTCUSDT 重複了"},
+		{
+			name:            "eleven symbols",
+			symbols:         `["A1","A2","A3","A4","A5","A6","A7","A8","A9","A10","A11"]`,
+			expectedMessage: "一台機器人最多盯 10 個交易標的",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.expectResolvableTradingStrategy()
+
+			response := fixture.send(http.MethodPost, "/strategy-bots", fmt.Sprintf(
+				`{"name": "早盤突破", "symbols": %s, "tradingStrategyId": 9, "triggerIntervalMinutes": 5}`,
+				testCase.symbols))
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Contains(t, response.Body.String(), testCase.expectedMessage)
+		})
+	}
+}
+
+func TestStrategyBotRouterNarrowsTheHistoryToOneSymbol(t *testing.T) {
+	testCases := []struct {
+		name           string
+		target         string
+		expectedSymbol string
+	}{
+		{name: "the whole history when no symbol is named", target: "/strategy-bots/3/runs", expectedSymbol: ""},
+		{name: "one symbol's, read the way symbols are stored", target: "/strategy-bots/3/runs?symbol=ethusdt",
+			expectedSymbol: "ETHUSDT"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+				Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+
+			response := fixture.send(http.MethodGet, testCase.target, "")
+
+			require.Equal(t, http.StatusOK, response.Code)
+			assert.Equal(t, []string{testCase.expectedSymbol}, *fixture.listedRunSymbols)
+			listed := []map[string]any{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &listed))
+			require.Len(t, listed, 1)
+			assert.Equal(t, "ETHUSDT", listed[0]["symbol"])
+		})
+	}
 }

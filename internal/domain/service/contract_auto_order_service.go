@@ -168,6 +168,7 @@ func (contractAutoOrderService *ContractAutoOrderService) execute(
 }
 
 // prepare reads everything the steps decide on; a missing bot means it was deleted and its orders with it, so there is nothing left to do.
+// The position is the order's own symbol's, so one symbol's orders never touch another's; a symbol no longer watched holds nothing, since one with an unsettled order cannot be removed.
 func (contractAutoOrderService *ContractAutoOrderService) prepare(
 	executionContext context.Context, order domains.ContractAutoOrderDomain,
 ) (orderRun, error) {
@@ -176,9 +177,10 @@ func (contractAutoOrderService *ContractAutoOrderService) prepare(
 		return orderRun{}, findBotError
 	}
 
+	watchedSymbol, _ := bot.WatchedSymbol(order.Symbol())
 	run := orderRun{
 		order:            order,
-		position:         bot.ToAutoOrderPositionVo(),
+		position:         watchedSymbol.ToAutoOrderPositionVo(),
 		bot:              bot,
 		tickSize:         decimal.Zero,
 		botRunning:       bot.RunState == string(vo.StrategyBotRunning),
@@ -367,7 +369,7 @@ func (contractAutoOrderService *ContractAutoOrderService) actOnEntry(
 
 	now := contractAutoOrderService.clockProxy.Now()
 	laterOrderQueued, laterError := contractAutoOrderService.contractAutoOrderRepository.ExistsUnsettledAfter(
-		callContext, run.order.StrategyBotID(), run.order.ID())
+		callContext, run.order.StrategyBotID(), run.order.Symbol(), run.order.ID())
 	if laterError != nil {
 		return stepWaits, laterError
 	}
@@ -525,7 +527,7 @@ func (contractAutoOrderService *ContractAutoOrderService) recordStep(
 			}
 
 			return contractAutoOrderService.strategyBotRepository.UpdateAutoOrderPosition(
-				transactionContext, run.order.StrategyBotID(), run.position)
+				transactionContext, run.order.StrategyBotID(), run.order.Symbol(), run.position)
 		})
 }
 

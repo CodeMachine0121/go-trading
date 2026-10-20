@@ -8,89 +8,48 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// Round outcome kinds as carried on the application-layer DTO.
-const (
-	strategyBotRoundSkipped   = "skipped"
-	strategyBotRoundHalted    = "halted"
-	strategyBotRoundConcluded = "concluded"
-)
-
-// StrategyBotRoundOutcomeDomain is a round's skipped/halted/concluded outcome, booked in one call so no exit path can forget to reschedule the bot; separate constructors keep fields consistent.
+// StrategyBotRoundOutcomeDomain is one whole round across the bot's watched symbols, booked in one call so no exit path can forget to reschedule the bot.
 type StrategyBotRoundOutcomeDomain struct {
-	skipped     bool
-	haltReason  vo.StrategyBotHaltReasonVo
-	verdict     vo.StrategyBotVerdictVo
-	sentSignal  vo.SignalVo
-	conflicting bool
+	watchedSymbolOutcomes []StrategyBotWatchedSymbolRoundOutcomeDomain
 }
 
-// NewStrategyBotRoundOutcomeDomainOf reads unrecognised kinds as skipped, the harmless reading.
-func NewStrategyBotRoundOutcomeDomainOf(
-	outcomeDto dto.StrategyBotRoundOutcomeDto,
-) StrategyBotRoundOutcomeDomain {
-	switch outcomeDto.Kind {
-	case strategyBotRoundHalted:
-		return NewStrategyBotRoundHaltedOutcome(
-			vo.StrategyBotHaltReasonVo(outcomeDto.HaltReason))
-	case strategyBotRoundConcluded:
-		return NewStrategyBotRoundConcludedOutcome(
-			vo.StrategyBotVerdictVo(outcomeDto.Verdict),
-			vo.SignalVo(outcomeDto.SentSignal),
-			outcomeDto.Conflicting)
-	default:
-		return NewStrategyBotRoundSkippedOutcome()
+func NewStrategyBotRoundOutcomeDomain(outcomeDto dto.StrategyBotRoundOutcomeDto) StrategyBotRoundOutcomeDomain {
+	watchedSymbolOutcomes := make([]StrategyBotWatchedSymbolRoundOutcomeDomain, 0, len(outcomeDto.WatchedSymbolOutcomes))
+	for _, watchedSymbolOutcomeDto := range outcomeDto.WatchedSymbolOutcomes {
+		watchedSymbolOutcomes = append(watchedSymbolOutcomes,
+			NewStrategyBotWatchedSymbolRoundOutcomeDomain(watchedSymbolOutcomeDto))
 	}
+
+	return StrategyBotRoundOutcomeDomain{watchedSymbolOutcomes: watchedSymbolOutcomes}
 }
 
-func NewStrategyBotRoundSkippedOutcome() StrategyBotRoundOutcomeDomain {
-	return StrategyBotRoundOutcomeDomain{skipped: true}
-}
-
-func NewStrategyBotRoundHaltedOutcome(
-	haltReason vo.StrategyBotHaltReasonVo,
-) StrategyBotRoundOutcomeDomain {
-	return StrategyBotRoundOutcomeDomain{haltReason: haltReason}
-}
-
-// NewStrategyBotRoundConcludedOutcome takes the signal the round queued a message for, empty when it queued none.
-func NewStrategyBotRoundConcludedOutcome(
-	verdict vo.StrategyBotVerdictVo, sentSignal vo.SignalVo, conflicting bool,
-) StrategyBotRoundOutcomeDomain {
-	return StrategyBotRoundOutcomeDomain{
-		verdict: verdict, sentSignal: sentSignal, conflicting: conflicting}
-}
-
-// HaltsTheBot is true when this round is what stops the bot.
-func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) HaltsTheBot() bool {
-	return strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone
-}
-
-// RecordedResult comes from the verdict, not the sent signal, and keeps conflict distinct from hold because a conflicted bot needs its owner to change a condition.
-func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResult() vo.StrategyBotRoundResultVo {
-	switch strategyBotRoundOutcomeDomain.verdict {
-	case vo.StrategyBotVerdictBuy:
-		return vo.StrategyBotRoundResultBuy
-	case vo.StrategyBotVerdictSell:
-		return vo.StrategyBotRoundResultSell
-	case vo.StrategyBotVerdictConflict:
-		return vo.StrategyBotRoundResultConflict
-	default:
-		return vo.StrategyBotRoundResultHold
-	}
-}
-
-// ApplyTo writes the outcome onto the bot's run state and returns the record to store.
-func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) ApplyTo(
+// ApplyTo writes every symbol's outcome onto the bot and returns the record to store with the reason this round halted the whole bot, empty when it did not.
+// A failure every symbol would meet halts the bot at once; otherwise the bot halts only once no watched symbol is left, for the last reason a symbol halted this round, so a one-symbol bot halts exactly as before.
+func (roundOutcome StrategyBotRoundOutcomeDomain) ApplyTo(
 	runStateDomain StrategyBotRunStateDomain, dueAt time.Time, now time.Time,
-) entities.StrategyBot {
-	if strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone {
-		return runStateDomain.Halt(strategyBotRoundOutcomeDomain.haltReason, now)
+) (entities.StrategyBot, vo.StrategyBotHaltReasonVo) {
+	botHaltReason := vo.StrategyBotHaltNone
+	lastWatchedSymbolHaltReason := vo.StrategyBotHaltNone
+
+	for _, watchedSymbolOutcome := range roundOutcome.watchedSymbolOutcomes {
+		runStateDomain = watchedSymbolOutcome.ApplyTo(runStateDomain, dueAt)
+
+		if watchedSymbolOutcome.HaltsTheBot() {
+			botHaltReason = watchedSymbolOutcome.HaltReason()
+		}
+		if watchedSymbolOutcome.HaltsTheWatchedSymbol() {
+			lastWatchedSymbolHaltReason = watchedSymbolOutcome.HaltReason()
+		}
 	}
 
-	if strategyBotRoundOutcomeDomain.skipped {
-		return runStateDomain.RoundSkipped(now)
+	if botHaltReason == vo.StrategyBotHaltNone &&
+		lastWatchedSymbolHaltReason != vo.StrategyBotHaltNone && runStateDomain.AllWatchedSymbolsHalted() {
+		botHaltReason = lastWatchedSymbolHaltReason
 	}
 
-	return runStateDomain.RoundFinished(
-		dueAt, now, strategyBotRoundOutcomeDomain.sentSignal, strategyBotRoundOutcomeDomain.conflicting)
+	if botHaltReason != vo.StrategyBotHaltNone {
+		return runStateDomain.Halt(botHaltReason, now), botHaltReason
+	}
+
+	return runStateDomain.Rescheduled(now), vo.StrategyBotHaltNone
 }

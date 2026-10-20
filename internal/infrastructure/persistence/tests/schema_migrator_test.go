@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -197,6 +199,8 @@ func TestSchemaMigratorBuildsAStrategyScriptTableThatIsNotThereYet(t *testing.T)
 // asTheShapeBeforeTheRulesMoved restores, via raw SQL, the schema where a bot carried its own signal sources and condition trees.
 func asTheShapeBeforeTheRulesMoved(t *testing.T, database *gorm.DB) {
 	t.Helper()
+
+	asTheShapeBeforeBotsWatchedSeveralSymbols(t, database)
 
 	for _, statement := range []string{
 		// The foreign keys point back at the bot, as in the old shape.
@@ -408,4 +412,154 @@ func withTheNextIdentifierBeing(t *testing.T, database *gorm.DB, nextIdentifier 
 	require.NoError(t, database.Exec(
 		`SELECT setval(pg_get_serial_sequence('"TradingStrategies"', 'id'), ?, false)`,
 		nextIdentifier).Error)
+}
+
+// asTheShapeBeforeBotsWatchedSeveralSymbols restores, via raw SQL, the schema where a bot stored its one symbol, what it last said and what auto orders opened on itself, and a round was identified without its symbol.
+func asTheShapeBeforeBotsWatchedSeveralSymbols(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	for _, statement := range []string{
+		`DROP TABLE "StrategyBotWatchedSymbols" CASCADE`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "symbol" varchar(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE "StrategyBots" ALTER COLUMN "symbol" DROP DEFAULT`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "last_sent_signal" varchar(16) NOT NULL DEFAULT ''`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "last_sent_round_due_at" timestamptz`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "conflicting" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "auto_order_position_direction" varchar(8) NOT NULL DEFAULT ''`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "auto_order_position_quantity" numeric(38,18) NOT NULL DEFAULT 0`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "auto_order_stop_loss_client_id" varchar(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE "StrategyBots" ADD COLUMN "auto_order_take_profit_client_id" varchar(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE "StrategyBotRunRecords" DROP COLUMN "symbol"`,
+		`ALTER TABLE "PendingMessages" DROP COLUMN "symbol"`,
+		`CREATE UNIQUE INDEX "idx_pending_messages_bot_round" ON "PendingMessages" ("strategy_bot_id", "round_due_at")`,
+		`DROP INDEX "idx_contract_auto_orders_bot_symbol_round"`,
+		`CREATE UNIQUE INDEX "idx_contract_auto_orders_bot_round" ON "ContractAutoOrders" ("strategy_bot_id", "round_due_at")`,
+	} {
+		require.NoError(t, database.Exec(statement).Error,
+			"這個測試得先把資料庫變回一台機器人只盯一個標的的樣子，才有東西可以被搬")
+	}
+}
+
+// aRunningContractBotHoldingAPosition is a bot of the one-symbol shape mid-trade: it last said buy, auto orders opened a long guarded by two protective orders, a round message is still unsent and its history has a round.
+func aRunningContractBotHoldingAPosition(t *testing.T, database *gorm.DB, lastSentRoundDueAt time.Time) uint {
+	t.Helper()
+
+	botID := uint(0)
+	require.NoError(t, database.Raw(
+		`INSERT INTO "StrategyBots"
+		   ("owner_id","name","symbol","market_data_kind","trading_strategy_id","trigger_interval_minutes",
+		    "run_state","next_run_at","last_sent_signal","last_sent_round_due_at","halt_reason","conflicting",
+		    "auto_order_enabled","auto_order_position_direction","auto_order_position_quantity",
+		    "auto_order_stop_loss_client_id","auto_order_take_profit_client_id","created_at","updated_at")
+		 VALUES (1,'合約突破','BTCUSDT','contractKCandle',?,5,'running',now(),'buy',?,'',true,
+		         true,'long',0.01,'gt-ao-5-sl','gt-ao-5-tp',now(),now()) RETURNING id`,
+		botRowTradingStrategyID, lastSentRoundDueAt).Scan(&botID).Error)
+	require.NotZero(t, botID)
+
+	require.NoError(t, database.Exec(
+		`INSERT INTO "StrategyBotRunRecords" ("strategy_bot_id","run_number","ran_at","result")
+		 VALUES (?,50,?,'buy')`, botID, lastSentRoundDueAt).Error)
+	require.NoError(t, database.Exec(
+		`INSERT INTO "PendingMessages"
+		   ("strategy_bot_id","round_due_at","recipient_user_id","kind","signal","text","status",
+		    "next_attempt_at","expires_at","created_at")
+		 VALUES (?,?,1,'round','buy','【做多】','ready',now(),now() + interval '5 minutes',now()),
+		        (?,NULL,1,'lifecycle','','【已啟動】','ready',now(),now() + interval '1 hour',now())`,
+		botID, lastSentRoundDueAt, botID).Error)
+	require.NoError(t, database.Exec(
+		`INSERT INTO "ContractAutoOrders"
+		   ("strategy_bot_id","round_due_at","run_number","owner_user_id","symbol","target_position",
+		    "status","next_attempt_at","expires_at","created_at")
+		 VALUES (?,?,50,1,'BTCUSDT','long','settled',now(),now(),now())`,
+		botID, lastSentRoundDueAt).Error)
+
+	return botID
+}
+
+// A bot running on live money keeps behaving identically: its one symbol becomes its one watched symbol, carrying everything it remembered.
+func TestSchemaMigratorMovesEachBotsSymbolOntoItsWatchedSymbol(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	asTheShapeBeforeBotsWatchedSeveralSymbols(t, database)
+	lastSentRoundDueAt := time.Date(2026, 10, 20, 6, 0, 0, 0, time.UTC)
+	botID := aRunningContractBotHoldingAPosition(t, database, lastSentRoundDueAt)
+
+	// Twice, because every replica's start runs it again.
+	for range 2 {
+		_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+		require.NoError(t, migrateError)
+
+		movedBot, findError := persistence.NewStrategyBotRepository(database).FindOne(t.Context(), botID)
+		require.NoError(t, findError)
+
+		assert.Equal(t, string(vo.StrategyBotRunning), movedBot.RunState)
+		assert.True(t, movedBot.AutoOrderEnabled)
+		require.Len(t, movedBot.WatchedSymbols, 1)
+		watchedSymbol := movedBot.WatchedSymbols[0]
+		assert.Equal(t, "BTCUSDT", watchedSymbol.Symbol)
+		assert.Equal(t, string(vo.SignalBuy), watchedSymbol.LastSentSignal)
+		require.NotNil(t, watchedSymbol.LastSentRoundDueAt)
+		assert.True(t, lastSentRoundDueAt.Equal(*watchedSymbol.LastSentRoundDueAt))
+		assert.True(t, watchedSymbol.Conflicting)
+		assert.Equal(t, "long", watchedSymbol.AutoOrderPositionDirection)
+		assert.True(t, decimal.RequireFromString("0.01").Equal(watchedSymbol.AutoOrderPositionQuantity))
+		assert.Equal(t, "gt-ao-5-sl", watchedSymbol.AutoOrderStopLossClientID)
+		assert.Equal(t, "gt-ao-5-tp", watchedSymbol.AutoOrderTakeProfitClientID)
+
+		runRecords, listError := persistence.NewStrategyBotRunRecordRepository(database).
+			FindLatestByBot(t.Context(), botID, "BTCUSDT")
+		require.NoError(t, listError)
+		require.Len(t, runRecords, 1)
+		assert.Equal(t, 50, runRecords[0].RunNumber)
+
+		pendingMessages := []entities.PendingMessage{}
+		require.NoError(t, database.Order("id ASC").Find(&pendingMessages).Error)
+		require.Len(t, pendingMessages, 2)
+		assert.Equal(t, "BTCUSDT", pendingMessages[0].Symbol, "the unsent round message speaks for the moved symbol")
+		assert.Empty(t, pendingMessages[1].Symbol, "a message about the bot itself speaks for no symbol")
+	}
+
+	migrator := database.Migrator()
+	for _, retiredColumn := range []string{
+		"symbol", "last_sent_signal", "last_sent_round_due_at", "conflicting", "auto_order_position_direction",
+		"auto_order_position_quantity", "auto_order_stop_loss_client_id", "auto_order_take_profit_client_id",
+	} {
+		assert.False(t, migrator.HasColumn(&entities.StrategyBot{}, retiredColumn), retiredColumn)
+	}
+	assert.False(t, migrator.HasIndex(&entities.PendingMessage{}, "idx_pending_messages_bot_round"))
+	assert.False(t, migrator.HasIndex(&entities.ContractAutoOrder{}, "idx_contract_auto_orders_bot_round"))
+}
+
+// Once moved, several symbols of one bot can each speak and trade in the same round.
+func TestSchemaMigratorLetsEverySymbolOfARoundQueueItsOwnMessageAndOrder(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	asTheShapeBeforeBotsWatchedSeveralSymbols(t, database)
+	roundDueAt := time.Date(2026, 10, 20, 6, 5, 0, 0, time.UTC)
+	botID := aRunningContractBotHoldingAPosition(t, database, roundDueAt.Add(-5*time.Minute))
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	pendingMessageRepository := persistence.NewPendingMessageRepository(database)
+	contractAutoOrderRepository := persistence.NewContractAutoOrderRepository(database)
+	for _, symbol := range []string{"BTCUSDT", "ETHUSDT", "BTCUSDT"} {
+		require.NoError(t, pendingMessageRepository.Enqueue(t.Context(), entities.PendingMessage{
+			StrategyBotID: botID, Symbol: symbol, RoundDueAt: &roundDueAt, RecipientUserID: 1,
+			Kind: string(vo.PendingMessageRound), Text: symbol, Status: string(vo.PendingMessageReady),
+			NextAttemptAt: roundDueAt, ExpiresAt: roundDueAt.Add(5 * time.Minute), CreatedAt: roundDueAt,
+		}))
+		require.NoError(t, contractAutoOrderRepository.Enqueue(t.Context(), entities.ContractAutoOrder{
+			StrategyBotID: botID, Symbol: symbol, RoundDueAt: roundDueAt, RunNumber: 51, OwnerUserID: 1,
+			TargetPosition: "long", Status: string(vo.ContractAutoOrderReady),
+			NextAttemptAt: roundDueAt, ExpiresAt: roundDueAt.Add(2 * time.Minute), CreatedAt: roundDueAt,
+		}))
+	}
+
+	roundMessageCount := int64(0)
+	require.NoError(t, database.Model(&entities.PendingMessage{}).
+		Where(clause.Eq{Column: "round_due_at", Value: roundDueAt}).Count(&roundMessageCount).Error)
+	assert.Equal(t, int64(2), roundMessageCount, "one message per symbol; a round booked twice still queues one")
+	orderCount := int64(0)
+	require.NoError(t, database.Model(&entities.ContractAutoOrder{}).
+		Where(clause.Eq{Column: "round_due_at", Value: roundDueAt}).Count(&orderCount).Error)
+	assert.Equal(t, int64(2), orderCount)
 }

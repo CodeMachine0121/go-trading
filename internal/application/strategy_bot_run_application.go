@@ -197,12 +197,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) roundDeadlineFor(
 	return strategyBotRunApplication.roundTimeout
 }
 
-// playRound works out what this round comes to without writing anything; failures are
-// outcomes too, already classified by the failure model.
+// playRound works out what this round comes to on every watched symbol not halted on its own, without writing anything;
+// failures are outcomes too, already classified by the failure model.
 func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 ) dto.StrategyBotRoundOutcomeDto {
-	// Read every round, as the bot's owner, so edits to shared rules apply on the next round.
+	watchedSymbolsToPlay := strategyBotRunApplication.strategyBotService.WatchedSymbolsToPlay(botDto)
+	watchedSymbolOutcomes := make([]dto.StrategyBotWatchedSymbolRoundOutcomeDto, len(watchedSymbolsToPlay))
+
+	// Read once per round, as the bot's owner, so every symbol follows the same version and edits to shared rules apply on the next round.
 	tradingStrategyDto, tradingStrategyError := strategyBotRunApplication.tradingStrategyService.
 		GetTradingStrategy(executionContext, botDto.OwnerID, botDto.TradingStrategyID)
 	if tradingStrategyError != nil {
@@ -211,15 +214,40 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		log.Printf("strategy bot %d: round could not read its trading strategy: %v",
 			botDto.ID, tradingStrategyError)
 
-		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(tradingStrategyError)
+		for index, watchedSymbolDto := range watchedSymbolsToPlay {
+			watchedSymbolOutcomes[index] = strategyBotRunApplication.strategyBotService.ReadRoundFailure(
+				watchedSymbolDto.Symbol, tradingStrategyError)
+		}
+
+		return dto.StrategyBotRoundOutcomeDto{WatchedSymbolOutcomes: watchedSymbolOutcomes}
 	}
+
+	// Symbols run side by side within the round's one deadline; each lands in its own slot, so the bot's order is kept.
+	waitGroup := sync.WaitGroup{}
+	for index, watchedSymbolDto := range watchedSymbolsToPlay {
+		waitGroup.Go(func() {
+			watchedSymbolOutcomes[index] = strategyBotRunApplication.playWatchedSymbolRound(
+				executionContext, botDto, watchedSymbolDto, tradingStrategyDto)
+		})
+	}
+	waitGroup.Wait()
+
+	return dto.StrategyBotRoundOutcomeDto{WatchedSymbolOutcomes: watchedSymbolOutcomes}
+}
+
+// playWatchedSymbolRound works out what this round comes to on one watched symbol.
+func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRound(
+	executionContext context.Context, botDto dto.StrategyBotDto,
+	watchedSymbolDto dto.StrategyBotWatchedSymbolDto, tradingStrategyDto dto.TradingStrategyDto,
+) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
+	symbol := watchedSymbolDto.Symbol
 
 	// A contract bot reads its newest candle up front: it is both the staleness check (contracts
 	// trade round the clock) and the last-price reference; spot markets close, so spot reads it later.
 	reference := dto.StrategyBotRoundDto{}
 	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
 		latestContractCandle, hasLatestContractCandle, contractCandleError := strategyBotRunApplication.
-			kCandleContractService.GetLatestKCandleContract(executionContext, botDto.Symbol)
+			kCandleContractService.GetLatestKCandleContract(executionContext, symbol)
 		if contractCandleError == nil && hasLatestContractCandle {
 			reference.ReferencePrice = latestContractCandle.Close
 			reference.ReferenceTime = latestContractCandle.OpenTime
@@ -228,46 +256,46 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 
 		if staleError := strategyBotRunApplication.strategyBotService.RequireCurrentMarket(
 			botDto, reference.ReferenceTime, reference.HasReference); staleError != nil {
-			log.Printf("strategy bot %d: round skipped: %v", botDto.ID, staleError)
+			log.Printf("strategy bot %d on %s: round skipped: %v", botDto.ID, symbol, staleError)
 
-			return strategyBotRunApplication.strategyBotService.ReadRoundFailure(staleError)
+			return strategyBotRunApplication.strategyBotService.ReadRoundFailure(symbol, staleError)
 		}
 	}
 
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
-		executionContext, botDto, tradingStrategyDto)
+		executionContext, botDto, symbol, tradingStrategyDto)
 	if roundError != nil {
 		// Logged because the history records "hold" either way, indistinguishable from a
 		// healthy round that concluded nothing.
-		log.Printf("strategy bot %d: round could not read its signals: %v",
-			botDto.ID, roundError)
+		log.Printf("strategy bot %d on %s: round could not read its signals: %v",
+			botDto.ID, symbol, roundError)
 
-		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(roundError)
+		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(symbol, roundError)
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
-		botDto, tradingStrategyDto, signalsByLabel)
+		watchedSymbolDto, tradingStrategyDto, signalsByLabel)
 	if decideError != nil {
-		log.Printf("strategy bot %d: round could not read its conditions: %v",
-			botDto.ID, decideError)
+		log.Printf("strategy bot %d on %s: round could not read its conditions: %v",
+			botDto.ID, symbol, decideError)
 
 		// An unreadable stored condition waits rather than halts: stopping is reserved for
 		// failures a person can correct.
-		return skippedRound()
+		return skippedRound(symbol)
 	}
 
 	if !decision.ShouldSend {
-		log.Printf("strategy bot %d: round concluded %q and said nothing (last sent %q)",
-			botDto.ID, decision.Verdict, botDto.LastSentSignal)
+		log.Printf("strategy bot %d on %s: round concluded %q and said nothing (last sent %q)",
+			botDto.ID, symbol, decision.Verdict, watchedSymbolDto.LastSentSignal)
 
-		return concludedRound(decision.Verdict, "", decision.Conflicting)
+		return concludedRound(symbol, decision.Verdict, "", decision.Conflicting)
 	}
 
 	// A bot deleted or restarted meanwhile is caught when the round is booked in, before anything is queued.
 	suggestedRound := strategyBotRunApplication.composeRoundMessage(
-		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
+		executionContext, botDto, symbol, tradingStrategyDto, reference, decision, sourceSignals)
 
-	outcomeDto := suggestingRound(decision.Verdict, decision.Conflicting, suggestedRound)
+	outcomeDto := suggestingRound(symbol, decision.Verdict, decision.Conflicting, suggestedRound)
 	outcomeDto.AutoOrderIntent, outcomeDto.HasAutoOrderIntent = strategyBotRunApplication.strategyBotService.
 		PlanAutoOrderIntent(suggestedRound)
 
@@ -278,12 +306,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 const roundSkipped = "skipped"
 
 // skippedRound and concludedRound keep the pairing of kind and fields in one place.
-func skippedRound() dto.StrategyBotRoundOutcomeDto {
-	return dto.StrategyBotRoundOutcomeDto{Kind: roundSkipped}
+func skippedRound(symbol string) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
+	return dto.StrategyBotWatchedSymbolRoundOutcomeDto{Symbol: symbol, Kind: roundSkipped}
 }
 
-func concludedRound(verdict string, saidSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
-	return dto.StrategyBotRoundOutcomeDto{
+func concludedRound(
+	symbol string, verdict string, saidSignal string, conflicting bool,
+) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
+	return dto.StrategyBotWatchedSymbolRoundOutcomeDto{
+		Symbol:      symbol,
 		Kind:        "concluded",
 		Verdict:     verdict,
 		SentSignal:  saidSignal,
@@ -293,9 +324,9 @@ func concludedRound(verdict string, saidSignal string, conflicting bool) dto.Str
 
 // suggestingRound is a concluded round that says its verdict: it carries the message to queue, the position plan it suggests and, with a journal link, the reference price the link prefills.
 func suggestingRound(
-	verdict string, conflicting bool, suggestedRound dto.StrategyBotRoundDto,
-) dto.StrategyBotRoundOutcomeDto {
-	outcomeDto := concludedRound(verdict, verdict, conflicting)
+	symbol string, verdict string, conflicting bool, suggestedRound dto.StrategyBotRoundDto,
+) dto.StrategyBotWatchedSymbolRoundOutcomeDto {
+	outcomeDto := concludedRound(symbol, verdict, verdict, conflicting)
 	outcomeDto.Round = suggestedRound
 	outcomeDto.HasMessage = true
 	outcomeDto.PositionPlan = suggestedRound.PositionPlan
@@ -309,10 +340,10 @@ func suggestingRound(
 	return outcomeDto
 }
 
-// readSignals asks every source concurrently and returns the first failure, since a
+// readSignals asks every source concurrently about one symbol and returns the first failure, since a
 // condition read against partial signals would quietly come out false.
 func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
-	executionContext context.Context, botDto dto.StrategyBotDto,
+	executionContext context.Context, botDto dto.StrategyBotDto, symbol string,
 	tradingStrategyDto dto.TradingStrategyDto,
 ) (map[string]vo.SignalVo, []dto.StrategyBotSourceSignalDto, error) {
 	endTime := strategyBotRunApplication.clockProxy.Now()
@@ -350,7 +381,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 
 			result, calculateError := calculateSignal(
 				executionContext, dto.IndicatorCalculationRequestDto{
-					Symbol:              botDto.Symbol,
+					Symbol:              symbol,
 					StartTime:           startTime,
 					EndTime:             endTime,
 					Script:              runnableStrategyScript.Script,
@@ -395,13 +426,13 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 // composeRoundMessage works out everything the round's message says; an unreadable reference
 // price still yields a message, since the conclusion matters more than the price.
 func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
-	executionContext context.Context, botDto dto.StrategyBotDto,
+	executionContext context.Context, botDto dto.StrategyBotDto, symbol string,
 	tradingStrategyDto dto.TradingStrategyDto, reference dto.StrategyBotRoundDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) dto.StrategyBotRoundDto {
 	round := dto.StrategyBotRoundDto{
 		BotName:             botDto.Name,
-		Symbol:              botDto.Symbol,
+		Symbol:              symbol,
 		MarketDataKind:      botDto.MarketDataKind,
 		ContractTradingMode: tradingStrategyDto.TradingMode,
 		Verdict:             decision.Verdict,
@@ -415,7 +446,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
 
 	if botDto.MarketDataKind != string(vo.MarketDataKindContractKCandle) {
 		latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
-			executionContext, botDto.Symbol)
+			executionContext, symbol)
 		if candleError == nil && hasLatestCandle {
 			round.ReferencePrice = latestCandle.Close
 			round.ReferenceTime = latestCandle.OpenTime

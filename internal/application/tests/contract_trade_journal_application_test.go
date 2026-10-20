@@ -742,10 +742,10 @@ func TestContractTradeJournalApplicationGetStatistics(t *testing.T) {
 }
 
 func theBotAndItsRound() (entities.StrategyBot, entities.StrategyBotRunRecord) {
-	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "BTC 趨勢跟隨", Symbol: "BTCUSDT", TradingStrategyID: 12,
+	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "BTC 趨勢跟隨", WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "BTCUSDT"}}, TradingStrategyID: 12,
 			MarketDataKind: string(vo.MarketDataKindContractKCandle)},
 		entities.StrategyBotRunRecord{
-			StrategyBotID: 3, RunNumber: 412, RanAt: journalEntryAt.Add(-3 * time.Minute),
+			StrategyBotID: 3, Symbol: "BTCUSDT", RunNumber: 412, RanAt: journalEntryAt.Add(-3 * time.Minute),
 			SuggestedDirection: "long", SuggestedLeverage: percentage("10"),
 			SuggestedStopLossPrice: percentage("96380"), SuggestedTakeProfitPrice: percentage("100785"),
 			ReferencePrice: percentage("97850"), SuggestedQuantity: percentage("0.051"),

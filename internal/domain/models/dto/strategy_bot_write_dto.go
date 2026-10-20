@@ -8,7 +8,8 @@ type StrategyBotWriteDto struct {
 	ID      uint
 	OwnerID uint
 	Name    string
-	Symbol  string
+	// Symbols is the complete list the bot watches after this write, in the owner's order.
+	Symbols []string
 	// MarketDataKind blank means kCandle on create and unchanged on rewrite.
 	MarketDataKind string
 	// TradingStrategyID must name one of the caller's own trading strategies.

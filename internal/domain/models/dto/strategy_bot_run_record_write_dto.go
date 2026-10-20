@@ -8,6 +8,7 @@ import (
 
 type StrategyBotRunRecordWriteDto struct {
 	StrategyBotID uint
+	Symbol        string
 	RanAt         time.Time
 	// Result is buy, sell, hold or conflict.
 	Result string

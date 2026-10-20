@@ -81,12 +81,15 @@ func newPendingMessageDispatchUnderTest(t *testing.T) pendingMessageDispatchUnde
 // queuedRoundDueAt is the round the queued message speaks for.
 var queuedRoundDueAt = time.Date(2026, 10, 2, 7, 55, 0, 0, time.UTC)
 
+// queuedRoundSymbol is the watched symbol the queued round message speaks for.
+const queuedRoundSymbol = "BTCUSDT"
+
 func aDueRoundMessage() entities.PendingMessage {
 	roundDueAt := queuedRoundDueAt
 
 	return entities.PendingMessage{
 		RoundDueAt: &roundDueAt,
-		ID:         queuedMessageID, StrategyBotID: queuedBotID, RecipientUserID: queuedRecipient,
+		ID:         queuedMessageID, StrategyBotID: queuedBotID, Symbol: queuedRoundSymbol, RecipientUserID: queuedRecipient,
 		Kind: string(vo.PendingMessageRound), Signal: string(vo.SignalBuy), Text: queuedRoundText,
 		Status: string(vo.PendingMessageReady), NextAttemptAt: dispatchNow,
 		ExpiresAt: dispatchNow.Add(5 * time.Minute),
@@ -115,7 +118,10 @@ func (underTest pendingMessageDispatchUnderTest) telegramAnswers(deliveryResult 
 
 func aBotThatIs(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{ID: queuedBotID, OwnerID: queuedRecipient, RunState: string(runState),
-		LastSentSignal: string(vo.SignalBuy), TriggerIntervalMinutes: 5}
+		TriggerIntervalMinutes: 5,
+		WatchedSymbols: []entities.StrategyBotWatchedSymbol{
+			{StrategyBotID: queuedBotID, Symbol: queuedRoundSymbol, LastSentSignal: string(vo.SignalBuy)},
+		}}
 }
 
 func TestPendingMessageDispatchSendsAQueuedMessageAndMarksItSent(t *testing.T) {
@@ -308,7 +314,7 @@ func TestPendingMessageDispatchGivesUpAMessageThatCameTooLate(t *testing.T) {
 			forgetCall := (*gomock.Call)(nil)
 			if testCase.expectsForget {
 				forgetCall = underTest.strategyBotRepository.EXPECT().
-					ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundDueAt).Return(nil)
+					ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundSymbol, queuedRoundDueAt).Return(nil)
 			}
 			abandonCall := underTest.pendingMessageRepository.EXPECT().
 				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonedExpired, dispatchNow).Return(nil)
@@ -415,7 +421,7 @@ func TestPendingMessageDispatchKeepsAnExpiredMessageWhileItsBotCannotForget(t *t
 	expired.ExpiresAt = dispatchNow
 	underTest.queueHolds(expired)
 	underTest.claimSucceeds()
-	underTest.strategyBotRepository.EXPECT().ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundDueAt).
+	underTest.strategyBotRepository.EXPECT().ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundSymbol, queuedRoundDueAt).
 		Return(dispatchStorageFailure)
 	// No Abandon expectation: the message stays taken, so it is given up only once its bot has forgotten.
 

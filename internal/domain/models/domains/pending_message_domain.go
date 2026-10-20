@@ -36,16 +36,16 @@ func NewPendingMessageDomain(message entities.PendingMessage) PendingMessageDoma
 	return PendingMessageDomain{message: message}
 }
 
-// NewRoundPendingMessageDomain queues a round's message, giving up after the bot's own interval but never within five minutes, since a signal speaks about now.
+// NewRoundPendingMessageDomain queues one watched symbol's round message, giving up after the bot's own interval but never within five minutes, since a signal speaks about now.
 func NewRoundPendingMessageDomain(
-	strategyBotID uint, recipientUserID uint, roundDueAt time.Time, signal vo.SignalVo, text string,
-	triggerInterval time.Duration, now time.Time,
+	strategyBotID uint, recipientUserID uint, symbol string, roundDueAt time.Time, signal vo.SignalVo,
+	text string, triggerInterval time.Duration, now time.Time,
 ) PendingMessageDomain {
 	deadline := max(triggerInterval, pendingMessageShortestRoundDeadline)
 	roundDueAtUtc := roundDueAt.UTC()
 
 	return NewPendingMessageDomain(entities.PendingMessage{
-		StrategyBotID: strategyBotID, RecipientUserID: recipientUserID, RoundDueAt: &roundDueAtUtc,
+		StrategyBotID: strategyBotID, RecipientUserID: recipientUserID, Symbol: symbol, RoundDueAt: &roundDueAtUtc,
 		Kind: string(vo.PendingMessageRound), Signal: string(signal), Text: text,
 		Status: string(vo.PendingMessageReady), NextAttemptAt: now.UTC(), ExpiresAt: now.UTC().Add(deadline),
 		CreatedAt: now.UTC(),
@@ -86,6 +86,11 @@ func (pendingMessageDomain PendingMessageDomain) ID() uint {
 
 func (pendingMessageDomain PendingMessageDomain) StrategyBotID() uint {
 	return pendingMessageDomain.message.StrategyBotID
+}
+
+// Symbol is the watched symbol a round's message speaks for; empty on a message about the bot as a whole.
+func (pendingMessageDomain PendingMessageDomain) Symbol() string {
+	return pendingMessageDomain.message.Symbol
 }
 
 func (pendingMessageDomain PendingMessageDomain) RecipientUserID() uint {

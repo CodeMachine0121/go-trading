@@ -100,7 +100,7 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+			assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 			assert.Equal(t, botRunNow.Add(5*time.Minute), bot.NextRunAt)
 
 			return nil
@@ -278,7 +278,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 				UpdateRunState(gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
 					assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
-					assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+					assert.Equal(t, string(vo.SignalSell), bot.WatchedSymbols[0].LastSentSignal)
 
 					return nil
 				})
@@ -341,7 +341,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
 			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
 			assert.Empty(t, bot.HaltReason)
-			assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+			assert.Equal(t, string(vo.SignalSell), bot.WatchedSymbols[0].LastSentSignal)
 
 			return nil
 		})
@@ -441,7 +441,7 @@ func TestAContractBotWhoseOrderFlowIsNotGatheredInTimeSkipsTheRound(t *testing.T
 	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
 		assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
 		assert.Empty(t, bot.HaltReason)
-		assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+		assert.Equal(t, string(vo.SignalBuy), bot.WatchedSymbols[0].LastSentSignal)
 	})
 
 	startedAt := time.Now()
@@ -502,7 +502,7 @@ func TestAContractBotWhoseOrderFlowIsReadyConcludesAsUsual(t *testing.T) {
 	})
 	underTest.expectOneDueContractBotRound(t, func(bot entities.StrategyBot) {
 		assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
-		assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+		assert.Equal(t, string(vo.SignalSell), bot.WatchedSymbols[0].LastSentSignal)
 	})
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())

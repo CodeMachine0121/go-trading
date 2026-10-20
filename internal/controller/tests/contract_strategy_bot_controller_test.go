@@ -16,7 +16,7 @@ import (
 
 const aContractStrategyBotBody = `{
 	"name": "合約突破",
-	"symbol": "BTCUSDT",
+	"symbols": ["BTCUSDT"],
 	"marketDataKind": "contractKCandle",
 	"tradingStrategyId": 9,
 	"triggerIntervalMinutes": 5,

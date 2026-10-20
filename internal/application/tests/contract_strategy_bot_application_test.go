@@ -118,7 +118,7 @@ func TestStrategyBotApplicationRefusesAContractBotItCannotSave(t *testing.T) {
 				underTest.expectTheContract(true, aLadderAllowing(125))
 			},
 			leverage:        150,
-			expectedRefusal: "這個合約標的最高只能開 125 倍槓桿",
+			expectedRefusal: "BTCUSDT 最高只能開 125 倍槓桿",
 		},
 	}
 
@@ -182,7 +182,7 @@ func TestStrategyBotApplicationKeepsABotsKindOnARewrite(t *testing.T) {
 		underTest := newStrategyBotApplicationUnderTest(t)
 		underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindContractKCandle)
 		underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-			Return(storedBot(vo.StrategyBotStopped), nil)
+			Return(storedBot(vo.StrategyBotStopped), nil).AnyTimes()
 		underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
 		writeDto := aContractBotWrite()
@@ -200,7 +200,7 @@ func TestStrategyBotApplicationKeepsABotsKindOnARewrite(t *testing.T) {
 		underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindContractKCandle)
 		underTest.expectTheContract(true, aLadderAllowing(125))
 		underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-			Return(storedContractBot(vo.StrategyBotStopped), nil)
+			Return(storedContractBot(vo.StrategyBotStopped), nil).AnyTimes()
 		underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
 				assert.Equal(t, "新名字", bot.Name)
@@ -359,7 +359,7 @@ func TestStrategyBotApplicationRefusesToRewriteABotOfAnUnreadableKind(t *testing
 	underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindKCandle)
 	unreadable := storedBot(vo.StrategyBotStopped)
 	unreadable.MarketDataKind = "option"
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(unreadable, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(unreadable, nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
 	writeDto := aBotWrite()
@@ -402,7 +402,7 @@ func TestStrategyBotApplicationChecksARewrittenContractBotLikeANewOne(t *testing
 				underTest.expectTheContract(true, aLadderAllowing(20))
 			},
 			leverage:        50,
-			expectedRefusal: "這個合約標的最高只能開 20 倍槓桿",
+			expectedRefusal: "BTCUSDT 最高只能開 20 倍槓桿",
 		},
 	}
 
@@ -412,7 +412,7 @@ func TestStrategyBotApplicationChecksARewrittenContractBotLikeANewOne(t *testing
 			testCase.arrange(underTest)
 			stored := storedContractBot(vo.StrategyBotStopped)
 			stored.PositionPlanLeverage = decimal.NewFromInt(50)
-			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stored, nil)
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stored, nil).AnyTimes()
 			underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
 			writeDto := aContractBotWrite()

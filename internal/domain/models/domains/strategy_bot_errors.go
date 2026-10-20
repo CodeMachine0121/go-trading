@@ -54,3 +54,9 @@ func StrategyBotAutoOrderEntryOutstanding() error {
 	return fmt.Errorf("%w: 這台機器人還有一張進場單掛在幣安上，請先關掉自動下單，等它撤單後再刪除",
 		ErrStrategyBotAutoOrderEntryOutstanding)
 }
+
+// ErrStrategyBotWatchedSymbolHoldsPosition refuses removing a watched symbol that still holds what auto orders opened.
+var ErrStrategyBotWatchedSymbolHoldsPosition = errors.New("strategy bot watched symbol holds a position")
+
+// ErrStrategyBotWatchedSymbolAutoOrderOutstanding refuses removing a watched symbol whose auto order is not yet done.
+var ErrStrategyBotWatchedSymbolAutoOrderOutstanding = errors.New("strategy bot watched symbol has an auto order outstanding")

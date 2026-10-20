@@ -64,14 +64,14 @@ func TestContractAutoOrderRepositoryTellsWhetherANewerOrderWaits(t *testing.T) {
 	}
 	head := testBed.storedOrders(t)[0]
 
-	hasLater, findError := testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, head.ID)
+	hasLater, findError := testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "BTCUSDT", head.ID)
 	require.NoError(t, findError)
 	assert.False(t, hasLater, "a settled order and another bot's order are not waiting behind this one")
 
 	require.NoError(t, testBed.repository.Enqueue(t.Context(),
 		testBed.anOrderOf(testBed.botID, autoOrderQueuedAt.Add(15*time.Minute), 54)))
 
-	hasLater, findError = testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, head.ID)
+	hasLater, findError = testBed.repository.ExistsUnsettledAfter(t.Context(), testBed.botID, "BTCUSDT", head.ID)
 	require.NoError(t, findError)
 	assert.True(t, hasLater)
 }
@@ -113,7 +113,7 @@ func TestContractAutoOrderRepositoryTellsWhetherAnEntryOrderStillRests(t *testin
 func TestContractAutoOrderRepositoryReportsEntryQuestionsItCannotAsk(t *testing.T) {
 	repository := persistence.NewContractAutoOrderRepository(closedDatabase(t))
 
-	_, laterError := repository.ExistsUnsettledAfter(t.Context(), 1, 1)
+	_, laterError := repository.ExistsUnsettledAfter(t.Context(), 1, "BTCUSDT", 1)
 	_, entryError := repository.ExistsOutstandingEntry(t.Context(), 1)
 
 	require.Error(t, laterError)

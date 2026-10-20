@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/shopspring/decimal"
@@ -11,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// strategyBotRememberedRunCount caps each bot's run history, trimmed on write so no separate cleanup job is needed.
+// strategyBotRememberedRunCount caps each watched symbol's run history, trimmed on write so no separate cleanup job is needed; a bot-wide cap would leave a ten-symbol bot five rounds per symbol.
 const strategyBotRememberedRunCount = 50
 
 // It reads through ambientTransactionDatabase so a booked round can land in one transaction with what it caused.
@@ -23,7 +24,7 @@ func NewStrategyBotRunRecordRepository(database *gorm.DB) *StrategyBotRunRecordR
 	return &StrategyBotRunRecordRepository{database: ambientTransactionDatabase{root: database}}
 }
 
-// Append inserts the run and trims the history in one transaction, so a failed trim cannot let one bot's history grow unbounded.
+// Append inserts the run and trims its symbol's history in one transaction, so a failed trim cannot let one symbol's history grow unbounded.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 	executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto,
 ) (int, error) {
@@ -34,7 +35,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 		Transaction(func(transaction *gorm.DB) error {
 			latestNumber := 0
 
-			// The next run number is read from the latest rather than counted, so trimming never renumbers runs; safe because a bot runs one round at a time.
+			// The next run number is read from the bot's latest rather than counted, so trimming never renumbers runs and numbers stay unique across symbols; safe because a bot books one round at a time.
 			if selectError := transaction.
 				Model(&entities.StrategyBotRunRecord{}).
 				Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
@@ -45,6 +46,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 
 			runRecord := entities.StrategyBotRunRecord{
 				StrategyBotID:         strategyBotID,
+				Symbol:                writeDto.Symbol,
 				RunNumber:             latestNumber + 1,
 				RanAt:                 writeDto.RanAt.UTC(),
 				Result:                writeDto.Result,
@@ -83,12 +85,26 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 			}
 			runNumber = runRecord.RunNumber
 
+			// The symbol's oldest remembered number marks the cut, since the bot's other symbols take numbers in between.
+			oldestRememberedNumbers := []int{}
+			if pluckError := transaction.
+				Model(&entities.StrategyBotRunRecord{}).
+				Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+				Where(clause.Eq{Column: "symbol", Value: writeDto.Symbol}).
+				Order("run_number DESC").
+				Offset(strategyBotRememberedRunCount-1).
+				Limit(1).
+				Pluck("run_number", &oldestRememberedNumbers).Error; pluckError != nil {
+				return pluckError
+			}
+			if len(oldestRememberedNumbers) == 0 {
+				return nil
+			}
+
 			return transaction.
 				Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
-				Where(clause.Lte{
-					Column: "run_number",
-					Value:  latestNumber + 1 - strategyBotRememberedRunCount,
-				}).
+				Where(clause.Eq{Column: "symbol", Value: writeDto.Symbol}).
+				Where(clause.Lt{Column: "run_number", Value: oldestRememberedNumbers[0]}).
 				Delete(&entities.StrategyBotRunRecord{}).Error
 		})
 	if transactionError != nil {
@@ -103,16 +119,21 @@ func storedFigure(figure decimal.Decimal) decimal.NullDecimal {
 	return decimal.NullDecimal{Decimal: figure, Valid: true}
 }
 
-// FindLatestByBot returns the bot's remembered runs, newest first.
+// FindLatestByBot returns the bot's remembered runs, newest first, narrowed to one symbol when one is given; the read is capped at what a full bot remembers, since symbols removed from a bot keep their last rounds.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindLatestByBot(
-	executionContext context.Context, strategyBotID uint,
+	executionContext context.Context, strategyBotID uint, symbol string,
 ) ([]entities.StrategyBotRunRecord, error) {
 	runRecords := []entities.StrategyBotRunRecord{}
 
-	result := strategyBotRunRecordRepository.database.within(executionContext).
-		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
+	query := strategyBotRunRecordRepository.database.within(executionContext).
+		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID})
+	if symbol != "" {
+		query = query.Where(clause.Eq{Column: "symbol", Value: symbol})
+	}
+
+	result := query.
 		Order("run_number DESC").
-		Limit(strategyBotRememberedRunCount).
+		Limit(strategyBotRememberedRunCount * domains.StrategyBotWatchedSymbolLimit).
 		Find(&runRecords)
 	if result.Error != nil {
 		return nil, fmt.Errorf("find strategy bot run records: %w", result.Error)

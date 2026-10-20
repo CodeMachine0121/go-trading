@@ -186,10 +186,12 @@ func (strategyBotController *StrategyBotController) respondWithError(
 	}
 	// 409 with a named reason: something on the owner's side is in the way, nothing the caller sent is wrong, and the front end links each reason to a different fix.
 	for autoOrderRefusal, reason := range map[error]string{
-		domains.ErrStrategyBotAutoOrderKeyNotConfigured: "binanceTradingKeyNotConfigured",
-		domains.ErrStrategyBotAutoOrderMarketNotCovered: "tradableMarketNotCovered",
-		domains.ErrStrategyBotAutoOrderKeyChanged:       "binanceTradingKeyChanged",
-		domains.ErrStrategyBotAutoOrderEntryOutstanding: "autoOrderEntryOutstanding",
+		domains.ErrStrategyBotAutoOrderKeyNotConfigured:         "binanceTradingKeyNotConfigured",
+		domains.ErrStrategyBotAutoOrderMarketNotCovered:         "tradableMarketNotCovered",
+		domains.ErrStrategyBotAutoOrderKeyChanged:               "binanceTradingKeyChanged",
+		domains.ErrStrategyBotAutoOrderEntryOutstanding:         "autoOrderEntryOutstanding",
+		domains.ErrStrategyBotWatchedSymbolHoldsPosition:        "watchedSymbolHoldsPosition",
+		domains.ErrStrategyBotWatchedSymbolAutoOrderOutstanding: "watchedSymbolAutoOrderOutstanding",
 	} {
 		if errors.Is(err, autoOrderRefusal) {
 			ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error(), "reason": reason})
@@ -259,7 +261,7 @@ func (strategyBotController *StrategyBotController) RunRoundNow(ginContext *gin.
 	ginContext.JSON(http.StatusOK, strategyBotDto)
 }
 
-// ListRunRecords handles GET /strategy-bots/:id/runs: what this bot has been doing.
+// ListRunRecords handles GET /strategy-bots/:id/runs: what this bot has been doing, optionally narrowed by the symbol query to one symbol.
 func (strategyBotController *StrategyBotController) ListRunRecords(ginContext *gin.Context) {
 	id, idIsReadable := strategyBotController.readID(ginContext)
 	if !idIsReadable {
@@ -267,7 +269,7 @@ func (strategyBotController *StrategyBotController) ListRunRecords(ginContext *g
 	}
 
 	runRecordDtos, err := strategyBotController.strategyBotApplication.ListRunRecords(
-		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id, ginContext.Query("symbol"))
 	if err != nil {
 		strategyBotController.respondWithError(ginContext, err)
 		return

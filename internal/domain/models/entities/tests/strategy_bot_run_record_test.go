@@ -31,13 +31,13 @@ func TestStrategyBotRunRecordToDtoCarriesWhatAContractRoundSuggested(t *testing.
 // A spot round omits all three figures rather than sending them empty.
 func TestStrategyBotRunRecordToDtoLeavesASpotRoundAsItWas(t *testing.T) {
 	runRecord := StrategyBotRunRecord{
-		RunNumber: 7, RanAt: time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC), Result: "buy",
+		RunNumber: 7, Symbol: "ETHUSDT", RanAt: time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC), Result: "buy",
 		SuggestedStake: decimal.NewNullDecimal(decimal.NewFromInt(5000)),
 	}
 
 	wire, marshalError := json.Marshal(runRecord.ToDto())
 
 	require.NoError(t, marshalError)
-	assert.JSONEq(t, `{"runNumber":7,"ranAt":"2026-09-24T08:00:00Z","result":"buy","suggestedStake":"5000"}`,
+	assert.JSONEq(t, `{"runNumber":7,"symbol":"ETHUSDT","ranAt":"2026-09-24T08:00:00Z","result":"buy","suggestedStake":"5000"}`,
 		string(wire))
 }

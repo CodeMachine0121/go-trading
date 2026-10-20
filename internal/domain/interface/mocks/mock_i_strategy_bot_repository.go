@@ -220,17 +220,17 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) FindOneLocked(executionContext
 }
 
 // ForgetSentSignal mocks base method.
-func (m *MockIStrategyBotRepository) ForgetSentSignal(executionContext context.Context, id uint, roundDueAt time.Time) error {
+func (m *MockIStrategyBotRepository) ForgetSentSignal(executionContext context.Context, id uint, symbol string, roundDueAt time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ForgetSentSignal", executionContext, id, roundDueAt)
+	ret := m.ctrl.Call(m, "ForgetSentSignal", executionContext, id, symbol, roundDueAt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ForgetSentSignal indicates an expected call of ForgetSentSignal.
-func (mr *MockIStrategyBotRepositoryMockRecorder) ForgetSentSignal(executionContext, id, roundDueAt any) *gomock.Call {
+func (mr *MockIStrategyBotRepositoryMockRecorder) ForgetSentSignal(executionContext, id, symbol, roundDueAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetSentSignal", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ForgetSentSignal), executionContext, id, roundDueAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetSentSignal", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ForgetSentSignal), executionContext, id, symbol, roundDueAt)
 }
 
 // ReleaseRoundClaim mocks base method.
@@ -263,17 +263,17 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) Save(executionContext, bot any
 }
 
 // UpdateAutoOrderPosition mocks base method.
-func (m *MockIStrategyBotRepository) UpdateAutoOrderPosition(executionContext context.Context, id uint, position vo.AutoOrderPositionVo) error {
+func (m *MockIStrategyBotRepository) UpdateAutoOrderPosition(executionContext context.Context, id uint, symbol string, position vo.AutoOrderPositionVo) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateAutoOrderPosition", executionContext, id, position)
+	ret := m.ctrl.Call(m, "UpdateAutoOrderPosition", executionContext, id, symbol, position)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateAutoOrderPosition indicates an expected call of UpdateAutoOrderPosition.
-func (mr *MockIStrategyBotRepositoryMockRecorder) UpdateAutoOrderPosition(executionContext, id, position any) *gomock.Call {
+func (mr *MockIStrategyBotRepositoryMockRecorder) UpdateAutoOrderPosition(executionContext, id, symbol, position any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAutoOrderPosition", reflect.TypeOf((*MockIStrategyBotRepository)(nil).UpdateAutoOrderPosition), executionContext, id, position)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAutoOrderPosition", reflect.TypeOf((*MockIStrategyBotRepository)(nil).UpdateAutoOrderPosition), executionContext, id, symbol, position)
 }
 
 // UpdateRunState mocks base method.

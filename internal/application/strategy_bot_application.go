@@ -143,10 +143,10 @@ func (strategyBotApplication *StrategyBotApplication) DisableAutoOrder(
 }
 
 func (strategyBotApplication *StrategyBotApplication) ListRunRecords(
-	executionContext context.Context, viewerID uint, id uint,
+	executionContext context.Context, viewerID uint, id uint, symbol string,
 ) ([]dto.StrategyBotRunRecordDto, error) {
 	return strategyBotApplication.strategyBotService.ListRunRecords(
-		executionContext, viewerID, id)
+		executionContext, viewerID, id, symbol)
 }
 
 // announce queues a bot notification and only logs a failure, since the action it reports has already happened.

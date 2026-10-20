@@ -7,8 +7,9 @@ import (
 
 // StrategyBotRequest serves create and full rewrite; the ID and owner never come from the body, and rules are referenced by trading strategy rather than embedded.
 type StrategyBotRequest struct {
-	Name   string `json:"name"`
-	Symbol string `json:"symbol"`
+	Name string `json:"name"`
+	// Symbols is the complete list of symbols the bot watches, 1 to 10; on rewrite, symbols left out are removed and new ones added.
+	Symbols []string `json:"symbols"`
 	// MarketDataKind is kCandle (default on create) or contractKCandle; omitted on rewrite keeps the existing kind, and naming the other kind is refused.
 	MarketDataKind         string `json:"marketDataKind"`
 	TradingStrategyID      uint   `json:"tradingStrategyId"`
@@ -45,7 +46,7 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 	return dto.StrategyBotWriteDto{
 		ID:                     id,
 		Name:                   strategyBotRequest.Name,
-		Symbol:                 strategyBotRequest.Symbol,
+		Symbols:                strategyBotRequest.Symbols,
 		MarketDataKind:         strategyBotRequest.MarketDataKind,
 		TradingStrategyID:      strategyBotRequest.TradingStrategyID,
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,

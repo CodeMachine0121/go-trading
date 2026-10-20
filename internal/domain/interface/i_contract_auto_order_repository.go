@@ -11,10 +11,10 @@ import (
 
 // IContractAutoOrderRepository holds auto orders waiting to be carried out; every write after Enqueue is guarded by who holds the order, so two replicas can never both carry one out.
 type IContractAutoOrderRepository interface {
-	// Enqueue takes part in a surrounding transaction; a second order for the same round is silently dropped.
+	// Enqueue takes part in a surrounding transaction; a second order for the same watched symbol's round is silently dropped.
 	Enqueue(executionContext context.Context, contractAutoOrder entities.ContractAutoOrder) error
 
-	// FindDispatchCandidates returns, oldest first and at most limit, each bot's oldest unsettled order, so one bot's orders run one after another.
+	// FindDispatchCandidates returns, oldest first and at most limit, each bot's oldest unsettled order per watched symbol, so one symbol's orders run one after another while different symbols never wait on each other.
 	FindDispatchCandidates(executionContext context.Context, limit int) ([]entities.ContractAutoOrder, error)
 
 	// Claim takes the order for claimant when it is ready and due at moment, or its holder's claim ran out by moment; false means another replica has it.
@@ -27,8 +27,11 @@ type IContractAutoOrderRepository interface {
 		executionContext context.Context, contractAutoOrder entities.ContractAutoOrder, claimant string,
 	) (bool, error)
 
-	// ExistsUnsettledAfter reports whether the bot has an unsettled order queued after the given one, which is a newer conclusion waiting its turn.
-	ExistsUnsettledAfter(executionContext context.Context, strategyBotID uint, id uint) (bool, error)
+	// ExistsUnsettledAfter reports whether the bot has an unsettled order on the same symbol queued after the given one, which is a newer conclusion waiting its turn.
+	ExistsUnsettledAfter(executionContext context.Context, strategyBotID uint, symbol string, id uint) (bool, error)
+
+	// ExistsUnsettled reports whether the bot has any order on the symbol not yet settled.
+	ExistsUnsettled(executionContext context.Context, strategyBotID uint, symbol string) (bool, error)
 
 	// ExistsOutstandingEntry reports whether an unsettled order of the bot has an entry order at the venue that has not been resolved.
 	ExistsOutstandingEntry(executionContext context.Context, strategyBotID uint) (bool, error)

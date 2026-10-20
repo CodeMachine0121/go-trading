@@ -2,6 +2,7 @@ package domains
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -18,6 +19,9 @@ const strategyBotTriggerIntervalMinimumMinutes = 1
 
 const strategyBotTriggerIntervalMaximumMinutes = 1440
 
+// StrategyBotWatchedSymbolLimit caps one bot's watched symbols, since every symbol multiplies the bot's per-round script runs.
+const StrategyBotWatchedSymbolLimit = 10
+
 // strategyBotEntrySlippageToleranceDefaultPercentage is a little wider than the slippage market entries actually paid, so ordinary moves still fill.
 var (
 	strategyBotEntrySlippageToleranceDefaultPercentage = decimal.RequireFromString("0.1")
@@ -29,7 +33,7 @@ type StrategyBotDomain struct {
 	id                     uint
 	ownerID                uint
 	name                   string
-	symbol                 string
+	symbols                []string
 	marketDataKind         MarketDataKindDomain
 	tradingStrategyID      uint
 	triggerIntervalMinutes int
@@ -61,11 +65,31 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 機器人名稱長度上限為 %d 個字", ErrStrategyBotValidation, strategyBotNameMaxLength)
 	}
 
-	// Validated by the shared symbol model because a mismatched symbol finds no candles and silently records every round as hold.
-	tradingSymbol, symbolError := NewTradingSymbolDomain(strings.TrimSpace(writeDto.Symbol))
-	if symbolError != nil {
+	if len(writeDto.Symbols) == 0 {
 		return StrategyBotDomain{}, fmt.Errorf(
-			"%w: 必須指定這台機器人要盯哪一個交易標的", ErrStrategyBotValidation)
+			"%w: 必須指定這台機器人要盯哪些交易標的", ErrStrategyBotValidation)
+	}
+
+	if len(writeDto.Symbols) > StrategyBotWatchedSymbolLimit {
+		return StrategyBotDomain{}, fmt.Errorf(
+			"%w: 一台機器人最多盯 %d 個交易標的", ErrStrategyBotValidation, StrategyBotWatchedSymbolLimit)
+	}
+
+	// Validated by the shared symbol model because a mismatched symbol finds no candles and silently records every round as hold.
+	symbols := make([]string, 0, len(writeDto.Symbols))
+	seenSymbols := map[string]bool{}
+	for _, requestedSymbol := range writeDto.Symbols {
+		tradingSymbol, symbolError := NewTradingSymbolDomain(strings.TrimSpace(requestedSymbol))
+		if symbolError != nil {
+			return StrategyBotDomain{}, fmt.Errorf("%w: %w", ErrStrategyBotValidation, symbolError)
+		}
+
+		if seenSymbols[tradingSymbol.Value()] {
+			return StrategyBotDomain{}, fmt.Errorf(
+				"%w: 交易標的 %s 重複了", ErrStrategyBotValidation, tradingSymbol.Value())
+		}
+		seenSymbols[tradingSymbol.Value()] = true
+		symbols = append(symbols, tradingSymbol.Value())
 	}
 
 	marketDataKind, kindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
@@ -118,7 +142,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		id:                               writeDto.ID,
 		ownerID:                          writeDto.OwnerID,
 		name:                             name,
-		symbol:                           tradingSymbol.Value(),
+		symbols:                          symbols,
 		marketDataKind:                   marketDataKind,
 		tradingStrategyID:                writeDto.TradingStrategyID,
 		triggerIntervalMinutes:           writeDto.TriggerIntervalMinutes,
@@ -143,8 +167,22 @@ func (strategyBotDomain StrategyBotDomain) WatchesContracts() bool {
 	return strategyBotDomain.marketDataKind.IsContract()
 }
 
-func (strategyBotDomain StrategyBotDomain) Symbol() string {
-	return strategyBotDomain.symbol
+func (strategyBotDomain StrategyBotDomain) Symbols() []string {
+	return strategyBotDomain.symbols
+}
+
+// WatchedSymbolsDroppedFrom are the stored bot's watched symbols this rewrite no longer lists.
+func (strategyBotDomain StrategyBotDomain) WatchedSymbolsDroppedFrom(
+	storedBot entities.StrategyBot,
+) []StrategyBotWatchedSymbolDomain {
+	droppedSymbols := []StrategyBotWatchedSymbolDomain{}
+	for _, watchedSymbol := range storedBot.WatchedSymbols {
+		if !slices.Contains(strategyBotDomain.symbols, watchedSymbol.Symbol) {
+			droppedSymbols = append(droppedSymbols, NewStrategyBotWatchedSymbolDomain(watchedSymbol))
+		}
+	}
+
+	return droppedSymbols
 }
 
 func (strategyBotDomain StrategyBotDomain) Leverage() decimal.Decimal {
@@ -155,11 +193,17 @@ func (strategyBotDomain StrategyBotDomain) Leverage() decimal.Decimal {
 func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 	positionPlanSettings := strategyBotDomain.positionPlan.ToSettingsDto()
 
+	watchedSymbols := make([]entities.StrategyBotWatchedSymbol, 0, len(strategyBotDomain.symbols))
+	for _, symbol := range strategyBotDomain.symbols {
+		watchedSymbols = append(watchedSymbols, entities.StrategyBotWatchedSymbol{
+			StrategyBotID: strategyBotDomain.id, Symbol: symbol,
+		})
+	}
+
 	return entities.StrategyBot{
 		ID:                               strategyBotDomain.id,
 		OwnerID:                          strategyBotDomain.ownerID,
 		Name:                             strategyBotDomain.name,
-		Symbol:                           strategyBotDomain.symbol,
 		MarketDataKind:                   string(strategyBotDomain.marketDataKind.Value()),
 		TradingStrategyID:                strategyBotDomain.tradingStrategyID,
 		TriggerIntervalMinutes:           strategyBotDomain.triggerIntervalMinutes,
@@ -170,6 +214,7 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
 		PositionPlanLeverage:             strategyBotDomain.leverage,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBotDomain.entrySlippageTolerancePercentage,
-		RunState: string(vo.StrategyBotStopped),
+		RunState:       string(vo.StrategyBotStopped),
+		WatchedSymbols: watchedSymbols,
 	}
 }

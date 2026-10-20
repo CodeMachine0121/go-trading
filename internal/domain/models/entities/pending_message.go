@@ -5,9 +5,11 @@ import "time"
 // PendingMessage is one message a bot has to say, written in the same transaction as what caused it and sent afterwards by whichever replica takes it.
 type PendingMessage struct {
 	ID uint `gorm:"primaryKey"`
-	// StrategyBotID with RoundDueAt identifies a round, so a round can never queue two messages; a bot's messages about itself leave RoundDueAt empty, and empties never collide.
-	StrategyBotID   uint       `gorm:"not null;uniqueIndex:idx_pending_messages_bot_round,priority:1"`
-	RoundDueAt      *time.Time `gorm:"type:timestamptz;uniqueIndex:idx_pending_messages_bot_round,priority:2"`
+	// StrategyBotID, Symbol and RoundDueAt identify one watched symbol's round, so it can never queue two messages; messages that speak for no round leave RoundDueAt empty, and empties never collide.
+	StrategyBotID uint `gorm:"not null;uniqueIndex:idx_pending_messages_bot_symbol_round,priority:1"`
+	// Symbol is empty on a bot's messages about itself as a whole.
+	Symbol          string     `gorm:"size:64;not null;default:'';uniqueIndex:idx_pending_messages_bot_symbol_round,priority:2"`
+	RoundDueAt      *time.Time `gorm:"type:timestamptz;uniqueIndex:idx_pending_messages_bot_symbol_round,priority:3"`
 	RecipientUserID uint       `gorm:"not null;index:idx_pending_messages_unsettled,priority:2"`
 	Kind            string     `gorm:"size:16;not null"`
 	// Signal is the round's sent signal, forgotten by the bot if this message is never delivered.

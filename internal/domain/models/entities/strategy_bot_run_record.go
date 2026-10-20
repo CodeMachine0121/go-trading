@@ -7,12 +7,14 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// StrategyBotRunRecord is one round a bot ran; the suggested figures are stored rather than recomputed because the bot's settings may change later.
+// StrategyBotRunRecord is what one round concluded on one watched symbol; the suggested figures are stored rather than recomputed because the bot's settings may change later.
 type StrategyBotRunRecord struct {
 	ID            uint `gorm:"primaryKey"`
-	StrategyBotID uint `gorm:"not null;index:idx_strategy_bot_run_records_bot_number,priority:1"`
-	// RunNumber keeps climbing after old rounds are trimmed, so a round's number never changes.
-	RunNumber int       `gorm:"not null;index:idx_strategy_bot_run_records_bot_number,priority:2,sort:desc"`
+	StrategyBotID uint `gorm:"not null;index:idx_strategy_bot_run_records_bot_number,priority:1;index:idx_strategy_bot_run_records_bot_symbol_number,priority:1"`
+	// Symbol is the watched symbol this record speaks for; records predating watched symbols were given their bot's only symbol.
+	Symbol string `gorm:"size:64;not null;default:'';index:idx_strategy_bot_run_records_bot_symbol_number,priority:2"`
+	// RunNumber is unique across all of a bot's symbols and keeps climbing after old rounds are trimmed, so a record's number never changes and names its symbol on its own.
+	RunNumber int       `gorm:"not null;index:idx_strategy_bot_run_records_bot_number,priority:2,sort:desc;index:idx_strategy_bot_run_records_bot_symbol_number,priority:3,sort:desc"`
 	RanAt     time.Time `gorm:"type:timestamptz;not null"`
 	// Suggested* figures are nullable because zero is a legitimate stop-loss price and must differ from "no suggestion".
 	SuggestedStake           decimal.NullDecimal `gorm:"type:numeric(38,18)"`
@@ -37,6 +39,7 @@ func (strategyBotRunRecord StrategyBotRunRecord) TableName() string {
 func (strategyBotRunRecord StrategyBotRunRecord) ToDto() dto.StrategyBotRunRecordDto {
 	return dto.StrategyBotRunRecordDto{
 		RunNumber:                strategyBotRunRecord.RunNumber,
+		Symbol:                   strategyBotRunRecord.Symbol,
 		RanAt:                    strategyBotRunRecord.RanAt.UTC(),
 		Result:                   strategyBotRunRecord.Result,
 		SuggestedStake:           figureOrNothing(strategyBotRunRecord.SuggestedStake),
@@ -64,7 +67,7 @@ func (strategyBotRunRecord StrategyBotRunRecord) ToJournalLinkRoundDto(strategyB
 	return dto.JournalLinkRoundDto{
 		StrategyBotID:            strategyBot.ID,
 		StrategyBotName:          strategyBot.Name,
-		Symbol:                   strategyBot.Symbol,
+		Symbol:                   strategyBotRunRecord.Symbol,
 		MarketDataKind:           strategyBot.MarketDataKind,
 		TradingStrategyID:        strategyBot.TradingStrategyID,
 		RunNumber:                strategyBotRunRecord.RunNumber,

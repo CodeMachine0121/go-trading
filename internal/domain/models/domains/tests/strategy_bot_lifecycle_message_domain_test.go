@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -9,7 +10,8 @@ import (
 )
 
 func aLifecycleMessage(haltReason vo.StrategyBotHaltReasonVo) domains.StrategyBotLifecycleMessageDomain {
-	return domains.NewStrategyBotLifecycleMessageDomain("早盤突破", "BTCUSDT", haltReason)
+	return domains.NewStrategyBotLifecycleMessageDomain(
+		"早盤突破", string(vo.MarketDataKindKCandle), []string{"BTCUSDT"}, haltReason)
 }
 
 func TestStrategyBotLifecycleMessageSaysWhichBotAndWhichSymbol(t *testing.T) {
@@ -64,4 +66,40 @@ func TestStrategyBotLifecycleMessageDoesNotRepeatTheConditionBackAtItsOwner(t *t
 
 	assert.NotContains(t, started, "買入")
 	assert.NotContains(t, started, "賣出")
+}
+
+func TestStrategyBotLifecycleMessageNamesEverySymbolTheBotWatches(t *testing.T) {
+	testCases := []struct {
+		name           string
+		marketDataKind vo.MarketDataKindVo
+		expectedWords  []string
+	}{
+		{name: "a spot bot lists its symbols", marketDataKind: vo.MarketDataKindKCandle,
+			expectedWords: []string{"BTCUSDT、ETHUSDT", "這 2 檔"}},
+		{name: "a contract bot marks them perpetual once", marketDataKind: vo.MarketDataKindContractKCandle,
+			expectedWords: []string{"BTCUSDT、ETHUSDT 永續合約", "這 2 檔"}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			message := domains.NewStrategyBotLifecycleMessageDomain(
+				"早盤突破", string(testCase.marketDataKind), []string{"BTCUSDT", "ETHUSDT"}, vo.StrategyBotHaltNone)
+
+			for _, expectedWord := range testCase.expectedWords {
+				assert.Contains(t, message.StartedText(), expectedWord)
+				assert.Contains(t, message.StoppedText(), expectedWord)
+			}
+		})
+	}
+}
+
+func TestStrategyBotLifecycleMessageTellsOfOneSymbolHaltingWhileTheRestCarryOn(t *testing.T) {
+	notice := domains.NewStrategyBotLifecycleMessageDomain(
+		"早盤突破", string(vo.MarketDataKindContractKCandle), []string{"ETHUSDT"}, vo.StrategyBotHaltScriptFailed).
+		WatchedSymbolHaltedText()
+
+	assert.True(t, strings.HasPrefix(notice, "【標的停擺】"))
+	assert.Contains(t, notice, "ETHUSDT 永續合約")
+	assert.Contains(t, notice, "原因：它用到的某一支策略腳本算不出來。")
+	assert.Contains(t, notice, "其他標的照常")
 }

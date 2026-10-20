@@ -2,6 +2,7 @@ package domains
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -97,6 +98,11 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) HeadlineMark(signal Signa
 	}
 
 	return "⚪"
+}
+
+// SymbolsLabel names several symbols at once, marking contracts as perpetual only once at the end.
+func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolsLabel(symbols []string) string {
+	return strategyBotMarketDomain.SymbolLabel(strings.Join(symbols, "、"))
 }
 
 func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string) string {

@@ -10,10 +10,10 @@ import (
 
 //go:generate go tool mockgen -source=i_strategy_bot_repository.go -destination=mocks/mock_i_strategy_bot_repository.go -package=mocks
 
-// IStrategyBotRepository stores bots together with their sources, parameters and condition trees, which have no meaning apart from the bot.
+// IStrategyBotRepository stores bots together with their watched symbols, which have no meaning apart from the bot; every read brings the watched symbols along, in the order they were added.
 // UpdateRunState is separate from Save so a finishing round can only touch run-state columns.
 type IStrategyBotRepository interface {
-	// Save replaces the whole bot (record, sources and both trees) in one call.
+	// Save writes the bot's settings and makes its watched symbols the given list in one call: symbols kept keep their state, new ones start blank, dropped ones are deleted.
 	Save(executionContext context.Context, bot entities.StrategyBot) (entities.StrategyBot, error)
 
 	// FindOne maps storage not-found to the domain's not-found error.
@@ -31,10 +31,10 @@ type IStrategyBotRepository interface {
 		executionContext context.Context, strategyScriptID uint,
 	) ([]entities.StrategyBot, error)
 
-	// Delete removes sources and trees by cascade.
+	// Delete removes the watched symbols and history by cascade.
 	Delete(executionContext context.Context, id uint) error
 
-	// UpdateRunState writes only run state, next due time, last signal, halt reason and conflict flag.
+	// UpdateRunState writes only run state, next due time and halt reason, and each watched symbol's last signal, conflict flag and halt reason.
 	UpdateRunState(executionContext context.Context, bot entities.StrategyBot) error
 
 	CountRunningByOwner(executionContext context.Context, ownerID uint) (int, error)
@@ -49,8 +49,10 @@ type IStrategyBotRepository interface {
 	// DisableAutoOrderByOwner switches auto order off on the owner's bots of the given market data kinds, or on all of them when none is given; it takes part in a surrounding transaction.
 	DisableAutoOrderByOwner(executionContext context.Context, ownerID uint, marketDataKinds []string) error
 
-	// UpdateAutoOrderPosition writes only the bot's own auto-order position and takes part in a surrounding transaction.
-	UpdateAutoOrderPosition(executionContext context.Context, id uint, position vo.AutoOrderPositionVo) error
+	// UpdateAutoOrderPosition writes only the auto-order position of one watched symbol and takes part in a surrounding transaction.
+	UpdateAutoOrderPosition(
+		executionContext context.Context, id uint, symbol string, position vo.AutoOrderPositionVo,
+	) error
 
 	// ClaimDue claims for claimant, until claimedUntil, up to limit running bots due at or before moment that no other replica holds a live claim on, oldest due first; rows another replica is claiming at this instant are skipped, never waited for.
 	ClaimDue(
@@ -65,8 +67,8 @@ type IStrategyBotRepository interface {
 	// FindOneLocked reads the bot and holds it against other writers until the surrounding transaction ends; outside one it is a plain read.
 	FindOneLocked(executionContext context.Context, id uint) (entities.StrategyBot, error)
 
-	// ForgetSentSignal clears the last sent signal only while it still comes from the round due at roundDueAt.
-	ForgetSentSignal(executionContext context.Context, id uint, roundDueAt time.Time) error
+	// ForgetSentSignal clears one watched symbol's last sent signal only while it still comes from the round due at roundDueAt.
+	ForgetSentSignal(executionContext context.Context, id uint, symbol string, roundDueAt time.Time) error
 
 	// ReleaseRoundClaim frees the bot only when claimant still holds it, so a late finisher never frees a newer claim.
 	ReleaseRoundClaim(executionContext context.Context, id uint, claimant string) error

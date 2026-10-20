@@ -80,12 +80,13 @@ func TestTradeJournalLinkServiceFindOwnedRound(t *testing.T) {
 	const ownerID = uint(7)
 	ranAt := time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)
 	rememberedRound := entities.StrategyBotRunRecord{
-		StrategyBotID: 3, RunNumber: 412, RanAt: ranAt, Result: "buy",
+		StrategyBotID: 3, Symbol: "2330", RunNumber: 412, RanAt: ranAt, Result: "buy",
 		ReferencePrice: decimal.NewNullDecimal(decimal.NewFromInt(1050)),
 		SuggestedStake: decimal.NewNullDecimal(decimal.NewFromInt(105000)),
 	}
 	spotBot := entities.StrategyBot{
-		ID: 3, OwnerID: ownerID, Name: "台積電波段", Symbol: "2330",
+		ID: 3, OwnerID: ownerID, Name: "台積電波段",
+		WatchedSymbols: []entities.StrategyBotWatchedSymbol{{StrategyBotID: 3, Symbol: "2330"}, {StrategyBotID: 3, Symbol: "2317"}},
 		MarketDataKind: string(vo.MarketDataKindKCandle), TradingStrategyID: 11,
 	}
 

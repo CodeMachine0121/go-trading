@@ -86,19 +86,34 @@ func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsOutstandingEntry(e
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsOutstandingEntry", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsOutstandingEntry), executionContext, strategyBotID)
 }
 
-// ExistsUnsettledAfter mocks base method.
-func (m *MockIContractAutoOrderRepository) ExistsUnsettledAfter(executionContext context.Context, strategyBotID, id uint) (bool, error) {
+// ExistsUnsettled mocks base method.
+func (m *MockIContractAutoOrderRepository) ExistsUnsettled(executionContext context.Context, strategyBotID uint, symbol string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExistsUnsettledAfter", executionContext, strategyBotID, id)
+	ret := m.ctrl.Call(m, "ExistsUnsettled", executionContext, strategyBotID, symbol)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExistsUnsettled indicates an expected call of ExistsUnsettled.
+func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsUnsettled(executionContext, strategyBotID, symbol any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsUnsettled", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsUnsettled), executionContext, strategyBotID, symbol)
+}
+
+// ExistsUnsettledAfter mocks base method.
+func (m *MockIContractAutoOrderRepository) ExistsUnsettledAfter(executionContext context.Context, strategyBotID uint, symbol string, id uint) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExistsUnsettledAfter", executionContext, strategyBotID, symbol, id)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ExistsUnsettledAfter indicates an expected call of ExistsUnsettledAfter.
-func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsUnsettledAfter(executionContext, strategyBotID, id any) *gomock.Call {
+func (mr *MockIContractAutoOrderRepositoryMockRecorder) ExistsUnsettledAfter(executionContext, strategyBotID, symbol, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsUnsettledAfter", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsUnsettledAfter), executionContext, strategyBotID, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsUnsettledAfter", reflect.TypeOf((*MockIContractAutoOrderRepository)(nil).ExistsUnsettledAfter), executionContext, strategyBotID, symbol, id)
 }
 
 // FindByBotRunNumbers mocks base method.

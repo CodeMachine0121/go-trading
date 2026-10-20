@@ -560,13 +560,13 @@ func TestSpotTradeJournalApplicationReadsTrades(t *testing.T) {
 }
 
 func aSpotBot() entities.StrategyBot {
-	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "台積電波段", Symbol: "2330",
+	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "台積電波段", WatchedSymbols: []entities.StrategyBotWatchedSymbol{{Symbol: "2330"}},
 		MarketDataKind: "kCandle", TradingStrategyID: 11}
 }
 
 func aSpotRound(result string) entities.StrategyBotRunRecord {
 	return entities.StrategyBotRunRecord{
-		StrategyBotID: 3, RunNumber: 88, RanAt: spotBoughtAt, Result: result,
+		StrategyBotID: 3, Symbol: "2330", RunNumber: 88, RanAt: spotBoughtAt, Result: result,
 		ReferencePrice: decimal.NewNullDecimal(decimal.RequireFromString("1045")),
 		SuggestedStake: decimal.NewNullDecimal(decimal.RequireFromString("105000")),
 	}
