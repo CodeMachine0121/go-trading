@@ -75,7 +75,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 				}
 			}
 
-			// Symbols kept are left as they are, with everything they remember; dropped ones go and new ones are added in the listed order.
+			// Symbols kept keep everything they remember and take only their new share; dropped ones go and new ones are added in the listed order.
 			if deleteError := transaction.
 				Where(clause.Eq{Column: "strategy_bot_id", Value: botRow.ID}).
 				Where(clause.Not(clause.IN{Column: "symbol", Values: symbolValues})).
@@ -83,12 +83,16 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 				return deleteError
 			}
 
-			for _, symbol := range symbols {
-				watchedSymbol := entities.StrategyBotWatchedSymbol{StrategyBotID: botRow.ID, Symbol: symbol}
+			for _, requestedSymbol := range bot.WatchedSymbols {
+				watchedSymbol := entities.StrategyBotWatchedSymbol{
+					StrategyBotID:        botRow.ID,
+					Symbol:               requestedSymbol.Symbol,
+					AllocationPercentage: requestedSymbol.AllocationPercentage,
+				}
 				if createError := transaction.
 					Clauses(clause.OnConflict{
 						Columns:   []clause.Column{{Name: "strategy_bot_id"}, {Name: "symbol"}},
-						DoNothing: true,
+						DoUpdates: clause.AssignmentColumns([]string{"allocation_percentage"}),
 					}).
 					Create(&watchedSymbol).Error; createError != nil {
 					return createError

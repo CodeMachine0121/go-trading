@@ -93,6 +93,17 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 	// Labelled a suggestion in the heading so nobody reads the figures as a placed order.
 	lines := []string{"", "📐 建議部位（這個系統不下單）"}
 
+	// A share below the whole capital is named first, so a smaller stake than the owner typed is explained.
+	if positionPlan.PartiallyAllocated {
+		lines = append(lines, fmt.Sprintf("　・資金分配 %s%%：總金額 %s 中的 %s",
+			positionPlan.AllocationPercentage.String(), positionPlan.TotalCapital.String(),
+			positionPlan.AllocatedCapital.String()))
+	}
+
+	if !positionPlan.Affordable && positionPlan.PartiallyAllocated {
+		return append(lines, fmt.Sprintf(
+			"　・這個標的分到的資金不足，押不下 %s", positionPlan.Stake.String()))
+	}
 	if !positionPlan.Affordable {
 		return append(lines, fmt.Sprintf(
 			"　・部位資金不足，押不下 %s", positionPlan.Stake.String()))

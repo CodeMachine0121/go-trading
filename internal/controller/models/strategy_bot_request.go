@@ -21,6 +21,7 @@ type StrategyBotRequest struct {
 }
 
 type PositionPlanRequest struct {
+	// Capital is the bot's total, shared among its watched symbols; on a contract bot it is margin, and the notional is margin × leverage.
 	Capital     decimal.Decimal `json:"capital"`
 	SizingMode  string          `json:"sizingMode"`
 	SizingValue decimal.Decimal `json:"sizingValue"`
@@ -28,6 +29,21 @@ type PositionPlanRequest struct {
 	Leverage             decimal.Decimal `json:"leverage"`
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
+	// CapitalAllocations is optional: given, it names every watched symbol once; left out or empty, the capital is split equally (or, on rewrite with unchanged symbols, kept as stored).
+	CapitalAllocations []CapitalAllocationRequest `json:"capitalAllocations"`
+}
+
+type CapitalAllocationRequest struct {
+	Symbol string `json:"symbol"`
+	// AllocationPercentage is this symbol's share of the capital in percent: above 0, at most 100, two decimal places at most.
+	AllocationPercentage decimal.Decimal `json:"allocationPercentage"`
+}
+
+func (capitalAllocationRequest CapitalAllocationRequest) ToDto() dto.StrategyBotCapitalAllocationDto {
+	return dto.StrategyBotCapitalAllocationDto{
+		Symbol:               capitalAllocationRequest.Symbol,
+		AllocationPercentage: capitalAllocationRequest.AllocationPercentage,
+	}
 }
 
 // ToSettingsDto passes the stored figures on untouched for the domain to interpret; declared leverage is carried separately because its handling depends on bot kind.
@@ -43,6 +59,11 @@ func (positionPlanRequest PositionPlanRequest) ToSettingsDto() dto.PositionPlanS
 
 // ToWriteDto takes the bot ID from the argument (zero means new); the owner is set by the application.
 func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBotWriteDto {
+	capitalAllocations := make([]dto.StrategyBotCapitalAllocationDto, 0, len(strategyBotRequest.PositionPlan.CapitalAllocations))
+	for _, capitalAllocationRequest := range strategyBotRequest.PositionPlan.CapitalAllocations {
+		capitalAllocations = append(capitalAllocations, capitalAllocationRequest.ToDto())
+	}
+
 	return dto.StrategyBotWriteDto{
 		ID:                     id,
 		Name:                   strategyBotRequest.Name,
@@ -51,6 +72,7 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		TradingStrategyID:      strategyBotRequest.TradingStrategyID,
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,
 		PositionPlan:           strategyBotRequest.PositionPlan.ToSettingsDto(),
+		CapitalAllocations:     capitalAllocations,
 		DeclaredLeverage:       strategyBotRequest.PositionPlan.Leverage,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBotRequest.AutoOrderEntrySlippageTolerancePercentage,
 	}

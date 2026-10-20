@@ -496,6 +496,7 @@ func TestSchemaMigratorMovesEachBotsSymbolOntoItsWatchedSymbol(t *testing.T) {
 		require.Len(t, movedBot.WatchedSymbols, 1)
 		watchedSymbol := movedBot.WatchedSymbols[0]
 		assert.Equal(t, "BTCUSDT", watchedSymbol.Symbol)
+		assert.Equal(t, "100", watchedSymbol.AllocationPercentage.String(), "a bot watching one symbol keeps using the whole capital")
 		assert.Equal(t, string(vo.SignalBuy), watchedSymbol.LastSentSignal)
 		require.NotNil(t, watchedSymbol.LastSentRoundDueAt)
 		assert.True(t, lastSentRoundDueAt.Equal(*watchedSymbol.LastSentRoundDueAt))

@@ -61,6 +61,9 @@ func (intentDomain ContractAutoOrderIntentDomain) openQuantity() (decimal.Decima
 	if !intentDomain.round.HasPositionPlan {
 		return decimal.Zero, false, "這一輪算不出建議部位，不下單"
 	}
+	if !positionPlan.Affordable && positionPlan.PartiallyAllocated {
+		return decimal.Zero, false, fmt.Sprintf("這個標的分到的資金不足，押不下 %s，不下單", positionPlan.Stake.String())
+	}
 	if !positionPlan.Affordable {
 		return decimal.Zero, false, fmt.Sprintf("部位資金不足，押不下 %s，不下單", positionPlan.Stake.String())
 	}

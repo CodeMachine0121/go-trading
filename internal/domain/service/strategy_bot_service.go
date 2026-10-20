@@ -146,6 +146,8 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	}
 	writeDto.MarketDataKind = string(retainedKind.Value())
 
+	writeDto.RetainedCapitalAllocations = storedBot.CapitalAllocationDtos()
+
 	if !writeDto.AutoOrderEntrySlippageTolerancePercentage.Valid {
 		writeDto.AutoOrderEntrySlippageTolerancePercentage = decimal.NewNullDecimal(
 			storedBot.AutoOrderEntrySlippageTolerancePercentage)
@@ -478,10 +480,11 @@ func (strategyBotService *StrategyBotService) ReadRoundFailure(
 func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	executionContext context.Context, round dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundDto {
-	positionPlan, positionPlanError := domains.NewPositionPlanDomain(round.PositionPlanSettings)
+	wholePositionPlan, positionPlanError := domains.NewPositionPlanDomain(round.PositionPlanSettings)
 	if positionPlanError != nil {
 		return round
 	}
+	positionPlan := wholePositionPlan.AllocatedTo(round.AllocationPercentage)
 
 	// The target holding depends on the account and, for contracts, the trading mode.
 	market := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode)

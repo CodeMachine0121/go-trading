@@ -38,6 +38,7 @@ type StrategyBotDomain struct {
 	tradingStrategyID      uint
 	triggerIntervalMinutes int
 	positionPlan           PositionPlanDomain
+	capitalAllocation      StrategyBotCapitalAllocationDomain
 	// leverage is one or more for contract bots and zero for spot bots.
 	leverage                         decimal.Decimal
 	entrySlippageTolerancePercentage decimal.Decimal
@@ -116,6 +117,12 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: %s", ErrStrategyBotValidation, positionPlanError)
 	}
 
+	capitalAllocation, allocationError := NewStrategyBotCapitalAllocationDomain(
+		symbols, writeDto.CapitalAllocations, writeDto.RetainedCapitalAllocations)
+	if allocationError != nil {
+		return StrategyBotDomain{}, allocationError
+	}
+
 	// Ownership of the named strategy is checked by the application.
 	if writeDto.TradingStrategyID == 0 {
 		return StrategyBotDomain{}, fmt.Errorf(
@@ -147,6 +154,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		tradingStrategyID:                writeDto.TradingStrategyID,
 		triggerIntervalMinutes:           writeDto.TriggerIntervalMinutes,
 		positionPlan:                     positionPlan,
+		capitalAllocation:                capitalAllocation,
 		leverage:                         leverage,
 		entrySlippageTolerancePercentage: entrySlippageTolerancePercentage,
 	}, nil
@@ -196,7 +204,9 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 	watchedSymbols := make([]entities.StrategyBotWatchedSymbol, 0, len(strategyBotDomain.symbols))
 	for _, symbol := range strategyBotDomain.symbols {
 		watchedSymbols = append(watchedSymbols, entities.StrategyBotWatchedSymbol{
-			StrategyBotID: strategyBotDomain.id, Symbol: symbol,
+			StrategyBotID:        strategyBotDomain.id,
+			Symbol:               symbol,
+			AllocationPercentage: strategyBotDomain.capitalAllocation.PercentageOf(symbol),
 		})
 	}
 

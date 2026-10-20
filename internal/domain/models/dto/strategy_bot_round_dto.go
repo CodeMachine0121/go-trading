@@ -24,6 +24,8 @@ type StrategyBotRoundDto struct {
 	HasReference         bool
 	SourceSignals        []StrategyBotSourceSignalDto
 	PositionPlanSettings PositionPlanSettingsDto
+	// AllocationPercentage is the watched symbol's share of the plan's capital; zero leaves the capital whole.
+	AllocationPercentage decimal.Decimal
 	// PositionPlan is computed once by the domain and shared by the message and history so
 	// they cannot disagree.
 	PositionPlan    PositionPlanDto

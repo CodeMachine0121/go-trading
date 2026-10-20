@@ -300,7 +300,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRou
 
 	// A bot deleted or restarted meanwhile is caught when the round is booked in, before anything is queued.
 	suggestedRound := strategyBotRunApplication.composeRoundMessage(
-		executionContext, botDto, symbol, tradingStrategyDto, reference, decision, sourceSignals)
+		executionContext, botDto, watchedSymbolDto, tradingStrategyDto, reference, decision, sourceSignals)
 
 	outcomeDto := suggestingRound(symbol, decision.Verdict, decision.Conflicting, suggestedRound)
 	outcomeDto.AutoOrderIntent, outcomeDto.HasAutoOrderIntent = strategyBotRunApplication.strategyBotService.
@@ -426,10 +426,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 // composeRoundMessage works out everything the round's message says; an unreadable reference
 // price still yields a message, since the conclusion matters more than the price.
 func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
-	executionContext context.Context, botDto dto.StrategyBotDto, symbol string,
+	executionContext context.Context, botDto dto.StrategyBotDto, watchedSymbolDto dto.StrategyBotWatchedSymbolDto,
 	tradingStrategyDto dto.TradingStrategyDto, reference dto.StrategyBotRoundDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) dto.StrategyBotRoundDto {
+	symbol := watchedSymbolDto.Symbol
 	round := dto.StrategyBotRoundDto{
 		BotName:             botDto.Name,
 		Symbol:              symbol,
@@ -441,6 +442,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
 		HasReference:        reference.HasReference,
 		// From the bot, not the rules: capital and risk tolerance differ per bot sharing one strategy.
 		PositionPlanSettings: botDto.PositionPlan,
+		AllocationPercentage: watchedSymbolDto.AllocationPercentage,
 		SourceSignals:        sourceSignals,
 	}
 
