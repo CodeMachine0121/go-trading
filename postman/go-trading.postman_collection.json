@@ -15530,7 +15530,7 @@
             "description": "行情種類合約行情的機器人引用一份合約交易策略、盯一個在合約追蹤名單上的合約標的，並帶自己的槓桿倍數。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  },\n  \"autoOrderEntrySlippageTolerancePercentage\": \"0.2\"\n}",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbols\": [\"{{contractWatchlistSymbol}}\"],\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  },\n  \"autoOrderEntrySlippageTolerancePercentage\": \"0.2\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15596,9 +15596,9 @@
                   "    pm.expect(bots.length).to.be.above(0);",
                   "    bots.forEach(function (bot) { pm.expect(bot.marketDataKind).to.eql(\"contractKCandle\"); });",
                   "    bots.forEach(function (bot) {",
-                  "        pm.expect(bot.autoOrderPosition, \"合約機器人帶著自己開出的倉位\").to.be.an(\"object\");",
-                  "        pm.expect(bot.autoOrderPosition).to.have.property(\"direction\");",
-                  "        pm.expect(bot.autoOrderPosition).to.have.property(\"quantity\");",
+                  "        pm.expect(bot.watchedSymbols[0].autoOrderPosition, \"合約機器人帶著自己開出的倉位\").to.be.an(\"object\");",
+                  "        pm.expect(bot.watchedSymbols[0].autoOrderPosition).to.have.property(\"direction\");",
+                  "        pm.expect(bot.watchedSymbols[0].autoOrderPosition).to.have.property(\"quantity\");",
                   "    });",
                   "});"
                 ]
@@ -15628,7 +15628,7 @@
             "description": "沒說行情種類即現貨機器人，而現貨機器人只能引用 K 線交易策略。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\"\n  }\n}",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbols\": [\"{{contractWatchlistSymbol}}\"],\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15673,7 +15673,7 @@
             "description": "沒有合約行情進來的標的，機器人每一輪都只會說持有。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"NOTFOLLOWEDUSDT\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbols\": [\"NOTFOLLOWEDUSDT\"],\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15719,7 +15719,7 @@
             "description": "要吃另一種行情請另建一台。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"kCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbols\": [\"{{contractWatchlistSymbol}}\"],\n  \"marketDataKind\": \"kCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15860,7 +15860,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15955,7 +15955,7 @@
                   "    const mine = listed.find(b => b.id === Number(pm.collectionVariables.get(\"strategyBotId\")));",
                   "    pm.expect(mine).to.not.be.undefined;",
                   "    pm.expect(mine.runState).to.eql(\"stopped\");",
-                  "    pm.expect(mine).to.have.property(\"conflicting\");",
+                  "    pm.expect(mine.watchedSymbols[0]).to.have.property(\"conflicting\");",
                   "});"
                 ]
               }
@@ -16051,7 +16051,7 @@
             "description": "下限一分鐘（最細的 K 線就是一分鐘），上限一天。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"太久了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 1441\n}",
+              "raw": "{\n  \"name\": \"太久了 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 1441\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16070,6 +16070,51 @@
                   "});",
                   "pm.test(\"說得出上限是多少\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"1440\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：同一台機器人重複盯同一個標的",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人盯 1 到 10 個交易標的，不得重複（大小寫不同也算重複）；超過 10 個、一個都沒給、或重複都整台拒絕。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重複標的 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\", \"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出是哪一個重複了\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"重複了\");",
                   "});"
                 ]
               }
@@ -16098,7 +16143,7 @@
             "description": "進場滑價容忍度以百分比表示，必須介於 0 到 5（含）；沒給時建立用 0.1、改寫保留原值。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"太寬了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"autoOrderEntrySlippageTolerancePercentage\": \"5.01\"\n}",
+              "raw": "{\n  \"name\": \"太寬了 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"autoOrderEntrySlippageTolerancePercentage\": \"5.01\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16141,7 +16186,7 @@
             "description": "名稱只在同一位擁有者之間不得重複；別人的同名不算。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16197,7 +16242,7 @@
                   "    if (pm.response.code !== 200) { return; }",
                   "    const started = pm.response.json();",
                   "    pm.expect(started.runState).to.eql(\"running\");",
-                  "    pm.expect(started.lastSentSignal || \"\").to.eql(\"\");",
+                  "    pm.expect(started.watchedSymbols[0].lastSentSignal || \"\").to.eql(\"\");",
                   "    pm.expect(started.haltReason || \"\").to.eql(\"\");",
                   "});"
                 ]
@@ -16306,7 +16351,7 @@
             "description": "一台正在跑的機器人在半途換掉條件，沒有人說得出它那一輪用的是哪一版。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16421,7 +16466,7 @@
             "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16573,6 +16618,47 @@
           ]
         },
         {
+          "name": "只讀某一個標的的執行紀錄",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/runs?symbol={{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                }
+              ]
+            },
+            "description": "一台機器人盯好幾個標的時，可以只看其中一個標的的執行紀錄（大小寫不拘，存的時候一律大寫）。每一筆都帶 symbol；同一台機器人的輪次編號跨標的不重複，每個標的各自記得最近 50 輪。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"只有那一個標的的紀錄\", function () {",
+                  "    const runs = pm.response.json();",
+                  "    pm.expect(runs).to.be.an(\"array\");",
+                  "    runs.forEach(function (run) { pm.expect(run.symbol).to.eql(pm.collectionVariables.get(\"symbol\").toUpperCase()); });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "找不到：讀別人機器人的執行紀錄",
           "request": {
             "method": "GET",
@@ -16682,7 +16768,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"150\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"150\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16729,7 +16815,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"-3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"-3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -16776,7 +16862,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbols\": [\"{{symbol}}\"],\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"
