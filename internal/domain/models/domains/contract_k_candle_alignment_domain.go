@@ -128,13 +128,9 @@ func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 			contractKCandleVo.FundingSettledInBar = !latestSettlement.SettlementTime.Before(bucketStart)
 		}
 
-		earliestRecentEnough := bucketStart
-		if statisticReach := bucketEnd.Add(-ContractPositionStatisticInterval); statisticReach.Before(bucketStart) {
-			earliestRecentEnough = statisticReach
-		}
 		if statisticsBeforeClose > 0 {
 			latestStatistic := earliestFirstStatistics[statisticsBeforeClose-1]
-			if !latestStatistic.StatisticTime.Before(earliestRecentEnough) {
+			if alignmentDomain.isRecentEnoughStatistic(latestStatistic.StatisticTime, bucketStart, bucketEnd) {
 				contractKCandleVo.OpenInterest = latestStatistic.OpenInterest.InexactFloat64()
 				contractKCandleVo.OpenInterestValue = latestStatistic.OpenInterestValue.InexactFloat64()
 				contractKCandleVo.AccountLongShare = latestStatistic.AccountLongShare.InexactFloat64()
@@ -150,6 +146,51 @@ func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	}
 
 	return contractKCandleVos
+}
+
+// StatisticTimesInUse picks, earliest first, the one statistic time each bar would take from these, so only those statistics need reading; Aligning over just them gives the same bars.
+func (alignmentDomain ContractKCandleAlignmentDomain) StatisticTimesInUse(statisticTimes []time.Time) []time.Time {
+	earliestFirstStatisticTimes := slices.Clone(statisticTimes)
+	slices.SortFunc(earliestFirstStatisticTimes, func(former, latter time.Time) int {
+		return former.Compare(latter)
+	})
+
+	statisticTimesInUse := make([]time.Time, 0, len(alignmentDomain.buckets))
+	statisticsBeforeClose := 0
+	for _, bucket := range alignmentDomain.buckets {
+		bucketStart := bucket.OpenTime.UTC()
+		bucketEnd := bucketStart.Add(alignmentDomain.interval.duration)
+
+		for statisticsBeforeClose < len(earliestFirstStatisticTimes) &&
+			earliestFirstStatisticTimes[statisticsBeforeClose].Before(bucketEnd) {
+			statisticsBeforeClose++
+		}
+		if statisticsBeforeClose == 0 {
+			continue
+		}
+
+		latestStatisticTime := earliestFirstStatisticTimes[statisticsBeforeClose-1]
+		// Bars finer than the statistic interval can share one statistic.
+		alreadyInUse := len(statisticTimesInUse) > 0 &&
+			statisticTimesInUse[len(statisticTimesInUse)-1].Equal(latestStatisticTime)
+		if !alreadyInUse && alignmentDomain.isRecentEnoughStatistic(latestStatisticTime, bucketStart, bucketEnd) {
+			statisticTimesInUse = append(statisticTimesInUse, latestStatisticTime)
+		}
+	}
+
+	return statisticTimesInUse
+}
+
+// isRecentEnoughStatistic accepts a statistic inside the bar or within one statistic interval of its close, so stale data never looks current.
+func (alignmentDomain ContractKCandleAlignmentDomain) isRecentEnoughStatistic(
+	statisticTime time.Time, bucketStart time.Time, bucketEnd time.Time,
+) bool {
+	earliestRecentEnough := bucketStart
+	if statisticReach := bucketEnd.Add(-ContractPositionStatisticInterval); statisticReach.Before(bucketStart) {
+		earliestRecentEnough = statisticReach
+	}
+
+	return !statisticTime.Before(earliestRecentEnough)
 }
 
 // OrderFlowReach is the order flow these bars need at a price step: from the first bar's open to the last bar's close, refused past 31 UTC calendar days.

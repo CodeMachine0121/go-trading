@@ -31,7 +31,8 @@ func NewKCandleSummaryPlanDomain(
 		summarizedStart = summarizedStart.Add(interval.duration)
 	}
 
-	summarizedEnd := interval.BucketStart(rangeQuery.endTime)
+	// A range ending on a bucket's last instant covers that bucket whole, so it is summarized too.
+	summarizedEnd := interval.BucketStart(rangeQuery.endTime.Add(time.Microsecond))
 	if todayStart := bucketStartOf(now, KCandleSummaryDayLength); todayStart.Before(summarizedEnd) {
 		summarizedEnd = todayStart
 	}
@@ -68,7 +69,7 @@ func (planDomain KCandleSummaryPlanDomain) SummarizedEnd() time.Time {
 	return planDomain.summarizedEnd
 }
 
-// MinuteStretches are the partial bucket before the summarized stretch, if any, and everything from its end on, which is at most one bucket or today.
+// MinuteStretches are the partial bucket before the summarized stretch, if any, and everything from its end on, which is at most one bucket or today and nothing when the range ends with a summarized bucket.
 func (planDomain KCandleSummaryPlanDomain) MinuteStretches() []KCandleQueryDomain {
 	stretches := make([]KCandleQueryDomain, 0, 2)
 	if planDomain.rangeQuery.startTime.Before(planDomain.summarizedStart) {
@@ -77,6 +78,10 @@ func (planDomain KCandleSummaryPlanDomain) MinuteStretches() []KCandleQueryDomai
 			startTime: planDomain.rangeQuery.startTime,
 			endTime:   planDomain.summarizedStart.Add(-time.Microsecond),
 		})
+	}
+
+	if planDomain.summarizedEnd.After(planDomain.rangeQuery.endTime) {
+		return stretches
 	}
 
 	return append(stretches, KCandleQueryDomain{
@@ -101,6 +106,21 @@ func (planDomain KCandleSummaryPlanDomain) DaysToSummarize(summarizedDays []time
 	}
 
 	return daysToSummarize
+}
+
+// DaysFromFirstMinute drops the days before the one holding the stretch's earliest minute, which have nothing to merge.
+func (planDomain KCandleSummaryPlanDomain) DaysFromFirstMinute(
+	daysToSummarize []time.Time, firstMinuteOpenTime time.Time,
+) []time.Time {
+	firstMinuteDay := bucketStartOf(firstMinuteOpenTime, KCandleSummaryDayLength)
+	daysWithMinutes := make([]time.Time, 0, len(daysToSummarize))
+	for _, day := range daysToSummarize {
+		if !day.Before(firstMinuteDay) {
+			daysWithMinutes = append(daysWithMinutes, day)
+		}
+	}
+
+	return daysWithMinutes
 }
 
 // DayStretch is every minute of one day the plan summarizes, the unit a missing day is merged in.
