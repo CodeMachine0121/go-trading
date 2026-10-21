@@ -20,7 +20,7 @@ import (
 const testDatabaseNameSuffix = "_test"
 
 // newTestDatabase connects via TEST_POSTGRES_DSN and empties the tables, skipping when the variable is unset.
-func newTestDatabase(t *testing.T) *gorm.DB {
+func newTestDatabase(t testing.TB) *gorm.DB {
 	dataSourceName := os.Getenv("TEST_POSTGRES_DSN")
 	if dataSourceName == "" {
 		t.Skip("TEST_POSTGRES_DSN is not set; skipping storage tests")
