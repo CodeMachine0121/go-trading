@@ -42,6 +42,12 @@ func TestStatisticTimesInUseAreTheOnesEachBarTakes(t *testing.T) {
 			expected:       []string{"2026-09-03T08:30:00Z"},
 		},
 		{
+			name: "a bar whose latest came before it opened takes none", declaredInterval: "1h", candleCount: 3,
+			barOpenTimes:   []string{"2026-09-03T05:00:00Z", "2026-09-03T06:00:00Z"},
+			statisticTimes: []string{"2026-09-03T04:55:00Z"},
+			expected:       []string{},
+		},
+		{
 			name: "no statistics take none", declaredInterval: "1h", candleCount: 1,
 			barOpenTimes: []string{"2026-09-03T07:00:00Z"}, statisticTimes: []string{}, expected: []string{},
 		},

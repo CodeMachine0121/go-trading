@@ -682,6 +682,18 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 		require.ErrorIs(t, err, storageDown)
 	})
 
+	t.Run("an earlier candle that cannot be looked for", func(t *testing.T) {
+		fixture := newContractCalculationUnderTest(t)
+		fixture.kCandleContractRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.kCandleContractRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(8, 0), 1).Return(nil, storageDown)
+
+		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
+
+		require.ErrorIs(t, err, storageDown)
+	})
+
 	t.Run("settlements that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
 		fixture.holdContractCandles(oneCandleAtEachHour(9))
