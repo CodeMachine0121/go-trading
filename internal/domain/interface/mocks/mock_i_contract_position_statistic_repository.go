@@ -58,6 +58,21 @@ func (mr *MockIContractPositionStatisticRepositoryMockRecorder) CountInRange(exe
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInRange", reflect.TypeOf((*MockIContractPositionStatisticRepository)(nil).CountInRange), executionContext, symbol, startTime, endTime)
 }
 
+// FindAtTimes mocks base method.
+func (m *MockIContractPositionStatisticRepository) FindAtTimes(executionContext context.Context, symbol string, statisticTimes []time.Time) ([]entities.ContractPositionStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAtTimes", executionContext, symbol, statisticTimes)
+	ret0, _ := ret[0].([]entities.ContractPositionStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAtTimes indicates an expected call of FindAtTimes.
+func (mr *MockIContractPositionStatisticRepositoryMockRecorder) FindAtTimes(executionContext, symbol, statisticTimes any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAtTimes", reflect.TypeOf((*MockIContractPositionStatisticRepository)(nil).FindAtTimes), executionContext, symbol, statisticTimes)
+}
+
 // FindInRange mocks base method.
 func (m *MockIContractPositionStatisticRepository) FindInRange(executionContext context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.ContractPositionStatistic, error) {
 	m.ctrl.T.Helper()
@@ -87,6 +102,21 @@ func (m *MockIContractPositionStatisticRepository) FindLatest(executionContext c
 func (mr *MockIContractPositionStatisticRepositoryMockRecorder) FindLatest(executionContext, symbol any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIContractPositionStatisticRepository)(nil).FindLatest), executionContext, symbol)
+}
+
+// FindStatisticTimesInRange mocks base method.
+func (m *MockIContractPositionStatisticRepository) FindStatisticTimesInRange(executionContext context.Context, query domains.KCandleQueryDomain, limit int) ([]time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindStatisticTimesInRange", executionContext, query, limit)
+	ret0, _ := ret[0].([]time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindStatisticTimesInRange indicates an expected call of FindStatisticTimesInRange.
+func (mr *MockIContractPositionStatisticRepositoryMockRecorder) FindStatisticTimesInRange(executionContext, query, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindStatisticTimesInRange", reflect.TypeOf((*MockIContractPositionStatisticRepository)(nil).FindStatisticTimesInRange), executionContext, query, limit)
 }
 
 // SaveAllIfAbsent mocks base method.

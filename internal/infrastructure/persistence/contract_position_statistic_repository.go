@@ -103,3 +103,57 @@ func (statisticRepository *ContractPositionStatisticRepository) FindInRange(
 
 	return statistics, nil
 }
+
+func (statisticRepository *ContractPositionStatisticRepository) FindStatisticTimesInRange(
+	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
+) ([]time.Time, error) {
+	statisticTimes := make([]time.Time, 0, min(limit, preallocationCeiling))
+
+	result := statisticRepository.database.WithContext(executionContext).
+		Model(&entities.ContractPositionStatistic{}).
+		Clauses(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: query.Symbol()},
+			clause.Gte{Column: clause.Column{Name: "statistic_time"}, Value: query.StartTime()},
+			clause.Lte{Column: clause.Column{Name: "statistic_time"}, Value: query.EndTime()},
+		}}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "statistic_time"}}).
+		Limit(limit).
+		Pluck("statistic_time", &statisticTimes)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find contract position statistic times in range: %w", result.Error)
+	}
+
+	for index := range statisticTimes {
+		statisticTimes[index] = statisticTimes[index].UTC()
+	}
+
+	return statisticTimes, nil
+}
+
+// FindAtTimes skips the query for no times, since an empty IN list matches nothing anyway.
+func (statisticRepository *ContractPositionStatisticRepository) FindAtTimes(
+	executionContext context.Context, symbol string, statisticTimes []time.Time,
+) ([]entities.ContractPositionStatistic, error) {
+	statistics := make([]entities.ContractPositionStatistic, 0, len(statisticTimes))
+	if len(statisticTimes) == 0 {
+		return statistics, nil
+	}
+
+	statisticTimeValues := make([]any, 0, len(statisticTimes))
+	for _, statisticTime := range statisticTimes {
+		statisticTimeValues = append(statisticTimeValues, statisticTime.UTC())
+	}
+
+	result := statisticRepository.database.WithContext(executionContext).
+		Clauses(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: symbol},
+			clause.IN{Column: clause.Column{Name: "statistic_time"}, Values: statisticTimeValues},
+		}}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "statistic_time"}}).
+		Find(&statistics)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find contract position statistics at times: %w", result.Error)
+	}
+
+	return statistics, nil
+}

@@ -106,10 +106,14 @@ func TestContractPositionStatisticRepositorySaysSoWhenStorageIsUnreachable(t *te
 		[]entities.ContractPositionStatistic{statisticOf("BTCUSDT", at(9, 5), "1")})
 	_, _, latestError := statisticRepository.FindLatest(t.Context(), "BTCUSDT")
 	_, rangeError := statisticRepository.FindInRange(t.Context(), query, 10)
+	_, timesError := statisticRepository.FindStatisticTimesInRange(t.Context(), query, 10)
+	_, atTimesError := statisticRepository.FindAtTimes(t.Context(), "BTCUSDT", []time.Time{at(9, 5)})
 
 	assert.Error(t, saveError)
 	assert.Error(t, latestError)
 	assert.Error(t, rangeError)
+	assert.Error(t, timesError)
+	assert.Error(t, atTimesError)
 }
 
 func TestContractPositionStatisticRepositoryStoresAThirtyDayCatchUpInOneCall(t *testing.T) {
@@ -162,6 +166,64 @@ func TestContractPositionStatisticRepositoryCountsOneContractsStatisticsBothEnds
 
 			require.NoError(t, countError)
 			assert.Equal(t, testCase.expectedCount, heldCount)
+		})
+	}
+}
+
+func TestContractPositionStatisticRepositoryListsOneContractsStatisticTimesEarliestFirstBothEndsIncluded(t *testing.T) {
+	database := newTestDatabase(t)
+	statisticRepository := persistence.NewContractPositionStatisticRepository(database)
+	_, saveError := statisticRepository.SaveAllIfAbsent(t.Context(), []entities.ContractPositionStatistic{
+		statisticOf("BTCUSDT", at(9, 10), "2"),
+		statisticOf("BTCUSDT", at(8, 55), "0"),
+		statisticOf("BTCUSDT", at(9, 0), "0"),
+		statisticOf("BTCUSDT", at(9, 5), "1"),
+		statisticOf("ETHUSDT", at(9, 5), "7"),
+		statisticOf("BTCUSDT", at(9, 15), "3"),
+	})
+	require.NoError(t, saveError)
+	query, _ := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10)})
+
+	statisticTimes, findError := statisticRepository.FindStatisticTimesInRange(t.Context(), query, 10)
+	limited, limitedError := statisticRepository.FindStatisticTimesInRange(t.Context(), query, 2)
+
+	require.NoError(t, findError)
+	assert.Equal(t, []time.Time{at(9, 0), at(9, 5), at(9, 10)}, statisticTimes)
+	require.NoError(t, limitedError)
+	assert.Equal(t, []time.Time{at(9, 0), at(9, 5)}, limited)
+}
+
+func TestContractPositionStatisticRepositoryReadsOnlyTheStatisticsAtTheTimesAskedFor(t *testing.T) {
+	database := newTestDatabase(t)
+	statisticRepository := persistence.NewContractPositionStatisticRepository(database)
+	_, saveError := statisticRepository.SaveAllIfAbsent(t.Context(), []entities.ContractPositionStatistic{
+		statisticOf("BTCUSDT", at(9, 0), "100"),
+		statisticOf("BTCUSDT", at(9, 5), "101"),
+		statisticOf("BTCUSDT", at(9, 10), "102"),
+		statisticOf("ETHUSDT", at(9, 5), "7"),
+	})
+	require.NoError(t, saveError)
+
+	testCases := []struct {
+		name                  string
+		statisticTimes        []time.Time
+		expectedOpenInterests []string
+	}{
+		{"two of three, earliest first whatever the order asked", []time.Time{at(9, 10), at(9, 0)}, []string{"100", "102"}},
+		{"a time holding nothing is skipped", []time.Time{at(9, 5), at(9, 7)}, []string{"101"}},
+		{"no times read nothing", nil, []string{}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			statistics, findError := statisticRepository.FindAtTimes(t.Context(), "BTCUSDT", testCase.statisticTimes)
+
+			require.NoError(t, findError)
+			openInterests := []string{}
+			for _, statistic := range statistics {
+				openInterests = append(openInterests, statistic.OpenInterest.String())
+			}
+			assert.Equal(t, testCase.expectedOpenInterests, openInterests)
 		})
 	}
 }
