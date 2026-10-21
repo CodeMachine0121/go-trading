@@ -54,6 +54,12 @@ func TestSummaryPlanTakesWholeFinishedBucketsFromSummaries(t *testing.T) {
 			vo.AggregationIntervalOneDay, "2026-10-10T00:00:00Z", "2026-10-18T00:00:00Z"},
 		{"hourly candles up to now stop before today", "1h", "2026-10-17T00:00:00Z", "2026-10-18T10:20:00Z",
 			vo.AggregationIntervalOneHour, "2026-10-17T00:00:00Z", "2026-10-18T00:00:00Z"},
+		{"a range ending on a day's last instant summarizes that day", "1d", "2026-10-10T00:00:00Z", "2026-10-15T23:59:59.999999Z",
+			vo.AggregationIntervalOneDay, "2026-10-10T00:00:00Z", "2026-10-16T00:00:00Z"},
+		{"a range ending one instant earlier still merges that day from minutes", "1d", "2026-10-10T00:00:00Z", "2026-10-15T23:59:59.999998Z",
+			vo.AggregationIntervalOneDay, "2026-10-10T00:00:00Z", "2026-10-15T00:00:00Z"},
+		{"a range ending on a four hour bucket's last instant summarizes it", "4h", "2026-10-10T00:00:00Z", "2026-10-10T07:59:59.999999Z",
+			vo.AggregationIntervalOneHour, "2026-10-10T00:00:00Z", "2026-10-10T08:00:00Z"},
 	}
 
 	for _, testCase := range testCases {
@@ -82,6 +88,7 @@ func TestSummaryPlanMergesThePartialEndsFromMinutes(t *testing.T) {
 		{"start on a day edge leaves only today", "2026-10-10T00:00:00Z", "2026-10-18T10:20:00Z", [][2]string{
 			{"2026-10-18T00:00:00Z", "2026-10-18T10:20:00Z"},
 		}},
+		{"a range ending with a whole finished day leaves no minutes to merge", "2026-10-10T00:00:00Z", "2026-10-15T23:59:59.999999Z", [][2]string{}},
 	}
 
 	for _, testCase := range testCases {
@@ -209,4 +216,31 @@ func TestSummaryPlanProbesFromAMissingDayToTheSummarizedEnd(t *testing.T) {
 func TestStoredSummaryLengthsAreHoursAndDays(t *testing.T) {
 	assert.Equal(t, []vo.AggregationIntervalVo{vo.AggregationIntervalOneHour, vo.AggregationIntervalOneDay},
 		domains.KCandleSummaryIntervalValues())
+}
+
+func TestSummaryPlanLeavesOutTheDaysBeforeTheFirstMinute(t *testing.T) {
+	planDomain := summaryPlanAt(t, "1d", summaryMoment("2026-10-10T00:00:00Z"), summaryMoment("2026-10-14T00:00:00Z"))
+	missingDays := []time.Time{
+		summaryMoment("2026-10-10T00:00:00Z"), summaryMoment("2026-10-11T00:00:00Z"),
+		summaryMoment("2026-10-12T00:00:00Z"), summaryMoment("2026-10-13T00:00:00Z"),
+	}
+
+	testCases := []struct {
+		name                string
+		firstMinuteOpenTime string
+		expectedDays        []time.Time
+	}{
+		{"history starting mid-stretch keeps its first day even when it starts late in it", "2026-10-12T15:30:00Z",
+			[]time.Time{summaryMoment("2026-10-12T00:00:00Z"), summaryMoment("2026-10-13T00:00:00Z")}},
+		{"history starting on the first missing day keeps every day", "2026-10-10T00:00:00Z", missingDays},
+		{"history starting late on the first missing day keeps every day", "2026-10-10T23:59:00Z",
+			missingDays},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedDays,
+				planDomain.DaysFromFirstMinute(missingDays, summaryMoment(testCase.firstMinuteOpenTime)))
+		})
+	}
 }

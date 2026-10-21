@@ -117,6 +117,21 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SourceCandleLimit()
 		indicatorCalculationDomain.candleCount + spareBucketCount)
 }
 
+// SourceReach starts with the stretch of candleCount buckets just before the cutoff, which is all a market trading every minute needs.
+func (indicatorCalculationDomain IndicatorCalculationDomain) SourceReach() IndicatorSourceReachDomain {
+	cutoff := indicatorCalculationDomain.ReadCutoff()
+
+	return IndicatorSourceReachDomain{
+		symbol:      indicatorCalculationDomain.symbol,
+		interval:    indicatorCalculationDomain.interval,
+		candleCount: indicatorCalculationDomain.candleCount,
+		cutoff:      cutoff,
+		stretchStart: cutoff.Add(
+			-time.Duration(indicatorCalculationDomain.candleCount) * indicatorCalculationDomain.interval.duration),
+		stretchEnd: cutoff,
+	}
+}
+
 // SelectInputCandles merges newest-first candles into finished buckets and returns up to candleCount of the latest, oldest first; a short history answers with fewer values.
 // The earliest bucket may be partial because backfill starts mid-bucket, and it is deliberately kept since a thin bucket cannot be told apart from a truncated one.
 func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(

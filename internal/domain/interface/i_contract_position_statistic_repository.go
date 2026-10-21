@@ -27,4 +27,12 @@ type IContractPositionStatisticRepository interface {
 	FindInRange(
 		executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 	) ([]entities.ContractPositionStatistic, error)
+	// FindStatisticTimesInRange includes both ends, earliest first, at most limit, reading only the times so a caller can pick the few it needs.
+	FindStatisticTimesInRange(
+		executionContext context.Context, query domains.KCandleQueryDomain, limit int,
+	) ([]time.Time, error)
+	// FindAtTimes returns the symbol's statistics stamped at exactly these times, earliest first; times with none are skipped.
+	FindAtTimes(
+		executionContext context.Context, symbol string, statisticTimes []time.Time,
+	) ([]entities.ContractPositionStatistic, error)
 }

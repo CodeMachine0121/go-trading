@@ -10,7 +10,7 @@ import (
 )
 
 type IndicatorCalculationService struct {
-	kCandleRepository       domaininterface.IKCandleRepository
+	summarizedSeriesReader  kCandleSummarizedSeriesReader
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
 	indicatorScriptProxy    domaininterface.IIndicatorScriptProxy
 	clockProxy              domaininterface.IClockProxy
@@ -20,6 +20,7 @@ type IndicatorCalculationService struct {
 
 func NewIndicatorCalculationService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	kCandleSummaryDayRepository domaininterface.IKCandleSummaryDayRepository,
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
@@ -27,7 +28,7 @@ func NewIndicatorCalculationService(
 	maxCandleCount int,
 ) *IndicatorCalculationService {
 	return &IndicatorCalculationService{
-		kCandleRepository:       kCandleRepository,
+		summarizedSeriesReader:  newKCandleSummarizedSeriesReader(kCandleRepository, kCandleSummaryDayRepository),
 		tradingSymbolRepository: tradingSymbolRepository,
 		indicatorScriptProxy:    indicatorScriptProxy,
 		clockProxy:              clockProxy,
@@ -51,11 +52,12 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 
 	marketDomain := indicatorCalculationService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
 
+	now := indicatorCalculationService.clockProxy.Now()
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 		requestDto,
 		marketDomain,
 		indicatorCalculationService.maxCandleCount,
-		indicatorCalculationService.clockProxy.Now(),
+		now,
 	)
 	if validationError != nil {
 		return dto.IndicatorCalculationResultDto{}, validationError
@@ -64,17 +66,13 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		return dto.IndicatorCalculationResultDto{}, kindError
 	}
 
-	newestFirstKCandles, findError := indicatorCalculationService.kCandleRepository.FindLatestBefore(
-		executionContext,
-		calculationDomain.Symbol(),
-		calculationDomain.ReadCutoff(),
-		calculationDomain.SourceCandleLimit(),
-	)
+	sourceKCandles, findError := indicatorCalculationService.summarizedSeriesReader.readLatestBuckets(
+		executionContext, calculationDomain.SourceReach(), now)
 	if findError != nil {
 		return dto.IndicatorCalculationResultDto{}, findError
 	}
 
-	inputKCandleVos, selectionError := calculationDomain.SelectInputCandles(newestFirstKCandles)
+	inputKCandleVos, selectionError := calculationDomain.SelectInputCandles(sourceKCandles)
 	if selectionError != nil {
 		return dto.IndicatorCalculationResultDto{}, selectionError
 	}

@@ -45,9 +45,10 @@ func (underTest strategyBotRunUnderTest) expectSourcesOn(signals sourcesBySymbol
 	for symbol := range signals {
 		candle := kCandleAt(at(9, 10), "100")
 		candle.Symbol = symbol
-		underTest.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), symbol, gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{candle}, nil).AnyTimes()
+		finishedHourCandle := kCandleAt(at(8, 10), "100")
+		finishedHourCandle.Symbol = symbol
+		holdingKCandles(underTest.kCandleRepository, underTest.kCandleSummaryDayRepository, symbol,
+			[]entities.KCandle{finishedHourCandle, candle})
 		underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), symbol, 1).
 			Return([]entities.KCandle{candle}, nil).AnyTimes()
 	}
@@ -287,11 +288,12 @@ func (underTest strategyBotRunUnderTest) expectContractSourcesOn(
 		}).AnyTimes()
 
 	for symbol, closePrice := range closePrices {
-		bars := storedContractCandlesAt(at(9, 10))
-		bars[0].Symbol = symbol
-		bars[0].Close = decimal.RequireFromString(closePrice)
-		underTest.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), symbol, gomock.Any(), gomock.Any()).Return(bars, nil).AnyTimes()
+		bars := storedContractCandlesAt(at(8, 10), at(9, 10))
+		for index := range bars {
+			bars[index].Symbol = symbol
+			bars[index].Close = decimal.RequireFromString(closePrice)
+		}
+		holdingContractCandles(underTest.kCandleContractRepository, underTest.kCandleContractSummaryDayRepository, symbol, bars)
 
 		latestOpenTime := at(9, 14)
 		for _, staleSymbol := range staleSymbols {

@@ -88,9 +88,11 @@ type strategyBotRunUnderTest struct {
 	strategyBotRunApplication               *application.StrategyBotRunApplication
 	strategyBotRepository                   *mocks.MockIStrategyBotRepository
 	kCandleRepository                       *mocks.MockIKCandleRepository
+	kCandleSummaryDayRepository             *mocks.MockIKCandleSummaryDayRepository
 	indicatorScriptProxy                    *mocks.MockIIndicatorScriptProxy
 	strategyScriptRepository                *mocks.MockIStrategyScriptRepository
 	kCandleContractRepository               *mocks.MockIKCandleContractRepository
+	kCandleContractSummaryDayRepository     *mocks.MockIKCandleContractSummaryDayRepository
 	contractIndicatorScriptProxy            *mocks.MockIContractIndicatorScriptProxy
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
@@ -143,6 +145,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			return bookedRunNumber, nil
 		}).AnyTimes()
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	kCandleSummaryDayRepository := mocks.NewMockIKCandleSummaryDayRepository(controller)
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	queue := newRoundMessageQueue(t)
@@ -230,13 +233,16 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 	// 只有合約機器人會讀到；資金費率與持倉統計與這些測試無關。
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(controller)
+	kCandleContractSummaryDayRepository := mocks.NewMockIKCandleContractSummaryDayRepository(controller)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
 	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
-	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+	contractPositionStatisticRepository.EXPECT().FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	contractPositionStatisticRepository.EXPECT().FindAtTimes(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
 	tradeHistoryProxy := mocks.NewMockIContractTradeHistoryProxy(controller)
@@ -268,18 +274,18 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				kCandleRepository, kCandleSummaryDayRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				marketCatalog, queryMaxResults),
 			service.NewContractIndicatorCalculationService(
-				kCandleContractRepository, contractFundingRateSettlementRepository,
+				kCandleContractRepository, kCandleContractSummaryDayRepository, contractFundingRateSettlementRepository,
 				contractPositionStatisticRepository, contractIndicatorScriptProxy,
 				service.NewContractOrderFlowService(tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
 				clockProxy,
 				marketCatalog, queryMaxResults),
 			service.NewKCandleService(
-				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
+				kCandleRepository, kCandleSummaryDayRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
 			service.NewKCandleContractService(
-				kCandleContractRepository, mocks.NewMockIKCandleContractSummaryDayRepository(controller), clockProxy, marketCatalog, queryMaxResults),
+				kCandleContractRepository, kCandleContractSummaryDayRepository, clockProxy, marketCatalog, queryMaxResults),
 			service.NewTradeJournalLinkService(
 				opaqueIdentifierProxy, nil, nil, "https://app.example.com"),
 			clockProxy,
@@ -288,16 +294,18 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			time.Minute,
 			botOrderFlowPreparationAllowance,
 		),
-		strategyBotRepository:        strategyBotRepository,
-		kCandleRepository:            kCandleRepository,
-		indicatorScriptProxy:         indicatorScriptProxy,
-		queue:                        queue,
-		appendFailure:                &appendFailure,
-		bookedOnACancelledContext:    &bookedOnACancelledContext,
-		enqueueFailure:               &enqueueFailure,
-		strategyScriptRepository:     strategyScriptRepository,
-		kCandleContractRepository:    kCandleContractRepository,
-		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
+		strategyBotRepository:               strategyBotRepository,
+		kCandleRepository:                   kCandleRepository,
+		kCandleSummaryDayRepository:         kCandleSummaryDayRepository,
+		indicatorScriptProxy:                indicatorScriptProxy,
+		queue:                               queue,
+		appendFailure:                       &appendFailure,
+		bookedOnACancelledContext:           &bookedOnACancelledContext,
+		enqueueFailure:                      &enqueueFailure,
+		strategyScriptRepository:            strategyScriptRepository,
+		kCandleContractRepository:           kCandleContractRepository,
+		kCandleContractSummaryDayRepository: kCandleContractSummaryDayRepository,
+		contractIndicatorScriptProxy:        contractIndicatorScriptProxy,
 
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
@@ -394,9 +402,8 @@ func (underTest strategyBotRunUnderTest) expectSources(
 			}, nil
 		}).AnyTimes()
 
-	underTest.kCandleRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{kCandleAt(at(9, 10), "100")}, nil).AnyTimes()
+	holdingKCandles(underTest.kCandleRepository, underTest.kCandleSummaryDayRepository, "BTCUSDT",
+		[]entities.KCandle{kCandleAt(at(8, 10), "100"), kCandleAt(at(9, 10), "100")})
 
 	underTest.indicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -566,9 +573,8 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
-	underTest.kCandleRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{kCandleAt(at(9, 10), "100")}, nil).AnyTimes()
+	holdingKCandles(underTest.kCandleRepository, underTest.kCandleSummaryDayRepository, "BTCUSDT",
+		[]entities.KCandle{kCandleAt(at(8, 10), "100"), kCandleAt(at(9, 10), "100")})
 	underTest.indicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, domains.ErrIndicatorScriptFailed).AnyTimes()
@@ -603,9 +609,7 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 			}, nil
 		}).AnyTimes()
 	// No candles yet is a failure that fixes itself, so the bot waits.
-	underTest.kCandleRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{}, nil).AnyTimes()
+	holdingKCandles(underTest.kCandleRepository, underTest.kCandleSummaryDayRepository, "BTCUSDT", nil)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot(string(vo.SignalBuy))}, nil)
@@ -833,6 +837,13 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 			cutoffs <- cutoffTime
 
 			return []entities.KCandle{kCandleAt(at(9, 10), "100")}, nil
+		}).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.KCandle, error) {
+			cutoffs <- query.EndTime().Add(time.Microsecond)
+
+			return []entities.KCandle{kCandleAt(at(8, 10), "100")}, nil
 		}).AnyTimes()
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
