@@ -429,6 +429,13 @@ func TestSpotIndicatorCalculationReadsTheSameCandlesFromSummariesAsFromMinutes(t
 				require.NoError(t, readError, pass)
 				require.NotEmpty(t, expectedCandles)
 				assert.Equal(t, expectedCandles, kCandleVos, pass)
+				for _, kCandleVo := range kCandleVos {
+					openTime := time.Unix(kCandleVo.OpenTimeUnixSeconds, 0).UTC()
+					if readsCase.market == vo.MarketTaiwanStock {
+						assert.NotContains(t, []time.Weekday{time.Saturday, time.Sunday}, openTime.Weekday(),
+							"台股沒有行情的週末不會成為一格")
+					}
+				}
 			}
 		})
 	}

@@ -977,3 +977,24 @@ func TestCalculateIndicatorStopsWhenSummariesCannotBeRead(t *testing.T) {
 
 	require.ErrorIs(t, err, storageDown)
 }
+
+func TestCalculateIndicatorSummarizesTheMissingDaysItReads(t *testing.T) {
+	fixture := newCalculationUnderTest(t)
+	summarizedDays := []time.Time{}
+	fixture.kCandleSummaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, summaryDay entities.KCandleSummaryDay) (bool, error) {
+			summarizedDays = append(summarizedDays, summaryDay.Day)
+			return true, nil
+		}).Times(3)
+	fixture.holdKCandles([]entities.KCandle{
+		dailyCandle(8, 26, 5, "100"), dailyCandle(8, 27, 5, "110"), dailyCandle(8, 28, 5, "120"),
+	})
+
+	kCandleVos, _ := fixture.candlesHandedToTheScript(t, dailyRequestEndingNow(3))
+
+	assert.Equal(t, []time.Time{
+		time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+	}, summarizedDays)
+	assert.Equal(t, []float64{100, 110, 120}, []float64{kCandleVos[0].Close, kCandleVos[1].Close, kCandleVos[2].Close})
+}
