@@ -84,6 +84,8 @@ func (reader kCandleContractSummarizedSeriesReader) summaries(
 		// Nothing stored there yet (a mistyped symbol, or history not synced): leave the days for when minutes exist.
 		if len(anyMinute) == 0 {
 			daysToSummarize = nil
+		} else {
+			daysToSummarize = planDomain.DaysFromFirstMinute(daysToSummarize, anyMinute[0].OpenTime)
 		}
 	}
 
@@ -109,4 +111,39 @@ func (reader kCandleContractSummarizedSeriesReader) summaries(
 	}
 
 	return summaries, nil
+}
+
+// readLatestBuckets gathers the source candles of the latest finished buckets an indicator calculation needs, reading summaries stretch by stretch and jumping over stretches with no candles until enough buckets are found or history runs out.
+func (reader kCandleContractSummarizedSeriesReader) readLatestBuckets(
+	executionContext context.Context, reachDomain domains.IndicatorSourceReachDomain, now time.Time,
+) ([]entities.KCandleContract, error) {
+	if !reachDomain.ReadsSummaries() {
+		return reader.kCandleContractRepository.FindLatestBefore(
+			executionContext, reachDomain.Symbol(), reachDomain.Cutoff(), reachDomain.SourceCandleLimit())
+	}
+
+	sourceCandles := make([]entities.KCandleContract, 0)
+	for {
+		stretchCandles, readError := reader.read(executionContext, reachDomain.SeriesQuery(), now)
+		if readError != nil {
+			return nil, readError
+		}
+		sourceCandles = append(sourceCandles, stretchCandles...)
+
+		reachDomain = reachDomain.CountingKCandleContracts(stretchCandles)
+		if reachDomain.IsCovered() {
+			return sourceCandles, nil
+		}
+
+		earlierCandles, probeError := reader.kCandleContractRepository.FindLatestBefore(
+			executionContext, reachDomain.Symbol(), reachDomain.EarlierCutoff(), 1)
+		if probeError != nil {
+			return nil, probeError
+		}
+		if len(earlierCandles) == 0 {
+			return sourceCandles, nil
+		}
+
+		reachDomain = reachDomain.ReachingBackTo(earlierCandles[0].OpenTime)
+	}
 }

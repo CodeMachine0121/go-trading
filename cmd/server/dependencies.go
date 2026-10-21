@@ -364,6 +364,7 @@ func registerRoutes(
 
 	indicatorCalculationService := service.NewIndicatorCalculationService(
 		kCandleRepository,
+		kCandleSummaryDayRepository,
 		persistence.NewTradingSymbolRepository(database),
 		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
@@ -388,6 +389,7 @@ func registerRoutes(
 
 	contractIndicatorCalculationService := service.NewContractIndicatorCalculationService(
 		contractKCandleRepository,
+		contractKCandleSummaryDayRepository,
 		persistence.NewContractFundingRateSettlementRepository(database),
 		persistence.NewContractPositionStatisticRepository(database),
 		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
@@ -858,6 +860,7 @@ func registerRoutes(
 		strategyScriptService,
 		service.NewIndicatorCalculationService(
 			kCandleRepository,
+			kCandleSummaryDayRepository,
 			persistence.NewTradingSymbolRepository(database),
 			script.NewYaegiIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
 			clock.NewSystemClockProxy(),
@@ -866,6 +869,7 @@ func registerRoutes(
 		),
 		service.NewContractIndicatorCalculationService(
 			contractKCandleRepository,
+			contractKCandleSummaryDayRepository,
 			persistence.NewContractFundingRateSettlementRepository(database),
 			persistence.NewContractPositionStatisticRepository(database),
 			script.NewYaegiContractIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),

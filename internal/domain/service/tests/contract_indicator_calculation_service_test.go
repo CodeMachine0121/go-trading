@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,6 +76,7 @@ func hourlyRequest(startHour int, endHour int) dto.IndicatorCalculationRequestDt
 type contractCalculationUnderTest struct {
 	contractIndicatorCalculationService     *service.ContractIndicatorCalculationService
 	kCandleContractRepository               *mocks.MockIKCandleContractRepository
+	kCandleContractSummaryDayRepository     *mocks.MockIKCandleContractSummaryDayRepository
 	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
 	contractPositionStatisticRepository     *mocks.MockIContractPositionStatisticRepository
 	contractIndicatorScriptProxy            *mocks.MockIContractIndicatorScriptProxy
@@ -83,6 +85,7 @@ type contractCalculationUnderTest struct {
 func newContractCalculationUnderTest(t *testing.T) contractCalculationUnderTest {
 	controller := gomock.NewController(t)
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(controller)
+	kCandleContractSummaryDayRepository := mocks.NewMockIKCandleContractSummaryDayRepository(controller)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
@@ -91,10 +94,11 @@ func newContractCalculationUnderTest(t *testing.T) contractCalculationUnderTest 
 
 	return contractCalculationUnderTest{
 		contractIndicatorCalculationService: service.NewContractIndicatorCalculationService(
-			kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
+			kCandleContractRepository, kCandleContractSummaryDayRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
 			contractIndicatorScriptProxy, noOrderFlowService(t), clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), maxCandleCount),
 		kCandleContractRepository:               kCandleContractRepository,
+		kCandleContractSummaryDayRepository:     kCandleContractSummaryDayRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		contractPositionStatisticRepository:     contractPositionStatisticRepository,
 		contractIndicatorScriptProxy:            contractIndicatorScriptProxy,
@@ -110,11 +114,9 @@ func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	statistics []entities.ContractPositionStatistic,
 ) []vo.ContractKCandleVo {
 	t.Helper()
-	fixture.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).Return(kCandleContracts, nil)
+	fixture.holdContractCandles(kCandleContracts)
 	fixture.holdSettlements(settlements)
-	fixture.contractPositionStatisticRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(statistics, nil)
+	fixture.holdStatistics(statistics)
 	handedBars := []vo.ContractKCandleVo{}
 	fixture.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
@@ -132,6 +134,69 @@ func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	return handedBars
 }
 
+// holdContractCandles stubs storage holding exactly these minutes and no summarized day yet, so every read path answers from them.
+func (fixture contractCalculationUnderTest) holdContractCandles(kCandleContracts []entities.KCandleContract) {
+	fixture.kCandleContractRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time, limit int) ([]entities.KCandleContract, error) {
+			newestFirst := []entities.KCandleContract{}
+			for _, kCandleContract := range kCandleContracts {
+				if kCandleContract.OpenTime.Before(cutoffTime) {
+					newestFirst = append(newestFirst, kCandleContract)
+				}
+			}
+			slices.SortFunc(newestFirst, func(former, latter entities.KCandleContract) int {
+				return latter.OpenTime.Compare(former.OpenTime)
+			})
+			return newestFirst[:min(limit, len(newestFirst))], nil
+		}).AnyTimes()
+	fixture.kCandleContractRepository.EXPECT().
+		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandleContract, error) {
+			earliestFirst := []entities.KCandleContract{}
+			for _, kCandleContract := range kCandleContracts {
+				if !kCandleContract.OpenTime.Before(query.StartTime()) && !kCandleContract.OpenTime.After(query.EndTime()) {
+					earliestFirst = append(earliestFirst, kCandleContract)
+				}
+			}
+			slices.SortFunc(earliestFirst, func(former, latter entities.KCandleContract) int {
+				return former.OpenTime.Compare(latter.OpenTime)
+			})
+			return earliestFirst[:min(limit, len(earliestFirst))], nil
+		}).AnyTimes()
+	fixture.kCandleContractSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	fixture.kCandleContractSummaryDayRepository.EXPECT().
+		SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+}
+
+// holdStatistics stubs the statistic times inside a stretch and the statistics stamped at the times asked for.
+func (fixture contractCalculationUnderTest) holdStatistics(statistics []entities.ContractPositionStatistic) {
+	fixture.contractPositionStatisticRepository.EXPECT().
+		FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]time.Time, error) {
+			statisticTimes := []time.Time{}
+			for _, statistic := range statistics {
+				if !statistic.StatisticTime.Before(query.StartTime()) && !statistic.StatisticTime.After(query.EndTime()) {
+					statisticTimes = append(statisticTimes, statistic.StatisticTime)
+				}
+			}
+			return statisticTimes, nil
+		}).AnyTimes()
+	fixture.contractPositionStatisticRepository.EXPECT().
+		FindAtTimes(gomock.Any(), "BTCUSDT", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, statisticTimes []time.Time) ([]entities.ContractPositionStatistic, error) {
+			found := []entities.ContractPositionStatistic{}
+			for _, statistic := range statistics {
+				if slices.ContainsFunc(statisticTimes, statistic.StatisticTime.Equal) {
+					found = append(found, statistic)
+				}
+			}
+			return found, nil
+		}).AnyTimes()
+}
+
 // holdSettlements stubs the range read with the settlements inside the stretch and the lead-in read with the latest one before the cut-off.
 func (fixture contractCalculationUnderTest) holdSettlements(settlements []entities.ContractFundingRateSettlement) {
 	fixture.contractFundingRateSettlementRepository.EXPECT().
@@ -144,7 +209,7 @@ func (fixture contractCalculationUnderTest) holdSettlements(settlements []entiti
 				}
 			}
 			return inside, nil
-		})
+		}).AnyTimes()
 	fixture.contractFundingRateSettlementRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time) (entities.ContractFundingRateSettlement, bool, error) {
@@ -155,7 +220,7 @@ func (fixture contractCalculationUnderTest) holdSettlements(settlements []entiti
 				}
 			}
 			return latest, found, nil
-		})
+		}).AnyTimes()
 }
 
 func barOpeningAt(t *testing.T, bars []vo.ContractKCandleVo, openTime time.Time) vo.ContractKCandleVo {
@@ -456,9 +521,7 @@ func TestContractCalculationCarriesEveryFigureOfThePositionStatistic(t *testing.
 
 func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover(t *testing.T) {
 	fixture := newContractCalculationUnderTest(t)
-	fixture.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(12, 0), gomock.Any()).
-		Return(oneCandleAtEachHour(10, 11), nil)
+	fixture.holdContractCandles(oneCandleAtEachHour(10, 11))
 	fixture.contractFundingRateSettlementRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), 3).
 		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractFundingRateSettlement, error) {
@@ -472,12 +535,15 @@ func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover
 		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(10, 0)).
 		Return(entities.ContractFundingRateSettlement{}, false, nil)
 	fixture.contractPositionStatisticRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), 26).
-		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractPositionStatistic, error) {
+		FindStatisticTimesInRange(gomock.Any(), gomock.Any(), 26).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]time.Time, error) {
 			assert.Equal(t, onTheDay(9, 55), query.StartTime())
 			assert.Equal(t, onTheDay(12, 0), query.EndTime())
-			return nil, nil
+			return []time.Time{onTheDay(9, 55), onTheDay(10, 30), onTheDay(10, 55), onTheDay(11, 55), onTheDay(12, 0)}, nil
 		})
+	fixture.contractPositionStatisticRepository.EXPECT().
+		FindAtTimes(gomock.Any(), "BTCUSDT", []time.Time{onTheDay(10, 55), onTheDay(11, 55)}).
+		Return(nil, nil)
 	fixture.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{}, nil)
@@ -490,12 +556,9 @@ func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover
 func TestContractCalculationNeverReadsTheBucketStillRunning(t *testing.T) {
 	// At 09:30 the 09:00 hour is unfinished, so the read stops there and the last bar is 08:00.
 	fixture := newContractCalculationUnderTest(t)
-	fixture.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(9, 0), gomock.Any()).
-		Return(oneCandleAtEachHour(8, 7), nil)
+	fixture.holdContractCandles(append(oneCandleAtEachHour(9, 8, 7), aStoredContractCandle(onTheDay(9, 25))))
 	fixture.holdSettlements(nil)
-	fixture.contractPositionStatisticRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	fixture.holdStatistics(nil)
 	fixture.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
@@ -538,9 +601,7 @@ func TestContractCalculationRefusesAStretchTooThinForOneValue(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newContractCalculationUnderTest(t)
-			fixture.kCandleContractRepository.EXPECT().
-				FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(testCase.kCandleContracts, nil)
+			fixture.holdContractCandles(testCase.kCandleContracts)
 			requestDto := hourlyRequest(0, 12)
 			requestDto.Parameters = testCase.parameters
 
@@ -557,12 +618,9 @@ func TestContractCalculationRefusesAStretchTooThinForOneValue(t *testing.T) {
 func TestContractCalculationAnswersInTheSpotCalculationsShape(t *testing.T) {
 	t.Run("a signal comes back as the result itself, with both counts", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(oneCandleAtEachHour(9, 10), nil)
+		fixture.holdContractCandles(oneCandleAtEachHour(9, 10))
 		fixture.holdSettlements(nil)
-		fixture.contractPositionStatisticRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdStatistics(nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil)
@@ -583,12 +641,9 @@ func TestContractCalculationAnswersInTheSpotCalculationsShape(t *testing.T) {
 
 	t.Run("an interval left out is one minute", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandleContract{aStoredContractCandle(onTheDay(9, 5))}, nil)
+		fixture.holdContractCandles([]entities.KCandleContract{aStoredContractCandle(onTheDay(9, 5))})
 		fixture.holdSettlements(nil)
-		fixture.contractPositionStatisticRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdStatistics(nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{100}}}, nil)
@@ -620,7 +675,7 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 	t.Run("candles that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
 		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
 
 		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
 
@@ -629,10 +684,11 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 
 	t.Run("settlements that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
+		fixture.holdContractCandles(oneCandleAtEachHour(9))
 		fixture.contractFundingRateSettlementRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
+		fixture.holdSettlements(nil)
+		fixture.holdStatistics(nil)
 
 		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
 
@@ -641,13 +697,13 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 
 	t.Run("the settlement in force before the stretch that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
+		fixture.holdContractCandles(oneCandleAtEachHour(9))
 		fixture.contractFundingRateSettlementRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		fixture.contractFundingRateSettlementRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(entities.ContractFundingRateSettlement{}, false, storageDown)
+		fixture.holdStatistics(nil)
 
 		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
 
@@ -656,11 +712,24 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 
 	t.Run("statistics that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
+		fixture.holdContractCandles(oneCandleAtEachHour(9))
 		fixture.holdSettlements(nil)
 		fixture.contractPositionStatisticRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
+			FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
+
+		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
+
+		require.ErrorIs(t, err, storageDown)
+	})
+
+	t.Run("the statistics picked for the bars that cannot be read", func(t *testing.T) {
+		fixture := newContractCalculationUnderTest(t)
+		fixture.holdContractCandles(oneCandleAtEachHour(9))
+		fixture.holdSettlements(nil)
+		fixture.contractPositionStatisticRepository.EXPECT().
+			FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return([]time.Time{onTheDay(9, 55)}, nil)
+		fixture.contractPositionStatisticRepository.EXPECT().
+			FindAtTimes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
 
 		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
 
@@ -669,11 +738,9 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 
 	t.Run("a script that fails", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
-		fixture.kCandleContractRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
+		fixture.holdContractCandles(oneCandleAtEachHour(9))
 		fixture.holdSettlements(nil)
-		fixture.contractPositionStatisticRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdStatistics(nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
@@ -806,4 +873,67 @@ func TestContractCalculationMergesPricesAndVolumesAsUsualBesideAnOldCandle(t *te
 	assert.Equal(t, int64(12000), bars[0].TradeCount)
 	assert.Equal(t, vo.PriceLineVo{}, bars[0].Index)
 	assert.Equal(t, vo.PriceLineVo{}, bars[0].PremiumIndex)
+}
+
+func TestContractCalculationReachesPastAHaltUntilEnoughDaysAreFound(t *testing.T) {
+	dailyRequest := dto.IndicatorCalculationRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1d",
+		StartTime: time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC), EndTime: onTheDay(0, 0), Script: "the script",
+	}
+	held := []entities.KCandleContract{
+		aStoredContractCandle(time.Date(2026, 8, 29, 1, 0, 0, 0, time.UTC)),
+		aStoredContractCandle(time.Date(2026, 8, 28, 1, 0, 0, 0, time.UTC)),
+		aStoredContractCandle(time.Date(2026, 8, 5, 1, 0, 0, 0, time.UTC)),
+		aStoredContractCandle(time.Date(2026, 8, 4, 1, 0, 0, 0, time.UTC)),
+		aStoredContractCandle(time.Date(2026, 8, 3, 1, 0, 0, 0, time.UTC)),
+	}
+
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(t, dailyRequest, held, nil, nil)
+
+	require.Len(t, bars, 3)
+	assert.Equal(t, time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC).Unix(), bars[0].OpenTimeUnixSeconds)
+	assert.Equal(t, time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC).Unix(), bars[1].OpenTimeUnixSeconds)
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC).Unix(), bars[2].OpenTimeUnixSeconds)
+}
+
+func TestContractCalculationTakesFinishedDaysFromTheirSummaries(t *testing.T) {
+	fixture := newContractCalculationUnderTest(t)
+	theDay := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	minutes := []entities.KCandleContract{aStoredContractCandle(theDay.Add(time.Hour)), aStoredContractCandle(theDay.Add(2 * time.Hour))}
+	minutes[1].Close = decimal.RequireFromString("120")
+	fixture.kCandleContractSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay, theDay, theDay.Add(24*time.Hour)).
+		DoAndReturn(func(context.Context, string, vo.AggregationIntervalVo, time.Time, time.Time) ([]entities.KCandleContractSummaryDay, error) {
+			summaryDay := domains.NewKCandleContractSummaryDayDomain("BTCUSDT", theDay, 1, minutes).ToEntity()
+			dailySummaries := []entities.KCandleContractSummary{}
+			for _, summary := range summaryDay.Summaries {
+				if summary.Interval == string(vo.AggregationIntervalOneDay) {
+					dailySummaries = append(dailySummaries, summary)
+				}
+			}
+			summaryDay.Summaries = dailySummaries
+			return []entities.KCandleContractSummaryDay{summaryDay}, nil
+		})
+	fixture.holdSettlements(nil)
+	fixture.holdStatistics(nil)
+	handedBars := []vo.ContractKCandleVo{}
+	fixture.contractIndicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, _ domains.IndicatorResultTypeDomain,
+			contractKCandleVos []vo.ContractKCandleVo, _ domains.StrategyScriptParametersDomain,
+		) (map[string]vo.IndicatorValueVo, error) {
+			handedBars = contractKCandleVos
+			return map[string]vo.IndicatorValueVo{}, nil
+		})
+
+	_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), dto.IndicatorCalculationRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1d", StartTime: theDay, EndTime: onTheDay(0, 0), Script: "the script",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, handedBars, 1)
+	assert.Equal(t, theDay.Unix(), handedBars[0].OpenTimeUnixSeconds)
+	assert.Equal(t, 120.0, handedBars[0].Close)
+	assert.Equal(t, int64(400), handedBars[0].TradeCount)
 }

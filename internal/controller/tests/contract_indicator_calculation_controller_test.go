@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -26,10 +27,11 @@ import (
 const contractRouterSpotStrategyScriptID = uint(31)
 
 type contractIndicatorRouterUnderTest struct {
-	engine                       *gin.Engine
-	kCandleContractRepository    *mocks.MockIKCandleContractRepository
-	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
-	tradeHistoryProxy            *mocks.MockIContractTradeHistoryProxy
+	engine                              *gin.Engine
+	kCandleContractRepository           *mocks.MockIKCandleContractRepository
+	kCandleContractSummaryDayRepository *mocks.MockIKCandleContractSummaryDayRepository
+	contractIndicatorScriptProxy        *mocks.MockIContractIndicatorScriptProxy
+	tradeHistoryProxy                   *mocks.MockIContractTradeHistoryProxy
 }
 
 func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUnderTest {
@@ -49,13 +51,16 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
 
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(mockController)
+	kCandleContractSummaryDayRepository := mocks.NewMockIKCandleContractSummaryDayRepository(mockController)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
 	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
-	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+	contractPositionStatisticRepository.EXPECT().FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	contractPositionStatisticRepository.EXPECT().FindAtTimes(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(mockController)
 	tradeHistoryProxy := mocks.NewMockIContractTradeHistoryProxy(mockController)
@@ -66,7 +71,7 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 			// Nothing here calculates over spot candles.
 			nil,
 			service.NewContractIndicatorCalculationService(
-				kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
+				kCandleContractRepository, kCandleContractSummaryDayRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
 				contractIndicatorScriptProxy,
 				service.NewContractOrderFlowService(tradeHistoryProxy, clockProxy, service.NewContractOrderFlowMemory(1<<20)),
 				clockProxy,
@@ -78,10 +83,11 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 		doorOpenFor(t, signedInViewerID), indicatorCalculationController.CalculateContractIndicator)
 
 	return contractIndicatorRouterUnderTest{
-		engine:                       engine,
-		kCandleContractRepository:    kCandleContractRepository,
-		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
-		tradeHistoryProxy:            tradeHistoryProxy,
+		engine:                              engine,
+		kCandleContractRepository:           kCandleContractRepository,
+		kCandleContractSummaryDayRepository: kCandleContractSummaryDayRepository,
+		contractIndicatorScriptProxy:        contractIndicatorScriptProxy,
+		tradeHistoryProxy:                   tradeHistoryProxy,
 	}
 }
 
@@ -220,8 +226,20 @@ func (fixture contractIndicatorRouterUnderTest) expectDailyContractCandles(dayCo
 			MarkOpen: figure, MarkHigh: figure, MarkLow: figure, MarkClose: figure,
 		})
 	}
-	fixture.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).Return(newestFirst, nil)
+	fixture.kCandleContractSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	fixture.kCandleContractSummaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+	fixture.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandleContract, error) {
+			earliestFirst := []entities.KCandleContract{}
+			for index := len(newestFirst) - 1; index >= 0; index-- {
+				openTime := newestFirst[index].OpenTime
+				if !openTime.Before(query.StartTime()) && !openTime.After(query.EndTime()) {
+					earliestFirst = append(earliestFirst, newestFirst[index])
+				}
+			}
+			return earliestFirst[:min(limit, len(earliestFirst))], nil
+		}).AnyTimes()
 }
 
 func TestContractIndicatorRouteRefusesOrderFlowPastWhatOneRunMayHoldAsTheCallersToChange(t *testing.T) {

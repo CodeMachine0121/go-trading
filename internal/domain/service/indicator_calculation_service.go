@@ -10,7 +10,7 @@ import (
 )
 
 type IndicatorCalculationService struct {
-	kCandleRepository       domaininterface.IKCandleRepository
+	summarizedSeriesReader  kCandleSummarizedSeriesReader
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
 	indicatorScriptProxy    domaininterface.IIndicatorScriptProxy
 	clockProxy              domaininterface.IClockProxy
@@ -20,6 +20,7 @@ type IndicatorCalculationService struct {
 
 func NewIndicatorCalculationService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	kCandleSummaryDayRepository domaininterface.IKCandleSummaryDayRepository,
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
@@ -27,7 +28,7 @@ func NewIndicatorCalculationService(
 	maxCandleCount int,
 ) *IndicatorCalculationService {
 	return &IndicatorCalculationService{
-		kCandleRepository:       kCandleRepository,
+		summarizedSeriesReader:  newKCandleSummarizedSeriesReader(kCandleRepository, kCandleSummaryDayRepository),
 		tradingSymbolRepository: tradingSymbolRepository,
 		indicatorScriptProxy:    indicatorScriptProxy,
 		clockProxy:              clockProxy,
@@ -64,17 +65,13 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		return dto.IndicatorCalculationResultDto{}, kindError
 	}
 
-	newestFirstKCandles, findError := indicatorCalculationService.kCandleRepository.FindLatestBefore(
-		executionContext,
-		calculationDomain.Symbol(),
-		calculationDomain.ReadCutoff(),
-		calculationDomain.SourceCandleLimit(),
-	)
+	sourceKCandles, findError := indicatorCalculationService.summarizedSeriesReader.readLatestBuckets(
+		executionContext, calculationDomain.SourceReach(), indicatorCalculationService.clockProxy.Now())
 	if findError != nil {
 		return dto.IndicatorCalculationResultDto{}, findError
 	}
 
-	inputKCandleVos, selectionError := calculationDomain.SelectInputCandles(newestFirstKCandles)
+	inputKCandleVos, selectionError := calculationDomain.SelectInputCandles(sourceKCandles)
 	if selectionError != nil {
 		return dto.IndicatorCalculationResultDto{}, selectionError
 	}

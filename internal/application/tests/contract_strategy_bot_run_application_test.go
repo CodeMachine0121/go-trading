@@ -52,9 +52,8 @@ func (underTest strategyBotRunUnderTest) expectContractSources(
 			}, nil
 		}).AnyTimes()
 
-	underTest.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return(storedContractCandlesAt(at(9, 10)), nil).AnyTimes()
+	holdingContractCandles(underTest.kCandleContractRepository, underTest.kCandleContractSummaryDayRepository, "BTCUSDT",
+		storedContractCandlesAt(at(8, 10), at(9, 10)))
 
 	underTest.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -378,9 +377,8 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 				MarketDataKind: string(vo.MarketDataKindContractKCandle),
 			}, nil
 		}).Times(2)
-	underTest.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return(storedContractCandlesAt(at(9, 10)), nil).Times(2)
+	holdingContractCandles(underTest.kCandleContractRepository, underTest.kCandleContractSummaryDayRepository, "BTCUSDT",
+		storedContractCandlesAt(at(8, 10), at(9, 10)))
 	underTest.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).Times(2)
@@ -420,9 +418,7 @@ func (underTest strategyBotRunUnderTest) expectOrderFlowSources(
 	for index := len(storedOpenTimes) - 1; index >= 0; index-- {
 		newestFirst = append(newestFirst, storedContractCandlesAt(storedOpenTimes[index])...)
 	}
-	underTest.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return(newestFirst, nil).AnyTimes()
+	holdingContractCandles(underTest.kCandleContractRepository, underTest.kCandleContractSummaryDayRepository, "BTCUSDT", newestFirst)
 }
 
 func (underTest strategyBotRunUnderTest) expectOneDueContractBotRound(t *testing.T, check func(entities.StrategyBot)) {

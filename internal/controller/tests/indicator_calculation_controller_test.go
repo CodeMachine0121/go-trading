@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,9 +49,10 @@ func indicatorRouterStrategyScriptStore(
 }
 
 type indicatorRouterUnderTest struct {
-	engine               *gin.Engine
-	kCandleRepository    *mocks.MockIKCandleRepository
-	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
+	engine                      *gin.Engine
+	kCandleRepository           *mocks.MockIKCandleRepository
+	kCandleSummaryDayRepository *mocks.MockIKCandleSummaryDayRepository
+	indicatorScriptProxy        *mocks.MockIIndicatorScriptProxy
 }
 
 // newIndicatorRouterUnderTest runs a script that declares no result type, as most cases need.
@@ -63,6 +65,7 @@ func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicato
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	kCandleSummaryDayRepository := mocks.NewMockIKCandleSummaryDayRepository(mockController)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	// Every symbol here trades around the clock unless a case says otherwise.
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -75,7 +78,7 @@ func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicato
 		application.NewIndicatorCalculationApplication(
 			indicatorRouterStrategyScriptStore(mockController, declaredResultType),
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				kCandleRepository, kCandleSummaryDayRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(
 					map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				queryMaxResults),
@@ -87,7 +90,8 @@ func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicato
 		doorOpenFor(t, signedInViewerID), indicatorCalculationController.CalculateIndicator)
 
 	return indicatorRouterUnderTest{
-		engine: engine, kCandleRepository: kCandleRepository, indicatorScriptProxy: indicatorScriptProxy,
+		engine: engine, kCandleRepository: kCandleRepository, kCandleSummaryDayRepository: kCandleSummaryDayRepository,
+		indicatorScriptProxy: indicatorScriptProxy,
 	}
 }
 
@@ -128,14 +132,28 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 
 	t.Run("reads at the coarseness and up to the moment the body named", func(t *testing.T) {
-		// One hour is twelve 5m candles, so two buckets plus the spare reads 36; an end time of 14:30 stops at 14:00 since that hour is unfinished.
+		// An end time of 14:30 stops at 14:00 since that hour is unfinished; the finished day is summarized on the way.
 		fixture := newIndicatorRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC), 180).
-			Return([]entities.KCandle{
-				kCandleAt(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC), "100"),
-				kCandleAt(time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), "100"),
-			}, nil)
+		storedCandles := []entities.KCandle{
+			kCandleAt(time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), "100"),
+			kCandleAt(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC), "100"),
+			kCandleAt(time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC), "100"),
+		}
+		fixture.kCandleSummaryDayRepository.EXPECT().
+			FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneHour,
+				time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC)).
+			Return(nil, nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
+				inRange := []entities.KCandle{}
+				for _, storedCandle := range storedCandles {
+					if !storedCandle.OpenTime.Before(query.StartTime()) && !storedCandle.OpenTime.After(query.EndTime()) {
+						inRange = append(inRange, storedCandle)
+					}
+				}
+				return inRange[:min(limit, len(inRange))], nil
+			}).AnyTimes()
+		fixture.kCandleSummaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
@@ -404,7 +422,7 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 		application.NewIndicatorCalculationApplication(
 			indicatorRouterStrategyScriptStore(mockController, ""),
 			service.NewIndicatorCalculationService(
-				mocks.NewMockIKCandleRepository(mockController), tradingSymbolRepository,
+				mocks.NewMockIKCandleRepository(mockController), mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 					vo.MarketTaiwanStock: {

@@ -1,6 +1,8 @@
 package application_test
 
 import (
+	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -69,7 +71,9 @@ func newContractIndicatorUnderTest(t *testing.T) contractIndicatorUnderTest {
 	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
-	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+	contractPositionStatisticRepository.EXPECT().FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	contractPositionStatisticRepository.EXPECT().FindAtTimes(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
 
@@ -77,16 +81,59 @@ func newContractIndicatorUnderTest(t *testing.T) contractIndicatorUnderTest {
 		indicatorCalculationApplication: application.NewIndicatorCalculationApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy, marketCatalog,
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, indicatorScriptProxy, clockProxy, marketCatalog,
 				queryMaxResults),
 			service.NewContractIndicatorCalculationService(
-				kCandleContractRepository, contractFundingRateSettlementRepository, contractPositionStatisticRepository,
+				kCandleContractRepository, mocks.NewMockIKCandleContractSummaryDayRepository(controller), contractFundingRateSettlementRepository, contractPositionStatisticRepository,
 				contractIndicatorScriptProxy, noOrderFlowService(t), clockProxy, marketCatalog, queryMaxResults)),
 		kCandleRepository:            kCandleRepository,
 		indicatorScriptProxy:         indicatorScriptProxy,
 		kCandleContractRepository:    kCandleContractRepository,
 		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
 	}
+}
+
+// holdingContractCandles answers every read of the symbol's contract candles, by count or by range, from these stored minutes, with no day summarized yet.
+func holdingContractCandles(
+	kCandleContractRepository *mocks.MockIKCandleContractRepository,
+	summaryDayRepository *mocks.MockIKCandleContractSummaryDayRepository,
+	symbol string,
+	kCandleContracts []entities.KCandleContract,
+) {
+	kCandleContractRepository.EXPECT().FindLatestBefore(gomock.Any(), symbol, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time, limit int) ([]entities.KCandleContract, error) {
+			newestFirst := []entities.KCandleContract{}
+			for _, kCandleContract := range kCandleContracts {
+				if kCandleContract.OpenTime.Before(cutoffTime) {
+					newestFirst = append(newestFirst, kCandleContract)
+				}
+			}
+			slices.SortFunc(newestFirst, func(former, latter entities.KCandleContract) int {
+				return latter.OpenTime.Compare(former.OpenTime)
+			})
+			return newestFirst[:min(limit, len(newestFirst))], nil
+		}).AnyTimes()
+	kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), querying(symbol), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandleContract, error) {
+			earliestFirst := []entities.KCandleContract{}
+			for _, kCandleContract := range kCandleContracts {
+				if !kCandleContract.OpenTime.Before(query.StartTime()) && !kCandleContract.OpenTime.After(query.EndTime()) {
+					earliestFirst = append(earliestFirst, kCandleContract)
+				}
+			}
+			slices.SortFunc(earliestFirst, func(former, latter entities.KCandleContract) int {
+				return former.OpenTime.Compare(latter.OpenTime)
+			})
+			return earliestFirst[:min(limit, len(earliestFirst))], nil
+		}).AnyTimes()
+	summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), symbol, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+}
+
+// querying matches a range read of that symbol.
+func querying(symbol string) gomock.Matcher {
+	return gomock.Cond(func(query domains.KCandleQueryDomain) bool { return query.Symbol() == symbol })
 }
 
 // storedContractCandlesAt are complete contract K candles at those moments.

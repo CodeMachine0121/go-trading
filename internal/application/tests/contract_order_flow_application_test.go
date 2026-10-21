@@ -31,6 +31,7 @@ func orderFlowDay(month time.Month, day int) time.Time {
 type orderFlowUnderTest struct {
 	indicatorCalculationApplication *application.IndicatorCalculationApplication
 	kCandleContractRepository       *mocks.MockIKCandleContractRepository
+	summaryDayRepository            *mocks.MockIKCandleContractSummaryDayRepository
 	contractIndicatorScriptProxy    *mocks.MockIContractIndicatorScriptProxy
 	tradeHistoryProxy               *mocks.MockIContractTradeHistoryProxy
 	now                             *time.Time
@@ -45,6 +46,7 @@ func newOrderFlowUnderTest(t *testing.T, memoryBudgetBytes int64) orderFlowUnder
 	now := orderFlowToday
 	fixture := orderFlowUnderTest{
 		kCandleContractRepository:    mocks.NewMockIKCandleContractRepository(controller),
+		summaryDayRepository:         mocks.NewMockIKCandleContractSummaryDayRepository(controller),
 		contractIndicatorScriptProxy: mocks.NewMockIContractIndicatorScriptProxy(controller),
 		tradeHistoryProxy:            mocks.NewMockIContractTradeHistoryProxy(controller),
 		now:                          &now,
@@ -64,7 +66,8 @@ func newOrderFlowUnderTest(t *testing.T, memoryBudgetBytes int64) orderFlowUnder
 	settlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
-	statisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	statisticRepository.EXPECT().FindStatisticTimesInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	statisticRepository.EXPECT().FindAtTimes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	fixture.contractIndicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ domains.IndicatorResultTypeDomain, bars []vo.ContractKCandleVo,
@@ -86,7 +89,7 @@ func newOrderFlowUnderTest(t *testing.T, memoryBudgetBytes int64) orderFlowUnder
 			mocks.NewMockIPublishedStrategyScriptRepository(controller)),
 		nil,
 		service.NewContractIndicatorCalculationService(
-			fixture.kCandleContractRepository, settlementRepository, statisticRepository,
+			fixture.kCandleContractRepository, fixture.summaryDayRepository, settlementRepository, statisticRepository,
 			fixture.contractIndicatorScriptProxy,
 			service.NewContractOrderFlowService(fixture.tradeHistoryProxy, clockProxy,
 				service.NewContractOrderFlowMemory(memoryBudgetBytes)),
@@ -101,19 +104,10 @@ func (fixture orderFlowUnderTest) setNow(moment time.Time) {
 	*fixture.now = moment
 }
 
-// storesContractCandles answers every read with the stored contract K candles at those moments before the read's cutoff, newest first.
+// storesContractCandles answers every read from the stored contract K candles at those moments.
 func (fixture orderFlowUnderTest) storesContractCandles(openTimes ...time.Time) {
-	fixture.kCandleContractRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, cutoff time.Time, _ int) ([]entities.KCandleContract, error) {
-			newestFirst := make([]entities.KCandleContract, 0, len(openTimes))
-			for index := len(openTimes) - 1; index >= 0; index-- {
-				if openTimes[index].Before(cutoff) {
-					newestFirst = append(newestFirst, storedContractCandlesAt(openTimes[index])...)
-				}
-			}
-
-			return newestFirst, nil
-		}).AnyTimes()
+	holdingContractCandles(fixture.kCandleContractRepository, fixture.summaryDayRepository, "BTCUSDT",
+		storedContractCandlesAt(openTimes...))
 }
 
 func (fixture orderFlowUnderTest) lastFootprints() []vo.OrderFlowFootprintVo {
@@ -405,10 +399,7 @@ func TestTheLeastRecentlyUsedDayIsForgottenWhenMemoryIsFull(t *testing.T) {
 	// Room for two days holding one traded minute each, not three.
 	fixture := newOrderFlowUnderTest(t, 450)
 	first, second, third := orderFlowDay(10, 10), orderFlowDay(10, 11), orderFlowDay(10, 12)
-	fixture.kCandleContractRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, cutoff time.Time, _ int) ([]entities.KCandleContract, error) {
-			return storedContractCandlesAt(cutoff.Add(-time.Hour)), nil
-		}).AnyTimes()
+	fixture.storesContractCandles(first, second, third)
 	fetches := map[time.Time]int{}
 	fixture.tradeHistoryProxy.EXPECT().VisitDailyTrades(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, day time.Time, visit tradeVisit) (bool, error) {

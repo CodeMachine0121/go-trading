@@ -119,7 +119,7 @@ func TestIndicatorCalculationApplicationMarksOnlySomeoneElsesScriptFailures(t *t
 			indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 				service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 				service.NewIndicatorCalculationService(
-					kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+					kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 					domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 					queryMaxResults),
 				nil)

@@ -133,11 +133,11 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 			tradingStrategyService,
 			strategyScriptService,
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository,
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController),
 				clockProxy, marketCatalog, 1000),
 			service.NewContractIndicatorCalculationService(
-				mocks.NewMockIKCandleContractRepository(mockController),
+				mocks.NewMockIKCandleContractRepository(mockController), mocks.NewMockIKCandleContractSummaryDayRepository(mockController),
 				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 				mocks.NewMockIContractPositionStatisticRepository(mockController),
 				mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t),

@@ -72,12 +72,12 @@ func newStrategyBotScanJobUnderTest(
 			service.NewStrategyScriptService(
 				mocks.NewMockIStrategyScriptRepository(mockController), publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository,
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(mockController), tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			service.NewContractIndicatorCalculationService(
-				mocks.NewMockIKCandleContractRepository(mockController),
+				mocks.NewMockIKCandleContractRepository(mockController), mocks.NewMockIKCandleContractSummaryDayRepository(mockController),
 				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 				mocks.NewMockIContractPositionStatisticRepository(mockController),
 				mocks.NewMockIContractIndicatorScriptProxy(mockController), noOrderFlowService(t), clockProxy,

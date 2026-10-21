@@ -1,7 +1,9 @@
 package application_test
 
 import (
+	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,6 +29,7 @@ var indicatorCutoff = indicatorNow
 type indicatorUnderTest struct {
 	indicatorCalculationApplication *application.IndicatorCalculationApplication
 	kCandleRepository               *mocks.MockIKCandleRepository
+	kCandleSummaryDayRepository     *mocks.MockIKCandleSummaryDayRepository
 	indicatorScriptProxy            *mocks.MockIIndicatorScriptProxy
 }
 
@@ -40,6 +43,7 @@ const (
 func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	kCandleSummaryDayRepository := mocks.NewMockIKCandleSummaryDayRepository(controller)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
@@ -62,13 +66,14 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 		indicatorCalculationApplication: application.NewIndicatorCalculationApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				kCandleRepository, kCandleSummaryDayRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				queryMaxResults),
 			// Nothing here calculates over contract bars; that use case has its own tests.
 			nil),
-		kCandleRepository:    kCandleRepository,
-		indicatorScriptProxy: indicatorScriptProxy,
+		kCandleRepository:           kCandleRepository,
+		kCandleSummaryDayRepository: kCandleSummaryDayRepository,
+		indicatorScriptProxy:        indicatorScriptProxy,
 	}
 }
 
@@ -102,15 +107,12 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	})
 
 	t.Run("reads at the coarseness asked for, up to the stretch that has finished", func(t *testing.T) {
-		// Two hourly buckets plus the spare read 180 candles, stopping at 09:00 because that hour
-		// has not finished at 09:15.
+		// Two hourly buckets, stopping at 09:00 because that hour has not finished at 09:15.
 		fixture := newIndicatorUnderTest(t)
-		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", at(9, 0), 180).
-			Return([]entities.KCandle{
-				kCandleAt(at(8, 5), "100"), kCandleAt(at(8, 0), "100"),
-				kCandleAt(at(7, 0), "100"),
-			}, nil)
+		holdingKCandles(fixture.kCandleRepository, fixture.kCandleSummaryDayRepository, "BTCUSDT", []entities.KCandle{
+			kCandleAt(at(9, 10), "100"), kCandleAt(at(8, 5), "100"), kCandleAt(at(8, 0), "100"),
+			kCandleAt(at(7, 0), "100"), kCandleAt(at(6, 0), "100"),
+		})
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
@@ -189,4 +191,42 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 		assert.Contains(t, err.Error(), "算式無法解讀")
 		assert.Empty(t, resultDto.Values)
 	})
+}
+
+// holdingKCandles answers every read of the symbol's spot candles, by count or by range, from these stored minutes, with no day summarized yet.
+func holdingKCandles(
+	kCandleRepository *mocks.MockIKCandleRepository,
+	summaryDayRepository *mocks.MockIKCandleSummaryDayRepository,
+	symbol string,
+	kCandles []entities.KCandle,
+) {
+	kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), symbol, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time, limit int) ([]entities.KCandle, error) {
+			newestFirst := []entities.KCandle{}
+			for _, kCandle := range kCandles {
+				if kCandle.OpenTime.Before(cutoffTime) {
+					newestFirst = append(newestFirst, kCandle)
+				}
+			}
+			slices.SortFunc(newestFirst, func(former, latter entities.KCandle) int {
+				return latter.OpenTime.Compare(former.OpenTime)
+			})
+			return newestFirst[:min(limit, len(newestFirst))], nil
+		}).AnyTimes()
+	kCandleRepository.EXPECT().FindInRange(gomock.Any(), querying(symbol), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
+			earliestFirst := []entities.KCandle{}
+			for _, kCandle := range kCandles {
+				if !kCandle.OpenTime.Before(query.StartTime()) && !kCandle.OpenTime.After(query.EndTime()) {
+					earliestFirst = append(earliestFirst, kCandle)
+				}
+			}
+			slices.SortFunc(earliestFirst, func(former, latter entities.KCandle) int {
+				return former.OpenTime.Compare(latter.OpenTime)
+			})
+			return earliestFirst[:min(limit, len(earliestFirst))], nil
+		}).AnyTimes()
+	summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), symbol, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 }

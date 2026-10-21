@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -64,6 +65,7 @@ var oneMinuteCutoff = calculationNow
 type calculationUnderTest struct {
 	indicatorCalculationService *service.IndicatorCalculationService
 	kCandleRepository           *mocks.MockIKCandleRepository
+	kCandleSummaryDayRepository *mocks.MockIKCandleSummaryDayRepository
 	tradingSymbolRepository     *mocks.MockITradingSymbolRepository
 	indicatorScriptProxy        *mocks.MockIIndicatorScriptProxy
 }
@@ -71,6 +73,7 @@ type calculationUnderTest struct {
 func newCalculationUnderTest(t *testing.T) calculationUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	kCandleSummaryDayRepository := mocks.NewMockIKCandleSummaryDayRepository(controller)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	// Symbols default to the round-the-clock market, which every stretch in this file assumes.
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -81,12 +84,75 @@ func newCalculationUnderTest(t *testing.T) calculationUnderTest {
 
 	return calculationUnderTest{
 		indicatorCalculationService: service.NewIndicatorCalculationService(
-			kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+			kCandleRepository, kCandleSummaryDayRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 			marketCatalog(), maxCandleCount),
-		kCandleRepository:       kCandleRepository,
-		tradingSymbolRepository: tradingSymbolRepository,
-		indicatorScriptProxy:    indicatorScriptProxy,
+		kCandleRepository:           kCandleRepository,
+		kCandleSummaryDayRepository: kCandleSummaryDayRepository,
+		tradingSymbolRepository:     tradingSymbolRepository,
+		indicatorScriptProxy:        indicatorScriptProxy,
 	}
+}
+
+// holdKCandles stubs storage holding exactly these minutes, with the given days already summarized from them, so every read path answers from the same market.
+func (fixture calculationUnderTest) holdKCandles(kCandles []entities.KCandle, summarizedDays ...time.Time) {
+	fixture.kCandleRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time, limit int) ([]entities.KCandle, error) {
+			newestFirstHeld := []entities.KCandle{}
+			for _, kCandle := range kCandles {
+				if kCandle.OpenTime.Before(cutoffTime) {
+					newestFirstHeld = append(newestFirstHeld, kCandle)
+				}
+			}
+			slices.SortFunc(newestFirstHeld, func(former, latter entities.KCandle) int {
+				return latter.OpenTime.Compare(former.OpenTime)
+			})
+			return newestFirstHeld[:min(limit, len(newestFirstHeld))], nil
+		}).AnyTimes()
+	fixture.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
+			earliestFirstHeld := []entities.KCandle{}
+			for _, kCandle := range kCandles {
+				if !kCandle.OpenTime.Before(query.StartTime()) && !kCandle.OpenTime.After(query.EndTime()) {
+					earliestFirstHeld = append(earliestFirstHeld, kCandle)
+				}
+			}
+			slices.SortFunc(earliestFirstHeld, func(former, latter entities.KCandle) int {
+				return former.OpenTime.Compare(latter.OpenTime)
+			})
+			return earliestFirstHeld[:min(limit, len(earliestFirstHeld))], nil
+		}).AnyTimes()
+	fixture.kCandleSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, symbol string, interval vo.AggregationIntervalVo, startTime time.Time, endTime time.Time,
+		) ([]entities.KCandleSummaryDay, error) {
+			summaryDays := []entities.KCandleSummaryDay{}
+			for _, day := range summarizedDays {
+				if day.Before(startTime.Truncate(domains.KCandleSummaryDayLength)) || !day.Before(endTime) {
+					continue
+				}
+				dayMinutes := []entities.KCandle{}
+				for _, kCandle := range kCandles {
+					if !kCandle.OpenTime.Before(day) && kCandle.OpenTime.Before(day.Add(domains.KCandleSummaryDayLength)) {
+						dayMinutes = append(dayMinutes, kCandle)
+					}
+				}
+				summaryDay := domains.NewKCandleSummaryDayDomain(symbol, day, 1, dayMinutes).ToEntity()
+				inRange := []entities.KCandleSummary{}
+				for _, summary := range summaryDay.Summaries {
+					if summary.Interval == string(interval) && !summary.OpenTime.Before(startTime) && summary.OpenTime.Before(endTime) {
+						inRange = append(inRange, summary)
+					}
+				}
+				summaryDay.Summaries = inRange
+				summaryDays = append(summaryDays, summaryDay)
+			}
+			return summaryDays, nil
+		}).AnyTimes()
+	fixture.kCandleSummaryDayRepository.EXPECT().
+		SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 }
 
 // marketCatalog holds the round-the-clock market and Taiwan's 09:00–13:30 Taipei, Monday–Friday session.
@@ -472,9 +538,15 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 	t.Run("a coarser interval stops before the bucket still running", func(t *testing.T) {
 		// At 09:20 the 09:00 hour is still running, so the read stops at 09:00 rather than merging a changing hour.
 		fixture := newCalculationUnderTest(t)
-		hourCutoff := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", hourCutoff, 180).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.KCandle, error) {
+				assert.Equal(t, time.Date(2026, 8, 29, 7, 0, 0, 0, time.UTC), query.StartTime())
+				assert.Equal(t, time.Date(2026, 8, 29, 8, 59, 59, 999999000, time.UTC), query.EndTime())
+				return []entities.KCandle{}, nil
+			})
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", time.Date(2026, 8, 29, 7, 0, 0, 0, time.UTC), 1).
 			Return([]entities.KCandle{}, nil)
 
 		requestDto := calculationRequest("BTCUSDT", 2)
@@ -491,9 +563,10 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 	t.Run("an end time already past is read up to, not up to now", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		pastCutoff := time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC)
-		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", pastCutoff, 180).
-			Return([]entities.KCandle{}, nil)
+		fixture.kCandleSummaryDayRepository.EXPECT().
+			FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneHour, pastCutoff.Add(-2*time.Hour), pastCutoff).
+			Return(nil, nil)
+		fixture.holdKCandles(nil)
 
 		requestDto := calculationRequest("BTCUSDT", 2)
 		requestDto.AggregationInterval = "1h"
@@ -595,9 +668,9 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				fixture := newCalculationUnderTest(t)
-				fixture.kCandleRepository.EXPECT().
-					FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-					Return(newestFirst(15, 10, 5, 0), nil)
+				fixture.holdKCandles(append(newestFirst(15, 10, 5, 0), entities.KCandle{
+					Symbol: "BTCUSDT", OpenTime: time.Date(2026, 8, 29, 8, 30, 0, 0, time.UTC), Close: decimal.RequireFromString("100"),
+				}))
 				fixture.indicatorScriptProxy.EXPECT().
 					Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(map[string]vo.IndicatorValueVo{}, nil)
@@ -636,7 +709,7 @@ func TestCalculateIndicatorSizesTheReadByTheSymbolsOwnMarket(t *testing.T) {
 
 		return calculationUnderTest{
 			indicatorCalculationService: service.NewIndicatorCalculationService(
-				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				marketCatalog(), maxCandleCount),
 			kCandleRepository:       kCandleRepository,
 			tradingSymbolRepository: tradingSymbolRepository,
@@ -704,7 +777,7 @@ func TestCalculateIndicatorSizesTheReadByTheSymbolsOwnMarket(t *testing.T) {
 			Return([]entities.KCandle{}, nil)
 
 		indicatorCalculationService := service.NewIndicatorCalculationService(
-			kCandleRepository, tradingSymbolRepository,
+			kCandleRepository, mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository,
 			mocks.NewMockIIndicatorScriptProxy(controller), clockProxy,
 			marketCatalog(), maxCandleCount)
 
@@ -723,7 +796,7 @@ func TestCalculateIndicatorSizesTheReadByTheSymbolsOwnMarket(t *testing.T) {
 		clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
 
 		indicatorCalculationService := service.NewIndicatorCalculationService(
-			mocks.NewMockIKCandleRepository(controller), tradingSymbolRepository,
+			mocks.NewMockIKCandleRepository(controller), mocks.NewMockIKCandleSummaryDayRepository(controller), tradingSymbolRepository,
 			mocks.NewMockIIndicatorScriptProxy(controller), clockProxy,
 			marketCatalog(), maxCandleCount)
 
@@ -732,4 +805,175 @@ func TestCalculateIndicatorSizesTheReadByTheSymbolsOwnMarket(t *testing.T) {
 
 		assert.ErrorContains(t, err, "資料庫讀不到")
 	})
+}
+
+func dailyCandle(month time.Month, day int, hour int, close string) entities.KCandle {
+	return entities.KCandle{
+		Symbol: "BTCUSDT", OpenTime: time.Date(2026, month, day, hour, 0, 0, 0, time.UTC),
+		Open: decimal.RequireFromString(close), High: decimal.RequireFromString(close),
+		Low: decimal.RequireFromString(close), Close: decimal.RequireFromString(close), Volume: decimal.RequireFromString("1"),
+	}
+}
+
+func dailyRequestEndingNow(dayCount int) dto.IndicatorCalculationRequestDto {
+	return dto.IndicatorCalculationRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1d",
+		StartTime: calculationNow.Truncate(24 * time.Hour).Add(-time.Duration(dayCount) * 24 * time.Hour),
+		EndTime:   calculationNow, Script: "the script",
+	}
+}
+
+func (fixture calculationUnderTest) candlesHandedToTheScript(
+	t *testing.T, requestDto dto.IndicatorCalculationRequestDto,
+) ([]vo.KCandleVo, dto.IndicatorCalculationResultDto) {
+	t.Helper()
+	handedCandles := []vo.KCandleVo{}
+	fixture.indicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, _ domains.IndicatorResultTypeDomain,
+			kCandleVos []vo.KCandleVo, _ domains.StrategyScriptParametersDomain,
+		) (map[string]vo.IndicatorValueVo, error) {
+			handedCandles = kCandleVos
+			return map[string]vo.IndicatorValueVo{}, nil
+		})
+
+	resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), requestDto)
+	require.NoError(t, err)
+
+	return handedCandles, resultDto
+}
+
+func TestCalculateIndicatorTakesFinishedDaysFromTheirSummaries(t *testing.T) {
+	fixture := newCalculationUnderTest(t)
+	theTwoDays := []entities.KCandle{
+		dailyCandle(8, 27, 0, "100"), dailyCandle(8, 27, 23, "110"),
+		dailyCandle(8, 28, 0, "120"), dailyCandle(8, 28, 12, "90"), dailyCandle(8, 28, 23, "130"),
+	}
+	fixture.kCandleSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), "BTCUSDT", vo.AggregationIntervalOneDay,
+			time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)).
+		DoAndReturn(func(context.Context, string, vo.AggregationIntervalVo, time.Time, time.Time) ([]entities.KCandleSummaryDay, error) {
+			summaryDays := []entities.KCandleSummaryDay{}
+			for _, day := range []time.Time{time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)} {
+				summaryDay := domains.NewKCandleSummaryDayDomain("BTCUSDT", day, 1, theTwoDays).ToEntity()
+				dailySummaries := []entities.KCandleSummary{}
+				for _, summary := range summaryDay.Summaries {
+					if summary.Interval == string(vo.AggregationIntervalOneDay) && !summary.OpenTime.Before(day) &&
+						summary.OpenTime.Before(day.Add(24*time.Hour)) {
+						dailySummaries = append(dailySummaries, summary)
+					}
+				}
+				summaryDay.Summaries = dailySummaries
+				summaryDays = append(summaryDays, summaryDay)
+			}
+			return summaryDays, nil
+		})
+
+	kCandleVos, _ := fixture.candlesHandedToTheScript(t, dailyRequestEndingNow(2))
+
+	require.Len(t, kCandleVos, 2)
+	assert.Equal(t, time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC).Unix(), kCandleVos[0].OpenTimeUnixSeconds)
+	assert.Equal(t, vo.KCandleVo{Symbol: "BTCUSDT", OpenTimeUnixSeconds: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC).Unix(),
+		Open: 120, High: 130, Low: 90, Close: 130, Volume: 3}, kCandleVos[1])
+}
+
+func TestCalculateIndicatorReachesPastStretchesWithNoMarketUntilEnoughBucketsAreFound(t *testing.T) {
+	testCases := []struct {
+		name              string
+		held              []entities.KCandle
+		summarizedDays    []time.Time
+		dayCount          int
+		expectedOpenTimes []time.Time
+		expectedRequired  int
+	}{
+		{
+			name: "a halt of more than two weeks is skipped",
+			held: []entities.KCandle{
+				dailyCandle(8, 28, 5, "100"), dailyCandle(8, 27, 5, "100"),
+				dailyCandle(8, 10, 5, "100"), dailyCandle(8, 9, 5, "100"), dailyCandle(8, 8, 5, "100"),
+			},
+			dayCount: 4,
+			expectedOpenTimes: []time.Time{
+				time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+				time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+			},
+			expectedRequired: 4,
+		},
+		{
+			name: "days already summarized and days merged on the way are counted alike",
+			held: []entities.KCandle{
+				dailyCandle(8, 28, 5, "100"), dailyCandle(8, 20, 5, "100"), dailyCandle(8, 19, 5, "100"),
+			},
+			summarizedDays: []time.Time{time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)},
+			dayCount:       3,
+			expectedOpenTimes: []time.Time{
+				time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+				time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+			},
+			expectedRequired: 3,
+		},
+		{
+			name:              "a history shorter than asked for answers with every day it has",
+			held:              []entities.KCandle{dailyCandle(8, 28, 5, "100"), dailyCandle(8, 3, 13, "100")},
+			dayCount:          4,
+			expectedOpenTimes: []time.Time{time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)},
+			expectedRequired:  4,
+		},
+		{
+			name:              "today's running day is never read",
+			held:              []entities.KCandle{dailyCandle(8, 29, 1, "100"), dailyCandle(8, 28, 5, "100")},
+			dayCount:          1,
+			expectedOpenTimes: []time.Time{time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)},
+			expectedRequired:  1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newCalculationUnderTest(t)
+			fixture.holdKCandles(testCase.held, testCase.summarizedDays...)
+
+			kCandleVos, resultDto := fixture.candlesHandedToTheScript(t, dailyRequestEndingNow(testCase.dayCount))
+
+			assert.Equal(t, testCase.expectedOpenTimes, bucketOpenTimes(kCandleVos))
+			assert.Equal(t, testCase.expectedRequired, resultDto.RequiredCandleCount)
+			assert.Equal(t, len(testCase.expectedOpenTimes), resultDto.UsedCandleCount)
+		})
+	}
+}
+
+func bucketOpenTimes(kCandleVos []vo.KCandleVo) []time.Time {
+	openTimes := make([]time.Time, 0, len(kCandleVos))
+	for _, kCandleVo := range kCandleVos {
+		openTimes = append(openTimes, time.Unix(kCandleVo.OpenTimeUnixSeconds, 0).UTC())
+	}
+
+	return openTimes
+}
+
+func TestCalculateIndicatorStopsWhenAnEarlierCandleCannotBeLookedFor(t *testing.T) {
+	storageDown := errors.New("storage will not answer")
+	fixture := newCalculationUnderTest(t)
+	fixture.kCandleSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	fixture.kCandleRepository.EXPECT().
+		FindInRange(gomock.Any(), gomock.Any(), 1).Return([]entities.KCandle{}, nil)
+	fixture.kCandleRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), 1).Return(nil, storageDown)
+
+	_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), dailyRequestEndingNow(2))
+
+	require.ErrorIs(t, err, storageDown)
+}
+
+func TestCalculateIndicatorStopsWhenSummariesCannotBeRead(t *testing.T) {
+	storageDown := errors.New("storage will not answer")
+	fixture := newCalculationUnderTest(t)
+	fixture.kCandleSummaryDayRepository.EXPECT().
+		FindDaysInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
+
+	_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), dailyRequestEndingNow(2))
+
+	require.ErrorIs(t, err, storageDown)
 }
