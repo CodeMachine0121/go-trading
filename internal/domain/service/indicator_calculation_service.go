@@ -52,11 +52,12 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 
 	marketDomain := indicatorCalculationService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
 
+	now := indicatorCalculationService.clockProxy.Now()
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 		requestDto,
 		marketDomain,
 		indicatorCalculationService.maxCandleCount,
-		indicatorCalculationService.clockProxy.Now(),
+		now,
 	)
 	if validationError != nil {
 		return dto.IndicatorCalculationResultDto{}, validationError
@@ -66,7 +67,7 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	sourceKCandles, findError := indicatorCalculationService.summarizedSeriesReader.readLatestBuckets(
-		executionContext, calculationDomain.SourceReach(), indicatorCalculationService.clockProxy.Now())
+		executionContext, calculationDomain.SourceReach(), now)
 	if findError != nil {
 		return dto.IndicatorCalculationResultDto{}, findError
 	}

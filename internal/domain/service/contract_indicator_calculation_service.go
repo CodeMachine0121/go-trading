@@ -48,23 +48,23 @@ func NewContractIndicatorCalculationService(
 	}
 }
 
-// CalculateContractIndicator runs the script over the requested number of finished contract bars reading stored summaries where they exist and the funding and positioning it needs at once; nothing is fetched to fill gaps, except order flow, which is never stored.
+// CalculateContractIndicator runs the script over the requested number of finished contract bars, reading stored summaries where they exist and the funding and positioning it needs at once; nothing is fetched to fill gaps, except order flow, which is never stored.
 func (contractIndicatorCalculationService *ContractIndicatorCalculationService) CalculateContractIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
+	now := contractIndicatorCalculationService.clockProxy.Now()
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 		requestDto,
 		contractIndicatorCalculationService.roundTheClockMarket,
 		contractIndicatorCalculationService.maxCandleCount,
-		contractIndicatorCalculationService.clockProxy.Now(),
+		now,
 	)
 	if validationError != nil {
 		return dto.IndicatorCalculationResultDto{}, validationError
 	}
 
 	sourceKCandleContracts, findCandlesError := contractIndicatorCalculationService.summarizedSeriesReader.
-		readLatestBuckets(executionContext, calculationDomain.SourceReach(),
-			contractIndicatorCalculationService.clockProxy.Now())
+		readLatestBuckets(executionContext, calculationDomain.SourceReach(), now)
 	if findCandlesError != nil {
 		return dto.IndicatorCalculationResultDto{}, findCandlesError
 	}
