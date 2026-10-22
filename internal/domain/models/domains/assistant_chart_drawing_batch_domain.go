@@ -51,6 +51,10 @@ func NewAssistantChartDrawingBatchDomain(
 			return AssistantChartDrawingBatchDomain{}, fmt.Errorf(
 				"%w: 第 %d 個繪圖：%w", ErrChartDrawingValidation, drawingPosition+1, kindError)
 		}
+		if drawableError := kind.RequireAssistantDrawable(); drawableError != nil {
+			return AssistantChartDrawingBatchDomain{}, fmt.Errorf(
+				"%w: 第 %d 個繪圖：%w", ErrChartDrawingValidation, drawingPosition+1, drawableError)
+		}
 		if anchorCountError := kind.RequireAnchorCount(len(writeDto.Anchors)); anchorCountError != nil {
 			return AssistantChartDrawingBatchDomain{}, fmt.Errorf(
 				"%w: 第 %d 個繪圖：%w", ErrChartDrawingValidation, drawingPosition+1, anchorCountError)

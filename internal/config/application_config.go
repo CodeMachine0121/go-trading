@@ -334,7 +334,7 @@ type ApplicationConfig struct {
 	BacktestDefaultWarmupBarCount int
 	BacktestRun                   BacktestRunConfig
 	SymbolScreening               SymbolScreeningConfig
-	// ChartDrawingLimits caps one chart drawing board and one assistant batch.
+	// ChartDrawingLimits caps one chart drawing board, its anchors and one assistant batch.
 	ChartDrawingLimits    vo.ChartDrawingLimitsVo
 	BackgroundJobsEnabled bool
 	Replica               ReplicaConfig
@@ -432,6 +432,7 @@ func loadAsWritten() ApplicationConfig {
 		},
 		ChartDrawingLimits: vo.ChartDrawingLimitsVo{
 			BoardCapacity:          positiveIntWithDefault("CHART_DRAWING_BOARD_CAPACITY", 200),
+			BoardAnchorCapacity:    positiveIntWithDefault("CHART_DRAWING_BOARD_ANCHOR_CAPACITY", 4000),
 			AssistantBatchCapacity: positiveIntWithDefault("CHART_DRAWING_ASSISTANT_BATCH_CAPACITY", 20),
 		},
 		SymbolScreening: SymbolScreeningConfig{

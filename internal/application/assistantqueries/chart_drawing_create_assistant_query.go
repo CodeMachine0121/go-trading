@@ -27,12 +27,14 @@ func (chartDrawingCreateAssistantQuery *ChartDrawingCreateAssistantQuery) Name()
 }
 
 func (chartDrawingCreateAssistantQuery *ChartDrawingCreateAssistantQuery) Description() string {
-	return fmt.Sprintf("在使用者的 K 線圖上畫一批線（一次 1 到 %d 個，整批成功或整批不畫，一份圖最多 %d 個）。"+
+	return fmt.Sprintf("在使用者的 K 線圖上畫一批線（一次 1 到 %d 個，整批成功或整批不畫，一份圖最多 %d 個、錨點加總最多 %d 個）。"+
 		"interval 要說出你是看哪一種彙總刻度的 K 線畫的；每個錨點的 openTime 必須正好是那個刻度上一根真的 K 線的起始時間（RFC3339），"+
 		"先用 get_k_candle_series 找出高低點再畫。每個錨點的價格二選一：price 直接給價格，或 snapTo 吸附那一根的 open／high／low／close"+
 		"（畫支撐壓力時優先吸附，不要自己編價位）。趨勢線、射線、斐波那契回撤、矩形、日期與價格範圍要 2 個錨點；水平線、水平射線、垂直線要 1 個。"+
+		"奇異筆（brush）只能由使用者手畫，你不能畫。"+
 		"樣式可以不給。你畫的線都標成助手畫的，之後可以用 remove_chart_drawings 移除；使用者手畫的你動不到。",
-		chartDrawingCreateAssistantQuery.limits.AssistantBatchCapacity, chartDrawingCreateAssistantQuery.limits.BoardCapacity)
+		chartDrawingCreateAssistantQuery.limits.AssistantBatchCapacity, chartDrawingCreateAssistantQuery.limits.BoardCapacity,
+		chartDrawingCreateAssistantQuery.limits.BoardAnchorCapacity)
 }
 
 func (chartDrawingCreateAssistantQuery *ChartDrawingCreateAssistantQuery) ArgumentSchema() string {

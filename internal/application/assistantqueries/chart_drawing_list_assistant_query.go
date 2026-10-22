@@ -27,7 +27,8 @@ func (chartDrawingListAssistantQuery *ChartDrawingListAssistantQuery) Name() str
 
 func (chartDrawingListAssistantQuery *ChartDrawingListAssistantQuery) Description() string {
 	return "列出使用者某一張 K 線圖（現貨或合約的某個交易標的）上的每一個繪圖：編號、種類、錨點、樣式與來源" +
-		"（source 為 manual 是使用者手畫的、assistant 是助手畫的）。畫之前先看一下，不要重複畫。"
+		"（source 為 manual 是使用者手畫的、assistant 是助手畫的）。kind 為 brush 的是使用者用奇異筆隨手畫的筆跡：" +
+		"anchors 是依筆跡先後排列的一連串點，openTime 不一定是 K 線的起始時間。畫之前先看一下，不要重複畫。"
 }
 
 func (chartDrawingListAssistantQuery *ChartDrawingListAssistantQuery) ArgumentSchema() string {

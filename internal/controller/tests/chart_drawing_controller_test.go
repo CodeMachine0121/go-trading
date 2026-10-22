@@ -51,7 +51,7 @@ func newChartDrawingRouterUnderTest(t *testing.T) chartDrawingRouterUnderTest {
 				tradingSymbolRepository, clockProxy, marketCatalog, 1000),
 			service.NewKCandleContractService(mocks.NewMockIKCandleContractRepository(mockController),
 				mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy, marketCatalog, 1000),
-			vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20})))
+			vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20})))
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
@@ -203,6 +203,17 @@ func TestChartDrawingRouterSavesABoardWhole(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, response.Code)
 		assert.Contains(t, response.Body.String(), "第 1 個繪圖：水平線要 1 個錨點，收到 2 個")
+	})
+
+	t.Run("a brush stroke of one point is a bad request naming the brush's range", func(t *testing.T) {
+		fixture := newChartDrawingRouterUnderTest(t)
+		fixture.boardIs(entities.ChartDrawingBoard{})
+
+		response := fixture.send(http.MethodPut, "/users/me/chart-drawings/spot/BTCUSDT", `{"revision":0,"drawings":[
+			{"kind":"brush","anchors":[{"openTime":"2026-10-19T08:17:42.35Z","price":"61000"}]}]}`)
+
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), "第 1 個繪圖：奇異筆要 2 到 200 個錨點，收到 1 個")
 	})
 }
 

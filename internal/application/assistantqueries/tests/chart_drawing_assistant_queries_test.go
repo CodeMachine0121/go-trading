@@ -2,6 +2,7 @@ package assistantqueries_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 
 var assistantDrawingHour = time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
 
-var assistantDrawingLimits = vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20}
+var assistantDrawingLimits = vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20}
 
 type chartDrawingAssistantQueriesUnderTest struct {
 	createQuery                 *assistantqueries.ChartDrawingCreateAssistantQuery
@@ -127,11 +128,43 @@ func TestChartDrawingCreateAssistantQuery(t *testing.T) {
 		assert.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 	})
 
-	t.Run("the description names the batch and board limits", func(t *testing.T) {
+	t.Run("the description names the batch, board and anchor limits", func(t *testing.T) {
 		fixture := newChartDrawingAssistantQueriesUnderTest(t)
 
 		assert.Contains(t, fixture.createQuery.Description(), "一次 1 到 20 個")
-		assert.Contains(t, fixture.createQuery.Description(), "一份圖最多 200 個")
+		assert.Contains(t, fixture.createQuery.Description(), "一份圖最多 200 個、錨點加總最多 4000 個")
+	})
+
+	t.Run("a brush stroke is refused before the board or the market is read", func(t *testing.T) {
+		fixture := newChartDrawingAssistantQueriesUnderTest(t)
+
+		_, runError := fixture.createQuery.Run(t.Context(), assistantOrigin, `{"market":"spot","symbol":"BTCUSDT","interval":"1h",
+			"drawings":[{"kind":"brush","anchors":[{"openTime":"2026-10-19T08:00:00Z","snapTo":"low"},{"openTime":"2026-10-19T09:00:00Z","snapTo":"high"}]}]}`)
+
+		assert.ErrorIs(t, runError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, runError, "第 1 個繪圖：奇異筆只能由使用者手畫，助手不能畫")
+	})
+
+	t.Run("the brush is not offered and is named as hand drawn only", func(t *testing.T) {
+		fixture := newChartDrawingAssistantQueriesUnderTest(t)
+		schema := struct {
+			Properties struct {
+				Drawings struct {
+					Items struct {
+						Properties struct {
+							Kind struct {
+								Enum []string `json:"enum"`
+							} `json:"kind"`
+						} `json:"properties"`
+					} `json:"items"`
+				} `json:"drawings"`
+			} `json:"properties"`
+		}{}
+		require.NoError(t, json.Unmarshal([]byte(fixture.createQuery.ArgumentSchema()), &schema))
+
+		assert.Equal(t, []string{"trendLine", "ray", "horizontalLine", "horizontalRay", "verticalLine",
+			"fibonacciRetracement", "rectangle", "dateAndPriceRange"}, schema.Properties.Drawings.Items.Properties.Kind.Enum)
+		assert.Contains(t, fixture.createQuery.Description(), "奇異筆（brush）只能由使用者手畫，你不能畫")
 	})
 }
 
@@ -147,6 +180,29 @@ func TestChartDrawingListAssistantQuery(t *testing.T) {
 		assert.Contains(t, outcome, `"id":1,"kind":"horizontalLine"`)
 		assert.Contains(t, outcome, `"source":"manual"`)
 		assert.Contains(t, outcome, `"source":"assistant"`)
+	})
+
+	t.Run("a brush stroke the person drew is listed with all its points", func(t *testing.T) {
+		fixture := newChartDrawingAssistantQueriesUnderTest(t)
+		strokeAnchors := make([]dto.ChartDrawingAnchorDto, 0, 30)
+		for position := range 30 {
+			strokeAnchors = append(strokeAnchors, dto.ChartDrawingAnchorDto{
+				OpenTime: assistantDrawingHour.Add(time.Duration(position) * 17 * time.Second),
+				Price:    decimal.NewFromInt(int64(61000 + position)),
+			})
+		}
+		fixture.boardOfTheViewerIs(1, dto.ChartDrawingDto{ID: 1, Kind: "brush", Anchors: strokeAnchors,
+			Color: "orange", LineWidth: 2, LineStyle: "solid", Visible: true, Source: "manual"})
+
+		outcome, runError := fixture.listQuery.Run(t.Context(), assistantOrigin, `{"market":"spot","symbol":"BTCUSDT"}`)
+
+		require.NoError(t, runError)
+		board := dto.ChartDrawingBoardDto{}
+		require.NoError(t, json.Unmarshal([]byte(outcome), &board))
+		assert.Equal(t, "brush", board.Drawings[0].Kind)
+		assert.Equal(t, "manual", board.Drawings[0].Source)
+		assert.Len(t, board.Drawings[0].Anchors, 30)
+		assert.Contains(t, fixture.listQuery.Description(), "kind 為 brush")
 	})
 
 	t.Run("an unknown market is a reason", func(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var chartDrawingLimits = vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20}
+var chartDrawingLimits = vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20}
 
 var chartDrawingMoment = time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
 
@@ -109,7 +109,7 @@ func TestChartDrawingBoardDomainChecksEveryDrawing(t *testing.T) {
 			refusalText: "線色只能是調色盤上的十二色之一"},
 		{name: "an unknown kind",
 			drawing:     dto.ChartDrawingWriteDto{Kind: "textNote", Anchors: []dto.ChartDrawingAnchorDto{anchorAt("1")}},
-			refusalText: "不認得的繪圖種類「textNote」，只能是 trendLine、ray、horizontalLine、horizontalRay、verticalLine、fibonacciRetracement、rectangle、dateAndPriceRange 其中之一"},
+			refusalText: "不認得的繪圖種類「textNote」，只能是 trendLine、ray、horizontalLine、horizontalRay、verticalLine、fibonacciRetracement、rectangle、dateAndPriceRange、brush 其中之一"},
 		{name: "an unknown line style",
 			drawing:     dto.ChartDrawingWriteDto{Kind: "horizontalLine", Anchors: []dto.ChartDrawingAnchorDto{anchorAt("1")}, Style: dto.ChartDrawingStyleWriteDto{LineStyle: "wavy"}},
 			refusalText: "線型只能是實線（solid）、虛線（dashed）、點線（dotted）"},
@@ -393,5 +393,194 @@ func TestChartDrawingBoardDomainToEntity(t *testing.T) {
 		assert.Equal(t, int64(2), boardEntity.Revision)
 		assert.Equal(t, uint(5), boardEntity.LastDrawingID)
 		assert.Len(t, boardEntity.Drawings, 1)
+	})
+}
+
+func brushWrite(anchorCount int) dto.ChartDrawingWriteDto {
+	anchors := make([]dto.ChartDrawingAnchorDto, 0, anchorCount)
+	for position := range anchorCount {
+		anchors = append(anchors, dto.ChartDrawingAnchorDto{
+			OpenTime: chartDrawingMoment.Add(time.Duration(position) * time.Second),
+			Price:    decimal.NewFromInt(int64(60000 + position)),
+		})
+	}
+
+	return dto.ChartDrawingWriteDto{Kind: "brush", Anchors: anchors}
+}
+
+func TestChartDrawingBoardDomainKeepsABrushStroke(t *testing.T) {
+	refusedCases := []struct {
+		name        string
+		drawing     dto.ChartDrawingWriteDto
+		refusalText string
+	}{
+		{name: "a brush with one anchor", drawing: brushWrite(1), refusalText: "第 1 個繪圖：奇異筆要 2 到 200 個錨點，收到 1 個"},
+		{name: "a brush with 201 anchors", drawing: brushWrite(201), refusalText: "第 1 個繪圖：奇異筆要 2 到 200 個錨點，收到 201 個"},
+		{name: "a brush anchor without a time", drawing: dto.ChartDrawingWriteDto{Kind: "brush", Anchors: []dto.ChartDrawingAnchorDto{
+			anchorAt("1"), {Price: decimal.RequireFromString("2")}}}, refusalText: "每個錨點都要有起始時間"},
+		{name: "a brush anchor at zero", drawing: dto.ChartDrawingWriteDto{Kind: "brush", Anchors: []dto.ChartDrawingAnchorDto{
+			anchorAt("1"), anchorAt("0")}}, refusalText: "錨點價格必須大於零"},
+		{name: "a brush of width five", drawing: dto.ChartDrawingWriteDto{Kind: "brush", Anchors: []dto.ChartDrawingAnchorDto{
+			anchorAt("1"), anchorAt("2")}, Style: dto.ChartDrawingStyleWriteDto{LineWidth: 5}}, refusalText: "線寬只能是 1 到 4"},
+	}
+
+	for _, testCase := range refusedCases {
+		t.Run(testCase.name+" refuses the whole board and leaves it as it was", func(t *testing.T) {
+			board := boardOf(t, 1, storedDrawing(1, vo.ChartDrawingSourceManual))
+
+			_, replaceError := board.Replace(1, []dto.ChartDrawingWriteDto{testCase.drawing})
+
+			assert.ErrorIs(t, replaceError, domains.ErrChartDrawingValidation)
+			assert.ErrorContains(t, replaceError, testCase.refusalText)
+			assert.Equal(t, []dto.ChartDrawingDto{storedDrawing(1, vo.ChartDrawingSourceManual)}, board.ToDto().Drawings)
+		})
+	}
+
+	acceptedCases := []struct {
+		name        string
+		anchorCount int
+	}{
+		{name: "the shortest brush", anchorCount: 2},
+		{name: "an ordinary brush", anchorCount: 50},
+		{name: "the longest brush", anchorCount: 200},
+	}
+
+	for _, testCase := range acceptedCases {
+		t.Run(testCase.name+" keeps every anchor in order", func(t *testing.T) {
+			drawing := brushWrite(testCase.anchorCount)
+
+			replacedBoard, replaceError := boardOf(t, 0).Replace(0, []dto.ChartDrawingWriteDto{drawing})
+
+			require.NoError(t, replaceError)
+			savedDrawing := replacedBoard.ToDto().Drawings[0]
+			assert.Equal(t, "brush", savedDrawing.Kind)
+			assert.Equal(t, drawing.Anchors, savedDrawing.Anchors)
+		})
+	}
+
+	t.Run("a stored brush stroke is the person's and the assistant cannot remove it", func(t *testing.T) {
+		stroke := brushWrite(30)
+		board := boardOf(t, 2, dto.ChartDrawingDto{ID: 1, Kind: "brush", Anchors: stroke.Anchors, Source: "manual"})
+
+		_, _, removeError := board.RemoveAssistantDrawings([]uint{1})
+
+		assert.ErrorIs(t, removeError, domains.ErrChartDrawingHandDrawn)
+		assert.ErrorContains(t, removeError, "編號 1 的繪圖是使用者手畫的，助手不能移除")
+	})
+
+	t.Run("an anchor between candle starts keeps its exact moment", func(t *testing.T) {
+		betweenCandles := time.Date(2026, 10, 19, 10, 17, 42, 350_000_000, time.UTC)
+		drawing := dto.ChartDrawingWriteDto{Kind: "brush", Anchors: []dto.ChartDrawingAnchorDto{
+			anchorAt("1"), {OpenTime: betweenCandles, Price: decimal.RequireFromString("2")}}}
+
+		replacedBoard, replaceError := boardOf(t, 0).Replace(0, []dto.ChartDrawingWriteDto{drawing})
+
+		require.NoError(t, replaceError)
+		assert.Equal(t, betweenCandles, replacedBoard.ToDto().Drawings[0].Anchors[1].OpenTime)
+	})
+
+	styleCases := []struct {
+		name     string
+		style    dto.ChartDrawingStyleWriteDto
+		expected dto.ChartDrawingDto
+	}{
+		{name: "no style takes orange, width 2, solid, unlocked and shown", style: dto.ChartDrawingStyleWriteDto{},
+			expected: dto.ChartDrawingDto{Color: "orange", LineWidth: 2, LineStyle: "solid", Locked: false, Visible: true}},
+		{name: "a chosen style is kept", style: dto.ChartDrawingStyleWriteDto{Color: "red", LineWidth: 4, LineStyle: "dashed"},
+			expected: dto.ChartDrawingDto{Color: "red", LineWidth: 4, LineStyle: "dashed", Locked: false, Visible: true}},
+	}
+
+	for _, testCase := range styleCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			drawing := brushWrite(2)
+			drawing.Style = testCase.style
+
+			replacedBoard, replaceError := boardOf(t, 0).Replace(0, []dto.ChartDrawingWriteDto{drawing})
+
+			require.NoError(t, replaceError)
+			savedDrawing := replacedBoard.ToDto().Drawings[0]
+			assert.Equal(t, testCase.expected, dto.ChartDrawingDto{
+				Color: savedDrawing.Color, LineWidth: savedDrawing.LineWidth, LineStyle: savedDrawing.LineStyle,
+				Locked: savedDrawing.Locked, Visible: savedDrawing.Visible,
+			})
+		})
+	}
+}
+
+func TestChartDrawingBoardDomainCapsTheAnchorsOnABoard(t *testing.T) {
+	brushes := func(count int, anchorCount int) []dto.ChartDrawingWriteDto {
+		drawings := make([]dto.ChartDrawingWriteDto, 0, count)
+		for range count {
+			drawings = append(drawings, brushWrite(anchorCount))
+		}
+
+		return drawings
+	}
+
+	t.Run("a saved board of exactly 4000 anchors is accepted", func(t *testing.T) {
+		replacedBoard, replaceError := boardOf(t, 0).Replace(0, brushes(20, 200))
+
+		require.NoError(t, replaceError)
+		assert.Len(t, replacedBoard.ToDto().Drawings, 20)
+	})
+
+	t.Run("a saved board of 4001 anchors is refused and the board stays as it was", func(t *testing.T) {
+		board := boardOf(t, 1, storedDrawing(1, vo.ChartDrawingSourceManual))
+		overCeiling := append(brushes(20, 200), horizontalLineWrite(0, "1"))
+
+		_, replaceError := board.Replace(1, overCeiling)
+
+		assert.ErrorIs(t, replaceError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, replaceError, "一份繪圖板的繪圖最多共 4000 個錨點，收到 4001 個")
+		assert.Equal(t, int64(1), board.Revision())
+		assert.Len(t, board.ToDto().Drawings, 1)
+	})
+
+	t.Run("201 drawings far below the anchor ceiling are still refused by the drawing ceiling", func(t *testing.T) {
+		drawings := make([]dto.ChartDrawingWriteDto, 0, 201)
+		for range 201 {
+			drawings = append(drawings, horizontalLineWrite(0, "1"))
+		}
+
+		_, replaceError := boardOf(t, 0).Replace(0, drawings)
+
+		assert.ErrorIs(t, replaceError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, replaceError, "一份繪圖板最多 200 個繪圖")
+	})
+
+	boardHolding := func(t *testing.T, anchorCount int) domains.ChartDrawingBoardDomain {
+		drawings := make([]dto.ChartDrawingDto, 0)
+		for anchorCount > 0 {
+			strokeAnchorCount := min(anchorCount, 200)
+			stroke := brushWrite(strokeAnchorCount)
+			drawings = append(drawings, dto.ChartDrawingDto{
+				ID: uint(len(drawings) + 1), Kind: "brush", Anchors: stroke.Anchors, Source: "manual"})
+			anchorCount -= strokeAnchorCount
+		}
+
+		return boardOf(t, 5, drawings...)
+	}
+	trendLine := func(t *testing.T) []domains.ChartDrawingDomain {
+		drawing, drawingError := domains.NewChartDrawingDomain("trendLine",
+			[]dto.ChartDrawingAnchorDto{anchorAt("1"), anchorAt("2")}, dto.ChartDrawingStyleWriteDto{},
+			vo.ChartDrawingProvenanceVo{Source: vo.ChartDrawingSourceAssistant})
+		require.NoError(t, drawingError)
+
+		return []domains.ChartDrawingDomain{drawing}
+	}
+
+	t.Run("an assistant line that fills the anchors exactly is added", func(t *testing.T) {
+		appendedBoard, addedDrawings, appendError := boardHolding(t, 3998).AppendAssistantDrawings(trendLine(t))
+
+		require.NoError(t, appendError)
+		assert.Len(t, addedDrawings, 1)
+		assert.Equal(t, int64(6), appendedBoard.Revision())
+	})
+
+	t.Run("an assistant line past the anchor ceiling refuses the whole batch", func(t *testing.T) {
+		_, _, appendError := boardHolding(t, 3999).AppendAssistantDrawings(trendLine(t))
+
+		assert.ErrorIs(t, appendError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, appendError, "一份繪圖板的繪圖最多共 4000 個錨點，這份只剩 1 個錨點的空間，這一批有 2 個")
 	})
 }

@@ -15,7 +15,7 @@ import (
 // removing chart drawings is offered because it reaches only what an assistant drew.
 func TestTheAssistantIsOfferedNothingItMustNotDo(t *testing.T) {
 	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, nil, nil, 200,
-		vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20})
+		vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20})
 
 	offeredNames := make([]string, 0, len(assistantQueries))
 	for _, assistantQuery := range assistantQueries {
@@ -45,7 +45,7 @@ func TestTheAssistantIsOfferedNothingItMustNotDo(t *testing.T) {
 
 func TestEveryOfferedCapabilityIsUsable(t *testing.T) {
 	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, nil, nil, 200,
-		vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20})
+		vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20})
 
 	for _, assistantQuery := range assistantQueries {
 		t.Run(assistantQuery.Name(), func(t *testing.T) {
