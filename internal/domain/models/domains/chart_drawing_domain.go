@@ -49,6 +49,10 @@ func NewChartDrawingDomain(
 	return ChartDrawingDomain{kind: kind, anchors: anchors, style: style, provenance: provenance}, nil
 }
 
+func (chartDrawingDomain ChartDrawingDomain) AnchorCount() int {
+	return len(chartDrawingDomain.anchors)
+}
+
 func (chartDrawingDomain ChartDrawingDomain) ToDto(id uint) dto.ChartDrawingDto {
 	return dto.ChartDrawingDto{
 		ID:                      id,

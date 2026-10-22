@@ -109,7 +109,7 @@ func (chartDrawingBoardDomain ChartDrawingBoardDomain) AppendAssistantDrawings(
 	freeAnchors := chartDrawingBoardDomain.limits.BoardAnchorCapacity - chartDrawingBoardDomain.anchorCount()
 	batchAnchorCount := 0
 	for _, drawing := range drawings {
-		batchAnchorCount += len(drawing.anchors)
+		batchAnchorCount += drawing.AnchorCount()
 	}
 	if batchAnchorCount > freeAnchors {
 		return ChartDrawingBoardDomain{}, nil, fmt.Errorf(
