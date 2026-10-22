@@ -86,9 +86,9 @@ func (chartDrawingBoardDomain ChartDrawingBoardDomain) Replace(
 		replaced.drawings = append(replaced.drawings, drawing.ToDto(drawingID))
 	}
 
-	if replaced.anchorCount() > replaced.limits.BoardAnchorCapacity {
+	if anchorCount := replaced.anchorCount(); anchorCount > replaced.limits.BoardAnchorCapacity {
 		return ChartDrawingBoardDomain{}, fmt.Errorf("%w: 一份繪圖板的繪圖最多共 %d 個錨點，收到 %d 個",
-			ErrChartDrawingValidation, replaced.limits.BoardAnchorCapacity, replaced.anchorCount())
+			ErrChartDrawingValidation, replaced.limits.BoardAnchorCapacity, anchorCount)
 	}
 	replaced.revision++
 
