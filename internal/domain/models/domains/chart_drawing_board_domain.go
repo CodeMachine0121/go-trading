@@ -85,6 +85,11 @@ func (chartDrawingBoardDomain ChartDrawingBoardDomain) Replace(
 
 		replaced.drawings = append(replaced.drawings, drawing.ToDto(drawingID))
 	}
+
+	if anchorCount := replaced.anchorCount(); anchorCount > replaced.limits.BoardAnchorCapacity {
+		return ChartDrawingBoardDomain{}, fmt.Errorf("%w: 一份繪圖板的繪圖最多共 %d 個錨點，收到 %d 個",
+			ErrChartDrawingValidation, replaced.limits.BoardAnchorCapacity, anchorCount)
+	}
 	replaced.revision++
 
 	return replaced, nil
@@ -99,6 +104,17 @@ func (chartDrawingBoardDomain ChartDrawingBoardDomain) AppendAssistantDrawings(
 		return ChartDrawingBoardDomain{}, nil, fmt.Errorf(
 			"%w: 一份繪圖板最多 %d 個繪圖，這份只剩 %d 個空位，這一批有 %d 個",
 			ErrChartDrawingValidation, chartDrawingBoardDomain.limits.BoardCapacity, max(freePlaces, 0), len(drawings))
+	}
+
+	freeAnchors := chartDrawingBoardDomain.limits.BoardAnchorCapacity - chartDrawingBoardDomain.anchorCount()
+	batchAnchorCount := 0
+	for _, drawing := range drawings {
+		batchAnchorCount += drawing.AnchorCount()
+	}
+	if batchAnchorCount > freeAnchors {
+		return ChartDrawingBoardDomain{}, nil, fmt.Errorf(
+			"%w: 一份繪圖板的繪圖最多共 %d 個錨點，這份只剩 %d 個錨點的空間，這一批有 %d 個",
+			ErrChartDrawingValidation, chartDrawingBoardDomain.limits.BoardAnchorCapacity, max(freeAnchors, 0), batchAnchorCount)
 	}
 
 	appended := chartDrawingBoardDomain
@@ -155,6 +171,15 @@ func (chartDrawingBoardDomain ChartDrawingBoardDomain) RemoveAssistantDrawings(
 	}
 
 	return remaining, removedDrawingIDs, nil
+}
+
+func (chartDrawingBoardDomain ChartDrawingBoardDomain) anchorCount() int {
+	anchorCount := 0
+	for _, drawing := range chartDrawingBoardDomain.drawings {
+		anchorCount += len(drawing.Anchors)
+	}
+
+	return anchorCount
 }
 
 func (chartDrawingBoardDomain ChartDrawingBoardDomain) ToDto() dto.ChartDrawingBoardDto {

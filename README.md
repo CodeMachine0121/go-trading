@@ -143,6 +143,7 @@ curl localhost:8080/health
 | `SYMBOL_SCREENING_RUN_RETENTION_DAYS` | `90` | 結束的標的篩選連同每個標的的結果保留幾天 |
 | `SYMBOL_SCREENING_MARKET_DATA_RETENTION_DAYS` | `30` | 篩選直接向幣安取得的 4 小時／1 天 K 線與資金費率保留幾天；與盯盤用的每分鐘 K 線分開存放 |
 | `CHART_DRAWING_BOARD_CAPACITY` | `200` | 一份繪圖板（一位使用者 × 現貨或合約 × 一個交易標的）最多幾個繪圖；整份存回超過、或助手新增後會超過，一律拒絕 |
+| `CHART_DRAWING_BOARD_ANCHOR_CAPACITY` | `4000` | 一份繪圖板上所有繪圖的錨點加總最多幾個（奇異筆一筆最多 200 個點）；整份存回超過、或助手新增後會超過，一律拒絕 |
 | `CHART_DRAWING_ASSISTANT_BATCH_CAPACITY` | `20` | 助手（站內助手或外掛）一次最多新增幾個繪圖 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
@@ -1221,11 +1222,14 @@ newman run postman/go-trading.postman_collection.json \
 看盤工作區畫的趨勢線、水平線、斐波那契回撤……存在服務裡：每一位使用者、每一個市場（`spot` 現貨／`contract` 合約）、
 每一個交易標的各有一份**繪圖板**。同一個代號的現貨與合約是兩份；別人的繪圖板讀不到也改不到。
 
-- **八種繪圖與點數**：`trendLine`、`ray`、`fibonacciRetracement`、`rectangle`、`dateAndPriceRange` 各 2 個錨點；
-  `horizontalLine`、`horizontalRay`、`verticalLine` 各 1 個。錨點＝K 線起始時間（RFC3339）＋價格（十進位字串，必須大於零）。
+- **九種繪圖與點數**：`trendLine`、`ray`、`fibonacciRetracement`、`rectangle`、`dateAndPriceRange` 各 2 個錨點；
+  `horizontalLine`、`horizontalRay`、`verticalLine` 各 1 個；**奇異筆** `brush` 是 2 到 200 個點依筆跡先後排列的自由曲線。
+  錨點＝時間（RFC3339）＋價格（十進位字串，必須大於零）；奇異筆的點時間可以是任何時刻，不必是 K 線起始時間。
+- **奇異筆只能手畫**：助手（站內助手與外掛）新增 `brush` 一律 `400`「奇異筆只能由使用者手畫，助手不能畫」，但讀得到。
+- **兩個上限**：一份繪圖板最多 200 個繪圖、所有繪圖的錨點加總最多 4000 個（`CHART_DRAWING_BOARD_CAPACITY`／`CHART_DRAWING_BOARD_ANCHOR_CAPACITY`）。
 - **樣式**：`color` 是調色盤名稱 `red`／`orange`／`yellow`／`green`／`teal`／`cyan`／`blue`／`indigo`／`purple`／`pink`／`gray`／`silver`（不是色碼，
   前端自己對到亮色／暗色）；`lineWidth` 1–4；`lineStyle` `solid`／`dashed`／`dotted`；`locked`、`visible`。沒給的取那一種繪圖的預設樣式
-  （趨勢線、射線藍色線寬 2；水平線、水平射線、垂直線藍色線寬 1；矩形紫色；斐波那契回撤灰色；日期與價格範圍藍色；實線、不鎖定、顯示）。
+  （趨勢線、射線藍色線寬 2；水平線、水平射線、垂直線藍色線寬 1；矩形紫色；斐波那契回撤灰色；日期與價格範圍藍色；奇異筆橙色線寬 2；實線、不鎖定、顯示）。
 - **來源**：`source` 是 `manual`（手畫）或 `assistant`（助手）；站內助手畫的另帶 `assistantConversationId` 與 `assistantTurnId`，外掛畫的這兩欄是 `null`。
   **來源由服務記，整份存回改不動**——帶著既有 `id` 的繪圖保留原本的來源與問答，助手畫的被使用者拖過仍是助手畫的；
   沒有 `id` 或 `id` 不認得的，一律是新的手畫繪圖、拿一個新編號。編號只在同一份繪圖板內有意義，用過不再發。

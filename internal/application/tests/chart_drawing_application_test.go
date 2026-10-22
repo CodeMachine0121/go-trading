@@ -52,7 +52,7 @@ func newChartDrawingApplicationUnderTest(t *testing.T) chartDrawingApplicationUn
 			tradingSymbolRepository, clockProxy, marketCatalog, 1000),
 		service.NewKCandleContractService(fixture.kCandleContractRepository,
 			mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy, marketCatalog, 1000),
-		vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20},
+		vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20},
 	))
 
 	return fixture
@@ -233,6 +233,53 @@ func TestChartDrawingApplicationReplaceBoard(t *testing.T) {
 		assert.True(t, boardDto.Drawings[0].Anchors[0].OpenTime.After(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)))
 	})
 
+	brushStroke := func(anchorCount int) dto.ChartDrawingWriteDto {
+		anchors := make([]dto.ChartDrawingAnchorDto, 0, anchorCount)
+		for position := range anchorCount {
+			anchors = append(anchors, dto.ChartDrawingAnchorDto{
+				OpenTime: chartDrawingAnchorHour.Add(time.Duration(position) * 1700 * time.Millisecond),
+				Price:    decimal.NewFromInt(int64(61000 + position)),
+			})
+		}
+
+		return dto.ChartDrawingWriteDto{Kind: "brush", Anchors: anchors}
+	}
+
+	t.Run("a brush stroke is saved with its points between candles and the brush's look", func(t *testing.T) {
+		fixture := newChartDrawingApplicationUnderTest(t)
+		fixture.boardIs(entities.ChartDrawingBoard{Market: "spot"}, false)
+		saved := fixture.savesEcho(0)
+		stroke := brushStroke(50)
+
+		boardDto, replaceError := fixture.application.ReplaceBoard(context.Background(), dto.ChartDrawingBoardReplaceDto{
+			Place: spotPlace(), Revision: 0, Drawings: []dto.ChartDrawingWriteDto{stroke},
+		})
+
+		require.NoError(t, replaceError)
+		assert.Equal(t, stroke.Anchors, boardDto.Drawings[0].Anchors)
+		assert.Equal(t, []string{"brush", "orange", "manual"},
+			[]string{boardDto.Drawings[0].Kind, boardDto.Drawings[0].Color, boardDto.Drawings[0].Source})
+		assert.Equal(t, 2, boardDto.Drawings[0].LineWidth)
+		assert.Equal(t, stroke.Anchors, saved.Drawings[0].Anchors)
+	})
+
+	t.Run("a board over the anchor ceiling is refused, writing nothing", func(t *testing.T) {
+		fixture := newChartDrawingApplicationUnderTest(t)
+		fixture.boardIs(aStoredBoard(2, aBoardDrawing(1, vo.ChartDrawingSourceManual)), true)
+		strokes := make([]dto.ChartDrawingWriteDto, 0, 21)
+		for range 20 {
+			strokes = append(strokes, brushStroke(200))
+		}
+		strokes = append(strokes, newHorizontalLine)
+
+		_, replaceError := fixture.application.ReplaceBoard(context.Background(), dto.ChartDrawingBoardReplaceDto{
+			Place: spotPlace(), Revision: 2, Drawings: strokes,
+		})
+
+		assert.ErrorIs(t, replaceError, domains.ErrChartDrawingValidation)
+		assert.ErrorContains(t, replaceError, "一份繪圖板的繪圖最多共 4000 個錨點，收到 4001 個")
+	})
+
 	t.Run("a board changed since is refused with the board as it is, writing nothing", func(t *testing.T) {
 		fixture := newChartDrawingApplicationUnderTest(t)
 		fixture.boardIs(aStoredBoard(4, aBoardDrawing(1, vo.ChartDrawingSourceAssistant)), true)
@@ -386,7 +433,7 @@ func TestChartDrawingApplicationAddAssistantDrawings(t *testing.T) {
 			service.NewKCandleService(kCandleRepository, summaryDayRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
 			service.NewKCandleContractService(mocks.NewMockIKCandleContractRepository(mockController),
 				mocks.NewMockIKCandleContractSummaryDayRepository(mockController), clockProxy, marketCatalog, 1000),
-			vo.ChartDrawingLimitsVo{BoardCapacity: 200, AssistantBatchCapacity: 20}))
+			vo.ChartDrawingLimitsVo{BoardCapacity: 200, BoardAnchorCapacity: 4000, AssistantBatchCapacity: 20}))
 		saturday := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
 
 		_, addError := taiwanApplication.AddAssistantDrawings(context.Background(), dto.AssistantChartDrawingBatchDto{

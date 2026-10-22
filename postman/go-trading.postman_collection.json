@@ -18558,7 +18558,7 @@
           ]
         },
         {
-          "name": "整份存回（一條趨勢線、一條水平線）",
+          "name": "整份存回（一條趨勢線、一條水平線、一筆奇異筆）",
           "request": {
             "method": "PUT",
             "header": [
@@ -18580,10 +18580,10 @@
                 "{{symbol}}"
               ]
             },
-            "description": "交回的一份取代原本那一份；沒有 id 的是新畫的。只有網頁登入能整份存回，外掛的憑證回 401。",
+            "description": "交回的一份取代原本那一份；沒有 id 的是新畫的。奇異筆（brush）要 2 到 200 個錨點，時間可以是任何時刻（不必是 K 線起始時間），沒給樣式是橙色、線寬 2。一份繪圖板的錨點加總最多 4000 個（CHART_DRAWING_BOARD_ANCHOR_CAPACITY）。只有網頁登入能整份存回，外掛的憑證回 401。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": [\n    {\"kind\": \"trendLine\", \"anchors\": [{\"openTime\": \"{{rangeStart}}\", \"price\": \"60000\"}, {\"openTime\": \"{{rangeEnd}}\", \"price\": \"62000\"}], \"color\": \"blue\", \"lineWidth\": 2, \"lineStyle\": \"solid\"},\n    {\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{rangeEnd}}\", \"price\": \"61000\"}], \"color\": \"red\", \"lineWidth\": 1, \"lineStyle\": \"dashed\", \"locked\": true}\n  ]\n}",
+              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": [\n    {\"kind\": \"trendLine\", \"anchors\": [{\"openTime\": \"{{rangeStart}}\", \"price\": \"60000\"}, {\"openTime\": \"{{rangeEnd}}\", \"price\": \"62000\"}], \"color\": \"blue\", \"lineWidth\": 2, \"lineStyle\": \"solid\"},\n    {\"kind\": \"horizontalLine\", \"anchors\": [{\"openTime\": \"{{rangeEnd}}\", \"price\": \"61000\"}], \"color\": \"red\", \"lineWidth\": 1, \"lineStyle\": \"dashed\", \"locked\": true},\n    {\"kind\": \"brush\", \"anchors\": [{\"openTime\": \"2026-10-19T08:17:42.35Z\", \"price\": \"61200\"}, {\"openTime\": \"2026-10-19T08:18:03.9Z\", \"price\": \"61350.5\"}, {\"openTime\": \"2026-10-19T08:19:30Z\", \"price\": \"61280\"}]}\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -18598,7 +18598,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"取代整份、版本加一、來源是手畫\", function () { const board = pm.response.json(); pm.expect(board.drawings).to.have.length(2); pm.expect(board.revision).to.eql(Number(pm.collectionVariables.get(\"chartDrawingRevision\")) + 1); pm.expect(board.drawings.map(d => d.source)).to.eql([\"manual\", \"manual\"]); pm.expect(board.drawings[1].locked).to.eql(true); pm.expect(board.drawings[1].visible).to.eql(true); });",
+                  "pm.test(\"取代整份、版本加一、來源是手畫\", function () { const board = pm.response.json(); pm.expect(board.drawings).to.have.length(3); pm.expect(board.revision).to.eql(Number(pm.collectionVariables.get(\"chartDrawingRevision\")) + 1); pm.expect(board.drawings.map(d => d.source)).to.eql([\"manual\", \"manual\", \"manual\"]); pm.expect(board.drawings[1].locked).to.eql(true); pm.expect(board.drawings[1].visible).to.eql(true); });",
+                  "pm.test(\"奇異筆的點照存、時間不對齊 K 線、預設橙色線寬 2\", function () { const brush = pm.response.json().drawings[2]; pm.expect(brush.kind).to.eql(\"brush\"); pm.expect(brush.anchors).to.have.length(3); pm.expect(brush.anchors[0].openTime).to.eql(\"2026-10-19T08:17:42.35Z\"); pm.expect(brush.color).to.eql(\"orange\"); pm.expect(brush.lineWidth).to.eql(2); });",
                   "pm.collectionVariables.set(\"chartDrawingStaleRevision\", pm.collectionVariables.get(\"chartDrawingRevision\"));",
                   "pm.collectionVariables.set(\"chartDrawingManualId\", pm.response.json().drawings[0].id);",
                   "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
@@ -18694,6 +18695,52 @@
                 "exec": [
                   "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
                   "pm.test(\"指出第幾個、哪裡不對\", function () { pm.expect(pm.response.json().message).to.include(\"第 1 個繪圖：水平線要 1 個錨點，收到 2 個\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "存回只有一個點的奇異筆 — 整份拒絕",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision\": {{chartDrawingRevision}},\n  \"drawings\": [{\"kind\": \"brush\", \"anchors\": [{\"openTime\": \"2026-10-19T08:17:42.35Z\", \"price\": \"61200\"}]}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出奇異筆要幾個錨點\", function () { pm.expect(pm.response.json().message).to.include(\"第 1 個繪圖：奇異筆要 2 到 200 個錨點，收到 1 個\"); });"
                 ]
               }
             }
@@ -18796,6 +18843,53 @@
           ]
         },
         {
+          "name": "助手畫奇異筆 — 整批拒絕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/chart-drawings/spot/{{symbol}}/assistant-drawings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "chart-drawings",
+                "spot",
+                "{{symbol}}",
+                "assistant-drawings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interval\": \"1m\",\n  \"drawings\": [{\"kind\": \"brush\", \"anchors\": [{\"openTime\": \"{{openTime}}\", \"snapTo\": \"low\"}, {\"openTime\": \"{{openTime}}\", \"snapTo\": \"high\"}]}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出奇異筆只能手畫\", function () { pm.expect(pm.response.json().message).to.include(\"第 1 個繪圖：奇異筆只能由使用者手畫，助手不能畫\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "助手移除手畫的 — 拒絕",
           "request": {
             "method": "DELETE",
@@ -18860,7 +18954,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"手畫兩個、助手一個，助手的在最上面\", function () { const sources = pm.response.json().drawings.map(d => d.source); pm.expect(sources).to.eql([\"manual\", \"manual\", \"assistant\"]); });",
+                  "pm.test(\"手畫三個、助手一個，助手的在最上面\", function () { const sources = pm.response.json().drawings.map(d => d.source); pm.expect(sources).to.eql([\"manual\", \"manual\", \"manual\", \"assistant\"]); });",
                   "pm.collectionVariables.set(\"chartDrawingRevision\", pm.response.json().revision);"
                 ]
               }

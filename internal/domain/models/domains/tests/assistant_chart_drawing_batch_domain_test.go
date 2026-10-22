@@ -83,6 +83,12 @@ func TestAssistantChartDrawingBatchDomainRefusesWithoutReadingTheMarket(t *testi
 				assistantHorizontalLine(snappedAnchor(assistantAnchorMoment, "low")),
 				dto.AssistantChartDrawingWriteDto{Kind: "trendLine", Anchors: []dto.AssistantChartDrawingAnchorWriteDto{snappedAnchor(assistantAnchorMoment, "low")}}),
 			refusalText: "第 2 個繪圖：趨勢線要 2 個錨點，收到 1 個"},
+		{name: "a brush stroke as the second drawing",
+			batch: assistantBatch("1h",
+				assistantHorizontalLine(snappedAnchor(assistantAnchorMoment, "low")),
+				dto.AssistantChartDrawingWriteDto{Kind: "brush", Anchors: []dto.AssistantChartDrawingAnchorWriteDto{
+					snappedAnchor(assistantAnchorMoment, "low"), snappedAnchor(assistantAnchorMoment.Add(time.Hour), "high")}}),
+			refusalText: "第 2 個繪圖：奇異筆只能由使用者手畫，助手不能畫"},
 		{name: "an unknown kind",
 			batch:       assistantBatch("1h", dto.AssistantChartDrawingWriteDto{Kind: "textNote"}),
 			refusalText: "第 1 個繪圖：不認得的繪圖種類"},

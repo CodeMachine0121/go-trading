@@ -56,6 +56,36 @@ func TestChartDrawingBoardRepositoryStoresABoardWhole(t *testing.T) {
 	assert.False(t, contractFound, "the contract board of the same symbol is another board")
 }
 
+func TestChartDrawingBoardRepositoryKeepsABrushStrokesMomentsAndOrder(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	repository := persistence.NewChartDrawingBoardRepository(database)
+	strokeAnchors := make([]dto.ChartDrawingAnchorDto, 0, 200)
+	for position := range 200 {
+		strokeAnchors = append(strokeAnchors, dto.ChartDrawingAnchorDto{
+			OpenTime: time.Date(2026, 10, 19, 8, 17, 42, 350_000_000, time.UTC).Add(time.Duration(position) * 1700 * time.Millisecond),
+			Price:    decimal.RequireFromString("61200.5").Add(decimal.NewFromInt(int64(position))),
+		})
+	}
+
+	_, createError := repository.Save(t.Context(), entities.ChartDrawingBoard{
+		OwnerID: owner.ID, Market: "spot", Symbol: "BTCUSDT", Revision: 1, LastDrawingID: 1,
+		Drawings: []dto.ChartDrawingDto{{ID: 1, Kind: "brush", Anchors: strokeAnchors,
+			Color: "orange", LineWidth: 2, LineStyle: "solid", Visible: true, Source: "manual"}},
+	}, 0)
+	require.NoError(t, createError)
+
+	stored, found, findError := repository.FindOne(t.Context(), owner.ID, "spot", "BTCUSDT")
+	require.NoError(t, findError)
+	require.True(t, found)
+	assert.Equal(t, "brush", stored.Drawings[0].Kind)
+	require.Len(t, stored.Drawings[0].Anchors, 200)
+	for position, anchor := range stored.Drawings[0].Anchors {
+		assert.True(t, strokeAnchors[position].OpenTime.Equal(anchor.OpenTime))
+		assert.Equal(t, strokeAnchors[position].Price.String(), anchor.Price.String())
+	}
+}
+
 func TestChartDrawingBoardRepositoryWritesOnlyOverTheExpectedRevision(t *testing.T) {
 	database := newTestDatabase(t)
 	owner := aDeliveryOwner(t, database, "james@example.com")
