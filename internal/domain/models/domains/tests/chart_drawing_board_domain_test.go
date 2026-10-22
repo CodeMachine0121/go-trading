@@ -508,6 +508,14 @@ func TestChartDrawingBoardDomainKeepsABrushStroke(t *testing.T) {
 }
 
 func TestChartDrawingBoardDomainCapsTheAnchorsOnABoard(t *testing.T) {
+	anchorsOn := func(board dto.ChartDrawingBoardDto) int {
+		anchorCount := 0
+		for _, drawing := range board.Drawings {
+			anchorCount += len(drawing.Anchors)
+		}
+
+		return anchorCount
+	}
 	brushes := func(count int, anchorCount int) []dto.ChartDrawingWriteDto {
 		drawings := make([]dto.ChartDrawingWriteDto, 0, count)
 		for range count {
@@ -522,6 +530,8 @@ func TestChartDrawingBoardDomainCapsTheAnchorsOnABoard(t *testing.T) {
 
 		require.NoError(t, replaceError)
 		assert.Len(t, replacedBoard.ToDto().Drawings, 20)
+		assert.Equal(t, 4000, anchorsOn(replacedBoard.ToDto()))
+		assert.Equal(t, int64(1), replacedBoard.Revision())
 	})
 
 	t.Run("a saved board of 4001 anchors is refused and the board stays as it was", func(t *testing.T) {
@@ -573,7 +583,8 @@ func TestChartDrawingBoardDomainCapsTheAnchorsOnABoard(t *testing.T) {
 		appendedBoard, addedDrawings, appendError := boardHolding(t, 3998).AppendAssistantDrawings(trendLine(t))
 
 		require.NoError(t, appendError)
-		assert.Len(t, addedDrawings, 1)
+		assert.Equal(t, "trendLine", addedDrawings[0].Kind)
+		assert.Equal(t, 4000, anchorsOn(appendedBoard.ToDto()))
 		assert.Equal(t, int64(6), appendedBoard.Revision())
 	})
 
