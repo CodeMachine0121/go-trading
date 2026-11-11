@@ -26,8 +26,12 @@ type StrategyBotWriteDto struct {
 	DeclaredLeverage decimal.Decimal
 	// AutoOrderEntrySlippageTolerancePercentage left out means the default on create and the stored value on rewrite.
 	AutoOrderEntrySlippageTolerancePercentage decimal.NullDecimal
-	// TradingDirections nil means not said: long and short on create, the stored ones on rewrite; spot bots must leave it out.
+	// TradingDirections nil means not said: long and short on create, the retained ones on rewrite; spot bots must leave it out.
 	TradingDirections *[]string
-	// Notifications left out are the defaults on create and the stored settings on rewrite.
+	// RetainedContractTradingMode is the stored bot's mode, filled in on rewrite.
+	RetainedContractTradingMode string
+	// Notifications left out are the defaults on create and the retained settings on rewrite.
 	Notifications StrategyBotNotificationsWriteDto
+	// RetainedNotifications are the stored bot's settings, filled in on rewrite.
+	RetainedNotifications *StrategyBotNotificationsDto
 }

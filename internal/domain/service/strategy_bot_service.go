@@ -154,20 +154,9 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	}
 
 	// What a rewrite leaves out keeps what is stored, so renaming a bot never turns it around or silences it.
-	storedBotDto := storedBot.ToDto()
-	if writeDto.TradingDirections == nil && storedBotDto.TradingDirections != nil {
-		storedTradingDirections := storedBotDto.TradingDirections
-		writeDto.TradingDirections = &storedTradingDirections
-	}
-	if writeDto.Notifications.Buy == nil {
-		writeDto.Notifications.Buy = &storedBotDto.Notifications.Buy
-	}
-	if writeDto.Notifications.Sell == nil {
-		writeDto.Notifications.Sell = &storedBotDto.Notifications.Sell
-	}
-	if writeDto.Notifications.Hold == nil {
-		writeDto.Notifications.Hold = &storedBotDto.Notifications.Hold
-	}
+	writeDto.RetainedContractTradingMode = storedBot.ContractTradingMode
+	retainedNotifications := storedBot.NotificationsDto()
+	writeDto.RetainedNotifications = &retainedNotifications
 
 	strategyBotDomain, validationError := strategyBotService.settle(
 		executionContext, writeDto, followedTradingStrategy)

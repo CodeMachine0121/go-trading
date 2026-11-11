@@ -13,9 +13,9 @@ type StrategyBotTradingDirectionDomain struct {
 	tradingMode ContractTradingModeDomain
 }
 
-// NewStrategyBotTradingDirectionDomain settles what was declared; nil means nothing was said, which is long and short for a contract bot.
+// NewStrategyBotTradingDirectionDomain settles what was declared; nil means nothing was said, which keeps the retained mode on a rewrite and is long and short otherwise.
 func NewStrategyBotTradingDirectionDomain(
-	marketDataKind MarketDataKindDomain, declared *[]string,
+	marketDataKind MarketDataKindDomain, declared *[]string, retainedContractTradingMode string,
 ) (StrategyBotTradingDirectionDomain, error) {
 	if !marketDataKind.IsContract() {
 		if declared != nil && len(*declared) > 0 {
@@ -27,9 +27,13 @@ func NewStrategyBotTradingDirectionDomain(
 	}
 
 	if declared == nil {
-		return StrategyBotTradingDirectionDomain{
-			isContract: true, tradingMode: NewContractTradingModeDomainFacing(true, true),
-		}, nil
+		// A retained mode no one can read falls back to long and short, as it always read.
+		retainedTradingMode, retainedError := NewContractTradingModeDomain(retainedContractTradingMode)
+		if retainedError != nil {
+			retainedTradingMode = NewContractTradingModeDomainFacing(true, true)
+		}
+
+		return StrategyBotTradingDirectionDomain{isContract: true, tradingMode: retainedTradingMode}, nil
 	}
 
 	if len(*declared) == 0 {

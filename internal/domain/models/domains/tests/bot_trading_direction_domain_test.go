@@ -33,7 +33,7 @@ func TestStrategyBotTradingDirectionSettlesWhatAContractBotFaces(t *testing.T) {
 	require.NoError(t, kindError)
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(contractKind, testCase.declared)
+			tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(contractKind, testCase.declared, "")
 
 			require.NoError(t, settleError)
 			assert.Equal(t, testCase.expectedMode, tradingDirection.ContractTradingMode())
@@ -61,7 +61,7 @@ func TestStrategyBotTradingDirectionRefusals(t *testing.T) {
 			kind, kindError := domains.NewMarketDataKindDomain(testCase.marketDataKind)
 			require.NoError(t, kindError)
 
-			_, settleError := domains.NewStrategyBotTradingDirectionDomain(kind, testCase.declared)
+			_, settleError := domains.NewStrategyBotTradingDirectionDomain(kind, testCase.declared, "")
 
 			require.ErrorIs(t, settleError, domains.ErrStrategyBotValidation)
 			assert.Contains(t, settleError.Error(), testCase.expectedMessage)
@@ -74,7 +74,7 @@ func TestStrategyBotTradingDirectionOfASpotBotIsNone(t *testing.T) {
 	require.NoError(t, kindError)
 
 	for _, declared := range []*[]string{nil, declaring()} {
-		tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(spotKind, declared)
+		tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(spotKind, declared, "")
 
 		require.NoError(t, settleError)
 		assert.Empty(t, tradingDirection.ContractTradingMode())
@@ -99,7 +99,7 @@ func TestStrategyBotTradingDirectionTellsAChange(t *testing.T) {
 	require.NoError(t, kindError)
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(contractKind, testCase.declared)
+			tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(contractKind, testCase.declared, "")
 			require.NoError(t, settleError)
 
 			assert.Equal(t, testCase.expectChange, tradingDirection.Differs(testCase.storedMode))
@@ -146,7 +146,7 @@ func TestStrategyBotNotificationsSettleOverTheDefaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			notifications := domains.NewStrategyBotNotificationDomainSettling(testCase.declared)
+			notifications := domains.NewStrategyBotNotificationDomainSettling(testCase.declared, nil)
 
 			assert.Equal(t, testCase.expected, notifications.ToDto())
 			assert.Equal(t, testCase.expected.Buy, notifications.NotifiesSignal(vo.SignalBuy))
@@ -285,4 +285,40 @@ func TestStrategyBotRoundOutcomeQueuesItsMessageUnderTheSignalItSpeaksOf(t *test
 			assert.Equal(t, testCase.expectedSignal, outcome.MessageSignal())
 		})
 	}
+}
+
+func TestStrategyBotTradingDirectionKeepsTheRetainedOneWhenNothingIsSaid(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declared     *[]string
+		retainedMode string
+		expectedMode string
+	}{
+		{name: "nothing said keeps short only", declared: nil, retainedMode: "shortOnly", expectedMode: "shortOnly"},
+		{name: "what is said wins over what is retained", declared: declaring("long"), retainedMode: "shortOnly", expectedMode: "longOnly"},
+		{name: "a bot not yet upgraded reads as both", declared: nil, retainedMode: "", expectedMode: "longShort"},
+		{name: "an unreadable retained mode reads as both", declared: nil, retainedMode: "sideways", expectedMode: "longShort"},
+	}
+
+	contractKind, kindError := domains.NewMarketDataKindDomain("contractKCandle")
+	require.NoError(t, kindError)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingDirection, settleError := domains.NewStrategyBotTradingDirectionDomain(
+				contractKind, testCase.declared, testCase.retainedMode)
+
+			require.NoError(t, settleError)
+			assert.Equal(t, testCase.expectedMode, tradingDirection.ContractTradingMode())
+		})
+	}
+}
+
+func TestStrategyBotNotificationsKeepTheRetainedOnesWhenNothingIsSaid(t *testing.T) {
+	on := true
+	retained := dto.StrategyBotNotificationsDto{Buy: false, Sell: false, Hold: false}
+
+	notifications := domains.NewStrategyBotNotificationDomainSettling(
+		dto.StrategyBotNotificationsWriteDto{Hold: &on}, &retained)
+
+	assert.Equal(t, dto.StrategyBotNotificationsDto{Buy: false, Sell: false, Hold: true}, notifications.ToDto())
 }

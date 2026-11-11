@@ -15,11 +15,14 @@ func NewStrategyBotNotificationDomain(notifications dto.StrategyBotNotifications
 	return StrategyBotNotificationDomain{notifications: notifications}
 }
 
-// NewStrategyBotNotificationDomainSettling fills what was not said with the defaults: buy and sell on, hold off, as every bot behaved before the choice existed.
+// NewStrategyBotNotificationDomainSettling fills what was not said with the retained settings on a rewrite, or else the defaults: buy and sell on, hold off, as every bot behaved before the choice existed.
 func NewStrategyBotNotificationDomainSettling(
-	declared dto.StrategyBotNotificationsWriteDto,
+	declared dto.StrategyBotNotificationsWriteDto, retained *dto.StrategyBotNotificationsDto,
 ) StrategyBotNotificationDomain {
 	notifications := dto.StrategyBotNotificationsDto{Buy: true, Sell: true, Hold: false}
+	if retained != nil {
+		notifications = *retained
+	}
 	if declared.Buy != nil {
 		notifications.Buy = *declared.Buy
 	}

@@ -148,7 +148,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 	}
 
 	tradingDirection, tradingDirectionError := NewStrategyBotTradingDirectionDomain(
-		marketDataKind, writeDto.TradingDirections)
+		marketDataKind, writeDto.TradingDirections, writeDto.RetainedContractTradingMode)
 	if tradingDirectionError != nil {
 		return StrategyBotDomain{}, tradingDirectionError
 	}
@@ -166,7 +166,8 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		leverage:                         leverage,
 		entrySlippageTolerancePercentage: entrySlippageTolerancePercentage,
 		tradingDirection:                 tradingDirection,
-		notifications:                    NewStrategyBotNotificationDomainSettling(writeDto.Notifications),
+		notifications: NewStrategyBotNotificationDomainSettling(
+			writeDto.Notifications, writeDto.RetainedNotifications),
 	}, nil
 }
 
