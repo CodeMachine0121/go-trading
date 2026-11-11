@@ -7,7 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -322,11 +321,11 @@ func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.
 		tradingStrategy.ToEntity().SignalSources[0].AggregationInterval)
 }
 
-// Only spot or blank is accepted; anything else is refused rather than silently stored as spot.
-func TestNewTradingStrategyDomainAcceptsOnlySpotOrSilence(t *testing.T) {
-	for _, declaredMode := range []string{"", "   ", "spot", "SPOT"} {
+// Saying nothing about a mode is the only acceptable thing to say: blanks read as nothing.
+func TestNewTradingStrategyDomainAcceptsOnlySilenceAboutAMode(t *testing.T) {
+	for _, declaredMode := range []string{"", "   "} {
 		writeDto := aTradingStrategyWriteDto()
-		writeDto.TradingMode = declaredMode
+		writeDto.DeclaredTradingMode = declaredMode
 
 		_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
@@ -334,28 +333,16 @@ func TestNewTradingStrategyDomainAcceptsOnlySpotOrSilence(t *testing.T) {
 	}
 }
 
-func TestNewTradingStrategyDomainRefusesAnyOtherSetOfRules(t *testing.T) {
-	for _, declaredMode := range []string{"longShort", "leveragedLong", "shortOnly", "dayTrade"} {
+// Even spot, which used to be accepted on a K candle strategy, is refused: a strategy no longer holds a mode of any kind.
+func TestNewTradingStrategyDomainRefusesEveryMode(t *testing.T) {
+	for _, declaredMode := range []string{"spot", "SPOT", "longShort", "shortOnly", "dayTrade"} {
 		writeDto := aTradingStrategyWriteDto()
-		writeDto.TradingMode = declaredMode
+		writeDto.DeclaredTradingMode = declaredMode
 
 		_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
 		require.Error(t, buildError, declaredMode)
 		assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-		assert.Contains(t, buildError.Error(), "只重演現貨")
+		assert.Contains(t, buildError.Error(), "交易策略不再記交易模式")
 	}
-}
-
-// The refusal is the replay's exact sentence, so the two cannot drift apart.
-func TestNewTradingStrategyDomainRefusesInTheSameWordsAReplayDoes(t *testing.T) {
-	writeDto := aTradingStrategyWriteDto()
-	writeDto.TradingMode = "longShort"
-
-	_, saveError := domains.NewTradingStrategyDomain(writeDto)
-	_, replayError := domains.NewSpotOnlyReplayDomain("longShort", decimal.Zero, decimal.Zero)
-
-	require.Error(t, saveError)
-	require.Error(t, replayError)
-	assert.Contains(t, saveError.Error(), replayError.Error())
 }

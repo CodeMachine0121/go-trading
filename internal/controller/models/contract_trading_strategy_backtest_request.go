@@ -25,9 +25,9 @@ type ContractTradingStrategyBacktestRequest struct {
 	ValidationStartTime time.Time       `json:"validationStartTime"`
 	Leverage            decimal.Decimal `json:"leverage"`
 	SlippagePercentage  decimal.Decimal `json:"slippagePercentage"`
-	// TradingMode and MaintenanceMarginRate are carried only to be refused: the
-	// trading strategy says the first, the symbol's ladder the second.
-	TradingMode           string          `json:"tradingMode"`
+	// TradingMode is longShort (blank), longOnly or shortOnly: the directions this replay faces.
+	TradingMode string `json:"tradingMode"`
+	// MaintenanceMarginRate is carried only to be refused: the symbol's ladder says it.
 	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 }
 

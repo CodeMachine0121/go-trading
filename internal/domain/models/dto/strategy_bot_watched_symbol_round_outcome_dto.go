@@ -15,6 +15,8 @@ type StrategyBotWatchedSymbolRoundOutcomeDto struct {
 	// SentSignal is the signal the round queued a message for, empty when it queued none.
 	SentSignal  string
 	Conflicting bool
+	// Opinion is buy, sell or hold, blank for a conflict; it is what the watched symbol remembers as its last opinion.
+	Opinion string
 	// PositionPlan travels with the outcome so history keeps the figures this round used
 	// even if settings change later.
 	PositionPlan    PositionPlanDto
@@ -22,7 +24,7 @@ type StrategyBotWatchedSymbolRoundOutcomeDto struct {
 	// ReferencePrice and JournalLinkIdentifier travel only with a round that offered a journal link.
 	ReferencePrice        decimal.NullDecimal
 	JournalLinkIdentifier string
-	// Round is what the round's message says, written when the round is booked in; only set when HasMessage.
+	// Round is what the round's message says, written when the round is booked in; only sent when HasMessage, since a silenced signal still carries its round for the auto order.
 	Round      StrategyBotRoundDto
 	HasMessage bool
 	// AutoOrderIntent is what a contract round would do with real money; whether it is queued is decided when the round is booked in.

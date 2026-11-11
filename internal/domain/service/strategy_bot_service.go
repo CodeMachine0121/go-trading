@@ -153,6 +153,22 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 			storedBot.AutoOrderEntrySlippageTolerancePercentage)
 	}
 
+	// What a rewrite leaves out keeps what is stored, so renaming a bot never turns it around or silences it.
+	storedBotDto := storedBot.ToDto()
+	if writeDto.TradingDirections == nil && storedBotDto.TradingDirections != nil {
+		storedTradingDirections := storedBotDto.TradingDirections
+		writeDto.TradingDirections = &storedTradingDirections
+	}
+	if writeDto.Notifications.Buy == nil {
+		writeDto.Notifications.Buy = &storedBotDto.Notifications.Buy
+	}
+	if writeDto.Notifications.Sell == nil {
+		writeDto.Notifications.Sell = &storedBotDto.Notifications.Sell
+	}
+	if writeDto.Notifications.Hold == nil {
+		writeDto.Notifications.Hold = &storedBotDto.Notifications.Hold
+	}
+
 	strategyBotDomain, validationError := strategyBotService.settle(
 		executionContext, writeDto, followedTradingStrategy)
 	if validationError != nil {
@@ -170,6 +186,26 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 			// Asked again under the lock, since a start pressed meanwhile would have the symbols change under a running round.
 			if editableError := domains.NewStrategyBotRunStateDomain(lockedBot).RequireEditable(); editableError != nil {
 				return editableError
+			}
+
+			// Asked under the lock too, since auto orders may have been switched on or a position opened meanwhile.
+			if strategyBotDomain.ChangesTradingDirectionOf(lockedBot) {
+				if lockedBot.AutoOrderEnabled {
+					return fmt.Errorf("%w: 自動下單開著時不能改交易方向——請先到網頁上這台機器人的詳細頁關掉自動下單",
+						domains.ErrStrategyBotTradingDirectionAutoOrderOn)
+				}
+
+				for _, watchedSymbol := range lockedBot.WatchedSymbols {
+					hasUnsettledAutoOrder, unsettledError := strategyBotService.contractAutoOrderRepository.ExistsUnsettled(
+						transactionContext, lockedBot.ID, watchedSymbol.Symbol)
+					if unsettledError != nil {
+						return unsettledError
+					}
+					if flatError := domains.NewStrategyBotWatchedSymbolDomain(watchedSymbol).
+						RequireFlatForDirectionChange(hasUnsettledAutoOrder); flatError != nil {
+						return flatError
+					}
+				}
 			}
 
 			for _, droppedSymbol := range strategyBotDomain.WatchedSymbolsDroppedFrom(lockedBot) {
@@ -429,7 +465,7 @@ func (strategyBotService *StrategyBotService) WatchedSymbolsToPlay(
 // DecideRound evaluates the buy and sell conditions against one watched symbol's signals this round, with no I/O, so it can be replayed over history.
 func (strategyBotService *StrategyBotService) DecideRound(
 	watchedSymbolDto dto.StrategyBotWatchedSymbolDto, tradingStrategyDto dto.TradingStrategyDto,
-	signalsByLabel map[string]vo.SignalVo,
+	signalsByLabel map[string]vo.SignalVo, notifications dto.StrategyBotNotificationsDto,
 ) (dto.StrategyBotRoundDecisionDto, error) {
 	declaredLabels := make([]string, 0, len(tradingStrategyDto.SignalSources))
 	for _, signalSource := range tradingStrategyDto.SignalSources {
@@ -452,11 +488,16 @@ func (strategyBotService *StrategyBotService) DecideRound(
 		buyCondition.Holds(signalsByLabel),
 		sellCondition.Holds(signalsByLabel),
 		watchedSymbolDto.LastSentSignal)
+	notificationDomain := domains.NewStrategyBotNotificationDomain(notifications)
+	signal, hasSignal := verdictDomain.Signal()
 
 	return dto.StrategyBotRoundDecisionDto{
-		Verdict:     string(verdictDomain.Verdict()),
-		ShouldSend:  verdictDomain.ShouldSend(),
-		Conflicting: verdictDomain.IsConflicting(),
+		Verdict:            string(verdictDomain.Verdict()),
+		ShouldSend:         verdictDomain.ShouldSend(),
+		Conflicting:        verdictDomain.IsConflicting(),
+		Opinion:            string(verdictDomain.Opinion()),
+		SpeaksSignal:       verdictDomain.ShouldSend() && hasSignal && notificationDomain.NotifiesSignal(signal),
+		SpeaksReturnToHold: verdictDomain.ReturnsToHoldFrom(watchedSymbolDto.LastOpinion) && notificationDomain.NotifiesHold(),
 	}, nil
 }
 
@@ -588,7 +629,7 @@ func (strategyBotService *StrategyBotService) RecordRound(
 					if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
 						domains.NewRoundPendingMessageDomain(
 							id, storedBot.OwnerID, watchedSymbolOutcomeDto.Symbol, dueAt,
-							vo.SignalVo(watchedSymbolOutcomeDto.SentSignal),
+							watchedSymbolOutcome.MessageSignal(),
 							domains.NewStrategyBotMessageDomain(round).Text(),
 							time.Duration(storedBot.TriggerIntervalMinutes)*time.Minute, ranAt,
 						).ToEntity()); enqueueError != nil {
@@ -597,8 +638,8 @@ func (strategyBotService *StrategyBotService) RecordRound(
 				}
 
 				// Judged on the locked row, not the round's snapshot: a bot stopped, or switched off, while the round ran sends nothing.
-				// Only contract rounds carry an intent, so spot bots never get this far.
-				if watchedSymbolOutcomeDto.HasMessage && watchedSymbolOutcomeDto.HasAutoOrderIntent &&
+				// Only a round that decided a new contract signal carries an intent, whether or not its message is wanted.
+				if watchedSymbolOutcomeDto.HasAutoOrderIntent &&
 					storedBot.AutoOrderEnabled && storedBot.RunState == string(vo.StrategyBotRunning) {
 					if enqueueError := strategyBotService.contractAutoOrderRepository.Enqueue(transactionContext,
 						domains.NewQueuedContractAutoOrderDomain(

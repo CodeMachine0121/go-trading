@@ -27,11 +27,10 @@ func aDueContractBot(lastSentSignal string) entities.StrategyBot {
 	return bot
 }
 
-// makeTheRulesContract turns the fixture's rules into a contract trading strategy
-// trading by this mode, keeping its two sources and both conditions.
-func (underTest strategyBotRunUnderTest) makeTheRulesContract(tradingMode vo.ContractTradingModeVo) {
+// makeTheRulesContract turns the fixture's rules into a contract trading strategy, keeping its
+// two sources and both conditions; what buy and sell mean is the bot's trading direction.
+func (underTest strategyBotRunUnderTest) makeTheRulesContract() {
 	underTest.tradingStrategy.MarketDataKind = string(vo.MarketDataKindContractKCandle)
-	underTest.tradingStrategy.TradingMode = string(tradingMode)
 }
 
 // expectContractSources makes both scripts resolvable as contract scripts signalling over contract
@@ -90,7 +89,7 @@ func (underTest strategyBotRunUnderTest) expectTheContractsLatestCandle(closePri
 
 func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("64000.5")
 
@@ -124,7 +123,7 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 
 func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 
@@ -144,7 +143,7 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 // A contract bot halts for the same reasons a spot bot does, in the same words.
 func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	// The rules are read before any market is, so a script gone halts the bot without asking for a candle.
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
@@ -175,7 +174,7 @@ func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.
 // thousand staked whole at five times, a two percent stop, from a price of a hundred.
 func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("100")
 
@@ -274,7 +273,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
-			underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+			underTest.makeTheRulesContract()
 			underTest.expectContractScriptsResolvable()
 			underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return(testCase.storedCandles, testCase.readError)
@@ -301,15 +300,16 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 	}
 }
 
-// What a sell means is read from the rules this round followed: under long only it
+// What a sell means is read from the bot's own trading direction: facing long only, it
 // closes the long, and there is nothing to suggest opening.
-func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(t *testing.T) {
+func TestStrategyBotRunApplicationReadsAContractConclusionByTheBotsTradingDirection(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalSell, vo.SignalHold)
 	underTest.expectTheContractsLatestCandle("100")
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
+	dueBot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
@@ -336,7 +336,7 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 // sends nothing, asks no source, and the bot keeps running.
 func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectContractScriptsResolvable()
 	// Three hours before the round, and nothing since.
 	underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
@@ -369,7 +369,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving
 // source, and the newest candle once for the reference price.
 func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
 			return entities.StrategyScript{
@@ -436,7 +436,7 @@ func (underTest strategyBotRunUnderTest) expectOneDueContractBotRound(t *testing
 
 func TestAContractBotWhoseOrderFlowIsNotGatheredInTimeSkipsTheRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.expectOrderFlowSources("5m", []time.Time{at(9, 5)})
 	// Today's trades come live, and this venue never finishes answering.
@@ -462,7 +462,7 @@ func TestAContractBotWhoseOrderFlowIsNotGatheredInTimeSkipsTheRound(t *testing.T
 
 func TestAContractBotAskingForOrderFlowPastThirtyOneDaysIsHalted(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectTheContractsLatestCandle("100")
 	dailyBars := []time.Time{}
 	for daysBack := 40; daysBack >= 1; daysBack-- {
@@ -483,7 +483,7 @@ func TestAContractBotAskingForOrderFlowPastThirtyOneDaysIsHalted(t *testing.T) {
 
 func TestAContractBotWhoseOrderFlowIsReadyConcludesAsUsual(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.makeTheRulesContract()
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.expectOrderFlowSources("5m", []time.Time{at(9, 5)})
 	underTest.tradeHistoryProxy.EXPECT().VisitTradesBetween(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any(), gomock.Any()).

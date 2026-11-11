@@ -281,7 +281,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRou
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
-		watchedSymbolDto, tradingStrategyDto, signalsByLabel)
+		watchedSymbolDto, tradingStrategyDto, signalsByLabel, botDto.Notifications)
 	if decideError != nil {
 		log.Printf("strategy bot %d on %s: round could not read its conditions: %v",
 			botDto.ID, symbol, decideError)
@@ -292,17 +292,34 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playWatchedSymbolRou
 	}
 
 	if !decision.ShouldSend {
+		outcomeDto := concludedRound(symbol, decision.Verdict, "", decision.Conflicting)
+		outcomeDto.Opinion = decision.Opinion
+
+		if decision.SpeaksReturnToHold {
+			outcomeDto.Round = dto.StrategyBotRoundDto{
+				BotName: botDto.Name, Symbol: symbol, MarketDataKind: botDto.MarketDataKind,
+				ContractTradingMode: botDto.ContractTradingMode, Verdict: decision.Verdict,
+				SourceSignals: sourceSignals, ReturnsToHold: true,
+			}
+			outcomeDto.HasMessage = true
+
+			return outcomeDto
+		}
+
 		log.Printf("strategy bot %d on %s: round concluded %q and said nothing (last sent %q)",
 			botDto.ID, symbol, decision.Verdict, watchedSymbolDto.LastSentSignal)
 
-		return concludedRound(symbol, decision.Verdict, "", decision.Conflicting)
+		return outcomeDto
 	}
 
 	// A bot deleted or restarted meanwhile is caught when the round is booked in, before anything is queued.
 	suggestedRound := strategyBotRunApplication.composeRoundMessage(
 		executionContext, botDto, watchedSymbolDto, tradingStrategyDto, reference, decision, sourceSignals)
 
+	// The signal is decided, and acted on, whether or not its message is wanted.
 	outcomeDto := suggestingRound(symbol, decision.Verdict, decision.Conflicting, suggestedRound)
+	outcomeDto.Opinion = decision.Opinion
+	outcomeDto.HasMessage = decision.SpeaksSignal
 	outcomeDto.AutoOrderIntent, outcomeDto.HasAutoOrderIntent = strategyBotRunApplication.strategyBotService.
 		PlanAutoOrderIntent(suggestedRound)
 
@@ -435,7 +452,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
 		BotName:             botDto.Name,
 		Symbol:              symbol,
 		MarketDataKind:      botDto.MarketDataKind,
-		ContractTradingMode: tradingStrategyDto.TradingMode,
+		ContractTradingMode: botDto.ContractTradingMode,
 		Verdict:             decision.Verdict,
 		ReferencePrice:      reference.ReferencePrice,
 		ReferenceTime:       reference.ReferenceTime,

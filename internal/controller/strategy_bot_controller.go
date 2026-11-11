@@ -192,6 +192,7 @@ func (strategyBotController *StrategyBotController) respondWithError(
 		domains.ErrStrategyBotAutoOrderEntryOutstanding:         "autoOrderEntryOutstanding",
 		domains.ErrStrategyBotWatchedSymbolHoldsPosition:        "watchedSymbolHoldsPosition",
 		domains.ErrStrategyBotWatchedSymbolAutoOrderOutstanding: "watchedSymbolAutoOrderOutstanding",
+		domains.ErrStrategyBotTradingDirectionAutoOrderOn:       "tradingDirectionAutoOrderOn",
 	} {
 		if errors.Is(err, autoOrderRefusal) {
 			ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error(), "reason": reason})

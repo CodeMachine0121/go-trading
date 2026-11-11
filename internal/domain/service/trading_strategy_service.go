@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -131,11 +130,6 @@ func (tradingStrategyService *TradingStrategyService) preparedRewrite(
 		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, retainError
 	}
 	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
-
-	// Omitting the trading mode keeps the stored one, so a rename cannot turn a short-only strategy into one that also buys.
-	if strings.TrimSpace(writeDto.TradingMode) == "" {
-		writeDto.TradingMode = storedTradingStrategy.TradingMode
-	}
 
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {

@@ -57,7 +57,9 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 						"position_plan_capital", "position_plan_sizing_mode",
 						"position_plan_sizing_value",
 						"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
-						"position_plan_contract_leverage", "auto_order_entry_slippage_tolerance_percentage").
+						"position_plan_contract_leverage", "auto_order_entry_slippage_tolerance_percentage",
+						"contract_trading_mode", "mutes_buy_notification", "mutes_sell_notification",
+						"sends_hold_notification").
 					Updates(entities.StrategyBot{
 						Name:                                      botRow.Name,
 						TradingStrategyID:                         botRow.TradingStrategyID,
@@ -69,6 +71,10 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 						PositionPlanTakeProfitPercentage:          botRow.PositionPlanTakeProfitPercentage,
 						PositionPlanLeverage:                      botRow.PositionPlanLeverage,
 						AutoOrderEntrySlippageTolerancePercentage: botRow.AutoOrderEntrySlippageTolerancePercentage,
+						ContractTradingMode:                       botRow.ContractTradingMode,
+						MutesBuyNotification:                      botRow.MutesBuyNotification,
+						MutesSellNotification:                     botRow.MutesSellNotification,
+						SendsHoldNotification:                     botRow.SendsHoldNotification,
 					}).Error
 				if updateError != nil {
 					return updateError
@@ -262,9 +268,10 @@ func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 				Model(&entities.StrategyBotWatchedSymbol{}).
 				Where(clause.Eq{Column: "strategy_bot_id", Value: bot.ID}).
 				Where(clause.Eq{Column: "symbol", Value: watchedSymbol.Symbol}).
-				Select("last_sent_signal", "last_sent_round_due_at", "conflicting", "halt_reason").
+				Select("last_sent_signal", "last_sent_round_due_at", "last_opinion", "conflicting", "halt_reason").
 				UpdateColumns(entities.StrategyBotWatchedSymbol{
 					LastSentSignal:     watchedSymbol.LastSentSignal,
+					LastOpinion:        watchedSymbol.LastOpinion,
 					LastSentRoundDueAt: watchedSymbol.LastSentRoundDueAt,
 					Conflicting:        watchedSymbol.Conflicting,
 					HaltReason:         watchedSymbol.HaltReason,

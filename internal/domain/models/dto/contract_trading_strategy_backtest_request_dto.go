@@ -6,8 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractTradingStrategyBacktestRequestDto takes sources, conditions, kind and trading mode
-// from the trading strategy; the rest is per replay.
+// ContractTradingStrategyBacktestRequestDto takes sources, conditions and kind from the trading
+// strategy; the rest, the trading mode included, is per replay.
 type ContractTradingStrategyBacktestRequestDto struct {
 	Symbol    string
 	StartTime time.Time
@@ -17,7 +17,6 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	BuyCondition                  TradingStrategyConditionDto
 	SellCondition                 TradingStrategyConditionDto
 	TradingStrategyMarketDataKind string
-	TradingStrategyTradingMode    string
 
 	InitialCapital       decimal.Decimal
 	PositionSizingMode   string
@@ -35,7 +34,7 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	// MaintenanceMarginRate is carried only to be refused, since the symbol's margin ladder
 	// decides it.
 	MaintenanceMarginRate decimal.Decimal
-	// TradingMode is carried only to be refused, since the trading strategy already fixes it.
+	// TradingMode is longShort (blank), longOnly or shortOnly: the directions this replay faces.
 	TradingMode           string
 	TimeAllowance         time.Duration
 	DefaultWarmupBarCount int
@@ -59,7 +58,7 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRe
 		FillTiming:            requestDto.FillTiming,
 		ValidationStartTime:   requestDto.ValidationStartTime,
 		Leverage:              requestDto.Leverage,
-		TradingMode:           requestDto.TradingStrategyTradingMode,
+		TradingMode:           requestDto.TradingMode,
 		SlippagePercentage:    requestDto.SlippagePercentage,
 		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
 		TimeAllowance:         requestDto.TimeAllowance,

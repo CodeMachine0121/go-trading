@@ -22,6 +22,7 @@ type StrategyBotWatchedSymbolRoundOutcomeDomain struct {
 	haltReason  vo.StrategyBotHaltReasonVo
 	verdict     vo.StrategyBotVerdictVo
 	sentSignal  vo.SignalVo
+	opinion     vo.SignalVo
 	conflicting bool
 }
 
@@ -41,6 +42,7 @@ func NewStrategyBotWatchedSymbolRoundOutcomeDomain(
 		outcome.kind = strategyBotRoundConcluded
 		outcome.verdict = vo.StrategyBotVerdictVo(outcomeDto.Verdict)
 		outcome.sentSignal = vo.SignalVo(outcomeDto.SentSignal)
+		outcome.opinion = vo.SignalVo(outcomeDto.Opinion)
 		outcome.conflicting = outcomeDto.Conflicting
 	}
 
@@ -89,8 +91,17 @@ func (outcome StrategyBotWatchedSymbolRoundOutcomeDomain) ApplyTo(
 		return runStateDomain.WithWatchedSymbol(watchedSymbol.Halted(outcome.haltReason))
 	case strategyBotRoundConcluded:
 		return runStateDomain.WithWatchedSymbol(
-			watchedSymbol.Concluded(dueAt, outcome.sentSignal, outcome.conflicting))
+			watchedSymbol.Concluded(dueAt, outcome.sentSignal, outcome.opinion, outcome.conflicting))
 	default:
 		return runStateDomain
 	}
+}
+
+// MessageSignal is what a queued round message speaks of: the decided signal, or hold for a return to holding.
+func (outcome StrategyBotWatchedSymbolRoundOutcomeDomain) MessageSignal() vo.SignalVo {
+	if outcome.sentSignal == "" && outcome.opinion == vo.SignalHold {
+		return vo.SignalHold
+	}
+
+	return outcome.sentSignal
 }

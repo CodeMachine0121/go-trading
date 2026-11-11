@@ -42,7 +42,6 @@ func TestTradingStrategyMarketDataKind(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "kCandle", tradingStrategy.ToEntity().MarketDataKind)
-		assert.Equal(t, "", tradingStrategy.ToEntity().TradingMode)
 	})
 
 	testCases := []struct {
@@ -89,44 +88,34 @@ func TestTradingStrategyMarketDataKind(t *testing.T) {
 	})
 }
 
-func TestContractTradingStrategyTradingMode(t *testing.T) {
+// A trading strategy only answers buy, sell or hold; a trading mode sent with it is refused, never dropped in silence.
+func TestTradingStrategyRefusesATradingMode(t *testing.T) {
 	testCases := []struct {
-		name            string
-		declaredMode    string
-		wantStoredMode  string
-		wantRefusalText string
+		name         string
+		writeDto     func() dto.TradingStrategyWriteDto
+		declaredMode string
 	}{
-		{name: "a contract trading strategy keeps short only", declaredMode: "shortOnly", wantStoredMode: "shortOnly"},
-		{name: "a contract trading strategy with no mode is long and short", declaredMode: "", wantStoredMode: "longShort"},
-		{name: "spot is not a contract trading mode", declaredMode: "spot", wantRefusalText: "longShort、longOnly、shortOnly"},
+		{name: "a contract trading strategy sent short only", writeDto: aContractTradingStrategyWriteDto, declaredMode: "shortOnly"},
+		{name: "a contract trading strategy sent long and short", writeDto: aContractTradingStrategyWriteDto, declaredMode: "longShort"},
+		{name: "a K candle trading strategy sent a mode", writeDto: aTradingStrategyWriteDto, declaredMode: "longOnly"},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			writeDto := aContractTradingStrategyWriteDto()
-			writeDto.TradingMode = testCase.declaredMode
+			writeDto := testCase.writeDto()
+			writeDto.DeclaredTradingMode = testCase.declaredMode
 
-			tradingStrategy, err := domains.NewTradingStrategyDomain(writeDto)
+			_, err := domains.NewTradingStrategyDomain(writeDto)
 
-			if testCase.wantRefusalText != "" {
-				require.ErrorIs(t, err, domains.ErrTradingStrategyValidation)
-				assert.Contains(t, err.Error(), testCase.wantRefusalText)
-
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, testCase.wantStoredMode, tradingStrategy.ToEntity().TradingMode)
+			require.ErrorIs(t, err, domains.ErrTradingStrategyValidation)
+			assert.Contains(t, err.Error(), "交易方向改由機器人在自己身上選，回測時由那一次說")
 		})
 	}
 
-	t.Run("a K candle trading strategy is still refused a trading mode, in the same words", func(t *testing.T) {
-		writeDto := aTradingStrategyWriteDto()
-		writeDto.TradingMode = "longShort"
+	t.Run("a contract trading strategy saying nothing about a mode is accepted", func(t *testing.T) {
+		_, err := domains.NewTradingStrategyDomain(aContractTradingStrategyWriteDto())
 
-		_, err := domains.NewTradingStrategyDomain(writeDto)
-
-		require.ErrorIs(t, err, domains.ErrTradingStrategyValidation)
-		assert.Contains(t, err.Error(), "只重演現貨")
+		require.NoError(t, err)
 	})
 }
 
@@ -219,7 +208,7 @@ func contractTradingStrategyReplayRequest() dto.ContractTradingStrategyBacktestR
 		BuyCondition:                  dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "buy"},
 		SellCondition:                 dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "sell"},
 		TradingStrategyMarketDataKind: "contractKCandle",
-		TradingStrategyTradingMode:    "longOnly",
+		TradingMode:                   "longOnly",
 		InitialCapital:                decimal.NewFromInt(10000),
 		Leverage:                      decimal.NewFromInt(5),
 	}
@@ -256,6 +245,36 @@ func TestContractTradingStrategyBacktest(t *testing.T) {
 		assert.Equal(t, "longOnly", strategyResult.TradingMode)
 	})
 
+	t.Run("the replay faces the directions it was sent, long and short when none", func(t *testing.T) {
+		// A sell then a buy: short only opens the short and closes it; long-short opens the short, then reverses into a long.
+		testCases := []struct {
+			declaredMode  string
+			wantMode      string
+			wantOpenCount int
+		}{
+			{declaredMode: "shortOnly", wantMode: "shortOnly", wantOpenCount: 1},
+			{declaredMode: "", wantMode: "longShort", wantOpenCount: 2},
+		}
+
+		for _, testCase := range testCases {
+			requestDto := contractTradingStrategyReplayRequest()
+			requestDto.TradingMode = testCase.declaredMode
+			bars := []contractReplayBar{{close: 100, signal: vo.SignalSell}, {close: 90, signal: vo.SignalBuy}}
+			tradingRules := contractReplayRules(t, contractReplaySpecification())
+			strategyBacktest, err := domains.NewContractTradingStrategyBacktestDomain(requestDto, tradingRules, 100000, now)
+			require.NoError(t, err)
+			alignment, err := strategyBacktest.ContractBacktest().SelectInput(contractReplayCandles("1m", bars))
+			require.NoError(t, err)
+
+			resultDto := strategyBacktest.ReplayOver(alignment, [][]domains.SignalDomain{{
+				domains.NewSignalDomainOf(vo.SignalSell), domains.NewSignalDomainOf(vo.SignalBuy),
+			}}, nil)
+
+			assert.Equal(t, testCase.wantMode, resultDto.TradingMode)
+			assert.Equal(t, testCase.wantOpenCount, resultDto.Summary.PositionOpenCount, testCase.wantMode)
+		}
+	})
+
 	t.Run("a bar both trees hold on is a hold and is counted", func(t *testing.T) {
 		requestDto := contractTradingStrategyReplayRequest()
 		requestDto.SignalSources = append(requestDto.SignalSources, dto.ResolvedSignalSourceDto{
@@ -286,12 +305,12 @@ func TestContractTradingStrategyBacktest(t *testing.T) {
 		wantText      string
 	}{
 		{
-			name: "a trading mode sent with the replay is refused",
+			name: "a trading mode no replay can face is refused",
 			mutateRequest: func(requestDto *dto.ContractTradingStrategyBacktestRequestDto) {
-				requestDto.TradingMode = "shortOnly"
+				requestDto.TradingMode = "sideways"
 			},
 			wantField: "tradingMode",
-			wantText:  "交易模式由交易策略自己決定",
+			wantText:  "合約的交易模式只能是",
 		},
 		{
 			name: "a K candle trading strategy cannot be replayed on a contract account",

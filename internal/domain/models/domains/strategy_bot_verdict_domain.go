@@ -56,3 +56,22 @@ func (strategyBotVerdictDomain StrategyBotVerdictDomain) ShouldSend() bool {
 
 	return hasSignal && signal != strategyBotVerdictDomain.lastSentSignal
 }
+
+// Opinion is the buy, sell or hold this round concluded; a conflict has none, so it never breaks a run of holds.
+func (strategyBotVerdictDomain StrategyBotVerdictDomain) Opinion() vo.SignalVo {
+	switch strategyBotVerdictDomain.verdict {
+	case vo.StrategyBotVerdictBuy:
+		return vo.SignalBuy
+	case vo.StrategyBotVerdictSell:
+		return vo.SignalSell
+	case vo.StrategyBotVerdictNone:
+		return vo.SignalHold
+	default:
+		return ""
+	}
+}
+
+// ReturnsToHoldFrom tells a hold that follows anything but a hold, including nothing at all since a start.
+func (strategyBotVerdictDomain StrategyBotVerdictDomain) ReturnsToHoldFrom(lastOpinion string) bool {
+	return strategyBotVerdictDomain.verdict == vo.StrategyBotVerdictNone && vo.SignalVo(lastOpinion) != vo.SignalHold
+}

@@ -39,14 +39,11 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 					return createError
 				}
 			} else {
-				// Named columns make empty values write through and keep owner, creation time and market data kind immutable.
+				// Named columns keep owner, creation time and market data kind immutable.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
-					Select("name", "contract_trading_mode").
-					Updates(entities.TradingStrategy{
-						Name:        tradingStrategyRow.Name,
-						TradingMode: tradingStrategyRow.TradingMode,
-					})
+					Select("name").
+					Updates(entities.TradingStrategy{Name: tradingStrategyRow.Name})
 				if updates.Error != nil {
 					return updates.Error
 				}

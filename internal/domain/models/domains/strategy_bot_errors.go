@@ -60,3 +60,6 @@ var ErrStrategyBotWatchedSymbolHoldsPosition = errors.New("strategy bot watched 
 
 // ErrStrategyBotWatchedSymbolAutoOrderOutstanding refuses removing a watched symbol whose auto order is not yet done.
 var ErrStrategyBotWatchedSymbolAutoOrderOutstanding = errors.New("strategy bot watched symbol has an auto order outstanding")
+
+// ErrStrategyBotTradingDirectionAutoOrderOn refuses a new trading direction while auto orders are on; switching them off is web-only, so a plugin can never turn a bot trading real money around.
+var ErrStrategyBotTradingDirectionAutoOrderOn = errors.New("strategy bot trading direction changed while auto orders are on")

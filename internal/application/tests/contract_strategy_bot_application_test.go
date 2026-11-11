@@ -34,7 +34,7 @@ func (underTest strategyBotApplicationUnderTest) expectTheNamedTradingStrategyIs
 		FindOne(gomock.Any(), botsTradingStrategyID).
 		Return(entities.TradingStrategy{
 			ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "合約黃金交叉",
-			MarketDataKind: string(marketDataKind), TradingMode: string(vo.ContractTradingModeLongShort),
+			MarketDataKind: string(marketDataKind),
 		}, nil)
 }
 

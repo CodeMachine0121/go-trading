@@ -75,6 +75,10 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Plan() dto.ContractTra
 				EntryCostPercentage: comparisonDomain.takerFeeRate,
 				ExitCostPercentage:  comparisonDomain.takerFeeRate,
 				Leverage:            latestTrade.Leverage,
+				// The replay faces the directions the person actually traded.
+				TradingMode: string(NewContractTradingModeDomainFacing(
+					tally.OfDirection(vo.PositionDirectionLong).TradeCount() > 0,
+					tally.OfDirection(vo.PositionDirectionShort).TradeCount() > 0).Value()),
 			},
 		})
 	}

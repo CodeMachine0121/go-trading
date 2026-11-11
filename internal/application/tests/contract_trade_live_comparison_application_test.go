@@ -119,7 +119,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, contractReplayTradingStrategyID).
 			Return([]entities.ContractTradeRecord{aLinkedClosedTrade(1, "BTCUSDT", "short", "100", "90", 10, 2)}, nil)
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
-			Return(aContractTradingStrategy("contractKCandle", "shortOnly"), nil)
+			Return(aContractTradingStrategy("contractKCandle"), nil)
 		specifiedAt := backtestStart
 		fixture.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(entities.ContractTradingSymbol{
 			Symbol: "BTCUSDT", TickSize: percentage("0.01"), QuantityStep: percentage("0.001"),
@@ -152,7 +152,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 				aLinkedClosedTrade(3, "ETHUSDT", "long", "3000", "3100", 5, 4),
 			}, nil)
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
-			Return(aContractTradingStrategy("contractKCandle", "shortOnly"), nil)
+			Return(aContractTradingStrategy("contractKCandle"), nil)
 		specifiedAt := backtestStart
 		fixture.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(entities.ContractTradingSymbol{
 			Symbol: "BTCUSDT", TickSize: percentage("0.01"), QuantityStep: percentage("0.001"),
@@ -232,7 +232,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, contractReplayTradingStrategyID).
 			Return(nil, nil)
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
-			Return(aContractTradingStrategy("contractKCandle", "longShort"), nil)
+			Return(aContractTradingStrategy("contractKCandle"), nil)
 		fixture.theScriptIsOwned()
 
 		comparison, err := fixture.application.CompareWithBacktest(
@@ -264,7 +264,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			FindClosedByOwnerAndTradingStrategy(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.ContractTradeRecord{aLinkedClosedTrade(1, "BTCUSDT", "long", "100", "110", 5, 2)}, nil)
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
-			Return(aContractTradingStrategy("contractKCandle", "longShort"), nil)
+			Return(aContractTradingStrategy("contractKCandle"), nil)
 		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), contractReplayScriptID).
 			Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(contractReplayScriptID))
 

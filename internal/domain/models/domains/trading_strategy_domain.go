@@ -7,7 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/shopspring/decimal"
 )
 
 // tradingStrategyNameMaxLength matches the strategy script and bot name limits and applies
@@ -22,7 +21,6 @@ type TradingStrategyDomain struct {
 	name    string
 	// marketDataKind also carries the trading mode for contract trading strategies.
 	marketDataKind MarketDataKindDomain
-	tradingMode    ContractTradingModeDomain
 	signalSources  TradingStrategySignalSourcesDomain
 	buyCondition   TradingStrategyConditionDomain
 	sellCondition  TradingStrategyConditionDomain
@@ -56,22 +54,11 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 		return TradingStrategyDomain{}, fmt.Errorf("%w: %w", ErrTradingStrategyValidation, kindError)
 	}
 
-	// Spot trading strategies refuse any trading mode with the spot replay's wording; blank
-	// means long and short for contracts.
-	tradingMode := ContractTradingModeDomain{}
-	if marketDataKind.Value() == vo.MarketDataKindKCandle {
-		if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
-			writeDto.TradingMode, decimal.Zero, decimal.Zero); spotOnlyRefusal != nil {
-			return TradingStrategyDomain{}, fmt.Errorf(
-				"%w: %s", ErrTradingStrategyValidation, spotOnlyRefusal)
-		}
-	} else {
-		contractTradingMode, tradingModeError := NewContractTradingModeDomain(writeDto.TradingMode)
-		if tradingModeError != nil {
-			return TradingStrategyDomain{}, fmt.Errorf(
-				"%w: %w", ErrTradingStrategyValidation, tradingModeError)
-		}
-		tradingMode = contractTradingMode
+	// A trading strategy only answers buy, sell or hold; what those mean is the bot's or the replay's to say, so a declared trading mode is refused rather than quietly dropped.
+	if strings.TrimSpace(writeDto.DeclaredTradingMode) != "" {
+		return TradingStrategyDomain{}, fmt.Errorf(
+			"%w: 交易策略不再記交易模式——交易方向改由機器人在自己身上選，回測時由那一次說",
+			ErrTradingStrategyValidation)
 	}
 
 	signalSources, sourcesError := NewTradingStrategySignalSourcesDomain(writeDto.SignalSources)
@@ -100,7 +87,6 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 		ownerID:        writeDto.OwnerID,
 		name:           name,
 		marketDataKind: marketDataKind,
-		tradingMode:    tradingMode,
 		signalSources:  signalSources,
 		buyCondition:   buyCondition,
 		sellCondition:  sellCondition,
@@ -113,7 +99,6 @@ func (tradingStrategyDomain TradingStrategyDomain) ToEntity() entities.TradingSt
 		OwnerID:        tradingStrategyDomain.ownerID,
 		Name:           tradingStrategyDomain.name,
 		MarketDataKind: string(tradingStrategyDomain.marketDataKind.Value()),
-		TradingMode:    string(tradingStrategyDomain.tradingMode.Value()),
 		SignalSources:  tradingStrategyDomain.signalSources.ToEntities(),
 		ConditionNodes: []entities.TradingStrategyConditionNode{
 			tradingStrategyDomain.buyCondition.ToEntity(vo.TradingStrategyConditionSideBuy, 0),
