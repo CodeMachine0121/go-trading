@@ -256,3 +256,75 @@ func TestStrategyBotApplicationReportsAnAutoOrderItCouldNotReadWhenTurningABotAr
 	require.ErrorIs(t, updateError, readFailure)
 	assert.Zero(t, saved.ID, "nothing was saved")
 }
+
+func TestStrategyBotApplicationRefusesToTurnOrSilenceARunningBot(t *testing.T) {
+	off := false
+	testCases := []struct {
+		name   string
+		change func(writeDto *dto.StrategyBotWriteDto)
+	}{
+		{name: "turning it around", change: func(writeDto *dto.StrategyBotWriteDto) {
+			writeDto.TradingDirections = facing("short")
+		}},
+		{name: "silencing its buys", change: func(writeDto *dto.StrategyBotWriteDto) {
+			writeDto.Notifications.Buy = &off
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotApplicationUnderTest(t)
+			running := aStoredContractBotFacing(vo.ContractTradingModeLongOnly)
+			running.RunState = string(vo.StrategyBotRunning)
+			underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), botsTradingStrategyID).
+				Return(entities.TradingStrategy{
+					ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, MarketDataKind: "contractKCandle",
+				}, nil).AnyTimes()
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(running, nil).AnyTimes()
+			// No Save is stubbed: the refusal lands before anything is written.
+			writeDto := aContractBotRewrite()
+			testCase.change(&writeDto)
+
+			_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(
+				context.Background(), strategyBotOwnerID, writeDto)
+
+			require.ErrorIs(t, updateError, domains.ErrStrategyBotRunning)
+		})
+	}
+}
+
+// Auto orders are asked about first: switching them off is the one fix that must come before anything else.
+func TestStrategyBotApplicationNamesAutoOrdersBeforePositionsWhenTurningABotAround(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	stored := aStoredContractBotFacing(vo.ContractTradingModeLongOnly)
+	stored.AutoOrderEnabled = true
+	stored.WatchedSymbols[0].AutoOrderPositionDirection = "long"
+	underTest.expectsTheRewrite(stored)
+	writeDto := aContractBotRewrite()
+	writeDto.TradingDirections = facing("short")
+
+	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, domains.ErrStrategyBotTradingDirectionAutoOrderOn)
+}
+
+func TestStrategyBotApplicationStartsABotThatAnnouncesNoConclusionStillSayingItStarted(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	silent := storedBot(vo.StrategyBotStopped)
+	silent.MutesBuyNotification = true
+	silent.MutesSellNotification = true
+	underTest.telegramDeliveryRepository.EXPECT().
+		FindOneByUser(gomock.Any(), strategyBotOwnerID).
+		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(silent, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().CountRunningByOwner(gomock.Any(), strategyBotOwnerID).Return(0, nil)
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, startError := underTest.strategyBotApplication.StartStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, startError)
+	require.Len(t, underTest.announced(), 1)
+	assert.Contains(t, underTest.announced()[0], "已啟動")
+}

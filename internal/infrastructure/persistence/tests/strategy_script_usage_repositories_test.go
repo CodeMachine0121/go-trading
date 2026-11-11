@@ -122,3 +122,36 @@ func TestUsageLookupsSaySoWhenTheStoreIsGone(t *testing.T) {
 	_, profileError := persistence.NewSymbolScreeningProfileRepository(database).FindNamesByStrategyScript(t.Context(), 1)
 	assert.Error(t, profileError)
 }
+
+func TestSchemaMigratorMakesScriptsFromBeforeUsageCalculationScriptsOnce(t *testing.T) {
+	database := newStrategyScriptTestDatabase(t)
+	// Raw SQL takes the column away, as it was before usage existed; rows then hold nothing about it.
+	require.NoError(t, database.Exec(`ALTER TABLE "Strategies" DROP COLUMN IF EXISTS "usage"`).Error)
+	for _, row := range []struct {
+		name    string
+		adopted bool
+	}{{name: "畫線用", adopted: false}, {name: "市集副本", adopted: true}} {
+		require.NoError(t, database.Exec(
+			`INSERT INTO "Strategies" (owner_id, name, script, result_type, is_adopted_from_marketplace, created_at, updated_at) VALUES (?, ?, 'package main', 'floatList', ?, now(), now())`,
+			strategyScriptRowOwnerID, row.name, row.adopted).Error)
+	}
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+	repository := persistence.NewStrategyScriptRepository(database)
+	scripts, listError := repository.FindAllOwnedBy(t.Context(), strategyScriptRowOwnerID)
+	require.NoError(t, listError)
+	require.Len(t, scripts, 2)
+	for _, script := range scripts {
+		assert.Equal(t, "calculation", script.Usage, script.Name)
+	}
+
+	// The owner switches one; another replica's start migrates again.
+	_, switchError := repository.UpdateUsage(t.Context(), scripts[0].ID, "chart")
+	require.NoError(t, switchError)
+	_, migrateError = persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+	switched, findError := repository.FindOne(t.Context(), scripts[0].ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "chart", switched.Usage)
+}

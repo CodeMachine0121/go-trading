@@ -20,7 +20,10 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 	// A script that is not the bot owner's reads the same: a bot never runs someone else's rules.
 	case errors.Is(roundError, ErrStrategyScriptNotFound),
 		errors.Is(roundError, ErrStrategyScriptNotPublished),
-		errors.Is(roundError, ErrStrategyScriptNotYours):
+		errors.Is(roundError, ErrStrategyScriptNotYours),
+		// A script switched to the chart, or holding a usage no one can read, is as unusable as a missing one until its owner switches it back.
+		errors.Is(roundError, ErrStrategyScriptUsageNotCalculation),
+		errors.Is(roundError, ErrStrategyScriptValidation):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyScriptUnavailable}
 
 	case errors.Is(roundError, ErrTradingStrategyNotFound):

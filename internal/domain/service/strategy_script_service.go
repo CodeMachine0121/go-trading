@@ -238,6 +238,26 @@ func (strategyScriptService *StrategyScriptService) ResolveOwnedStrategyScript(
 		strategyScript, viewerID, strategyScript.Publication != nil).ToOwnedRunnableDto()
 }
 
+// ResolveOwnedCalculationScript is ResolveOwnedStrategyScript for a signal source: every path reading a trading strategy's rules goes through it, so a script switched to the chart after the strategy was saved is refused there too.
+func (strategyScriptService *StrategyScriptService) ResolveOwnedCalculationScript(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.RunnableStrategyScriptDto, error) {
+	runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedStrategyScript(executionContext, viewerID, id)
+	if resolveError != nil {
+		return dto.RunnableStrategyScriptDto{}, resolveError
+	}
+
+	usage, usageError := domains.NewStrategyScriptUsageDomain(runnableStrategyScript.Usage)
+	if usageError != nil {
+		return dto.RunnableStrategyScriptDto{}, usageError
+	}
+	if calculationError := usage.RequireCalculation("當信號來源"); calculationError != nil {
+		return dto.RunnableStrategyScriptDto{}, calculationError
+	}
+
+	return runnableStrategyScript, nil
+}
+
 // requireOwnership answers a stranger exactly as for a missing script and skips the publication gate, since publishing never grants the right to alter.
 // It returns the script so a rewrite can check the stored market data kind.
 func (strategyScriptService *StrategyScriptService) requireOwnership(
@@ -275,7 +295,7 @@ func (strategyScriptService *StrategyScriptService) ResolveSignalSources(
 	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, 0, len(tradingStrategyDto.SignalSources))
 
 	for _, signalSource := range tradingStrategyDto.SignalSources {
-		runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedStrategyScript(
+		runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedCalculationScript(
 			executionContext, viewerID, signalSource.StrategyScriptID)
 		if resolveError != nil {
 			return nil, domains.StrategyScriptAuthorshipDomain{}, resolveError

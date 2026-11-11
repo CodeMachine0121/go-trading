@@ -58,6 +58,10 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 		Return(entities.StrategyScript{
 			ID: indicatorStrategyScriptID, OwnerID: indicatorViewerID, Script: "the script",
 		}, nil).AnyTimes()
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), indicatorChartScriptID).
+		Return(entities.StrategyScript{
+			ID: indicatorChartScriptID, OwnerID: indicatorViewerID, Script: "the script", Usage: "chart",
+		}, nil).AnyTimes()
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
@@ -229,4 +233,26 @@ func holdingKCandles(
 	summaryDayRepository.EXPECT().FindDaysInRange(gomock.Any(), symbol, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	summaryDayRepository.EXPECT().SaveSummarized(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+}
+
+// indicatorChartScriptID names the viewer's script used for the chart.
+const indicatorChartScriptID = uint(78)
+
+// A one-off calculation is how an author tries a script, so it never asks what the script is used for.
+func TestIndicatorCalculationApplicationComputesEitherUsage(t *testing.T) {
+	for _, strategyScriptID := range []uint{indicatorStrategyScriptID, indicatorChartScriptID} {
+		fixture := newIndicatorUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 3).
+			Return([]entities.KCandle{kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
+
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(
+			t.Context(), indicatorViewerID, namingStrategyScript(t, strategyScriptID), indicatorRequest(2))
+
+		require.NoError(t, err, strategyScriptID)
+		assert.Equal(t, []float64{110}, resultDto.Values["ma"].Numbers)
+	}
 }

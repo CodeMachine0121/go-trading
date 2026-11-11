@@ -99,3 +99,21 @@ func TestStrategyScriptRouterRefusesAUsageSwitchItCannotRead(t *testing.T) {
 		})
 	}
 }
+
+func TestStrategyScriptRouterAnswersWithTheUsage(t *testing.T) {
+	fixture := newStrategyScriptRouterUnderTest(t)
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(4)).
+		Return(aStoredScriptOfTheViewer("chart"), nil)
+	fixture.strategyScriptRepository.EXPECT().FindAllOwnedBy(gomock.Any(), signedInViewerID).
+		Return([]entities.StrategyScript{aStoredScriptOfTheViewer("chart")}, nil)
+
+	readResponse := fixture.send(http.MethodGet, "/strategy-scripts/4", "")
+	listResponse := fixture.send(http.MethodGet, "/strategy-scripts", "")
+
+	require.Equal(t, http.StatusOK, readResponse.Code, readResponse.Body.String())
+	read := map[string]any{}
+	require.NoError(t, json.Unmarshal(readResponse.Body.Bytes(), &read))
+	assert.Equal(t, "chart", read["usage"])
+	require.Equal(t, http.StatusOK, listResponse.Code, listResponse.Body.String())
+	assert.Contains(t, listResponse.Body.String(), `"usage":"chart"`)
+}

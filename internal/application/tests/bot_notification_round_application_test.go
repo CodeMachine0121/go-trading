@@ -104,3 +104,34 @@ func TestReturningToHoldIsSaidOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestABotAnnouncingNoConclusionStillTrades(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectTheVenue(aContractSpecification(), nil, "")
+	underTest.expectNoRoundMessage()
+	bot := anAutoOrderingContractBot(string(vo.SignalSell))
+	bot.ContractTradingMode = string(vo.ContractTradingModeLongShort)
+	bot.MutesBuyNotification = true
+	bot.MutesSellNotification = true
+
+	underTest.runsTheContractRoundOf(t, bot, vo.SignalBuy, vo.SignalBuy)
+
+	require.Len(t, *underTest.queuedAutoOrders, 1)
+}
+
+// Facing both directions, a buy while short reverses: the message says go long and the order targets a long.
+func TestABotFacingBothDirectionsReversesOnABuy(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectTheVenue(aContractSpecification(), nil, "")
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
+	})
+	bot := anAutoOrderingContractBot(string(vo.SignalSell))
+	bot.ContractTradingMode = string(vo.ContractTradingModeLongShort)
+	bot.WatchedSymbols[0].AutoOrderPositionDirection = "short"
+
+	underTest.runsTheContractRoundOf(t, bot, vo.SignalBuy, vo.SignalBuy)
+
+	require.Len(t, *underTest.queuedAutoOrders, 1)
+	assert.Equal(t, "long", (*underTest.queuedAutoOrders)[0].TargetPosition)
+}

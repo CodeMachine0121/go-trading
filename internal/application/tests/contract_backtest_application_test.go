@@ -66,9 +66,13 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 			if id == contractReplayKCandleScriptID {
 				marketDataKind = string(vo.MarketDataKindKCandle)
 			}
+			usage := ""
+			if id == contractReplayChartScriptID {
+				usage = string(vo.StrategyScriptUsageChart)
+			}
 
 			return entities.StrategyScript{
-				ID: id, OwnerID: backtestViewerID, Script: "the script", MarketDataKind: marketDataKind,
+				ID: id, OwnerID: backtestViewerID, Script: "the script", MarketDataKind: marketDataKind, Usage: usage,
 			}, nil
 		}).AnyTimes()
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
@@ -271,6 +275,9 @@ func TestRunContractBacktest(t *testing.T) {
 	})
 }
 
+// contractReplayChartScriptID names a script its owner switched to the chart.
+const contractReplayChartScriptID = uint(77)
+
 // aContractTradingStrategy is one contract source A buying and selling on its own word.
 func aContractTradingStrategy(marketDataKind string) entities.TradingStrategy {
 	return entities.TradingStrategy{
@@ -337,6 +344,22 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(5000).Equal(resultDto.ClosedTrades[0].Profit))
 		// Short only: the buy closed it and opened nothing.
 		assert.Equal(t, 1, resultDto.Summary.PositionOpenCount)
+	})
+
+	t.Run("a trading strategy whose source was switched to the chart is not replayed", func(t *testing.T) {
+		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
+		switchedRules := aContractTradingStrategy("contractKCandle")
+		switchedRules.SignalSources[0].StrategyScriptID = contractReplayChartScriptID
+		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
+			Return(switchedRules, nil)
+
+		_, err := fixture.tradingStrategyBacktestApplication.SubmitContractTradingStrategyBacktest(
+			context.Background(), backtestViewerID, contractReplayTradingStrategyID,
+			contractTradingStrategyBacktestRequestDto())
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptUsageNotCalculation)
+		assert.Contains(t, err.Error(), "這支策略腳本是圖表用，不能當信號來源")
 	})
 
 	t.Run("a K candle trading strategy cannot be replayed on a contract account", func(t *testing.T) {

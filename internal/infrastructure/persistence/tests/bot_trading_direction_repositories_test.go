@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -163,4 +164,26 @@ func TestSchemaMigratorReadsAnUnreadableModeAsFacingBoth(t *testing.T) {
 	bot, findError := persistence.NewStrategyBotRepository(database).FindOne(t.Context(), botID)
 	require.NoError(t, findError)
 	assert.Equal(t, "longShort", bot.ContractTradingMode)
+}
+
+// A return-to-hold message given up names its own round, which never carries the signal, so the signal survives.
+func TestStrategyBotRepositoryKeepsTheSignalWhenAHoldMessageIsGivenUp(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	saved, saveError := repository.Save(t.Context(), aBotRow("持有"))
+	require.NoError(t, saveError)
+	stored, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	buyRound := time.Date(2026, 11, 11, 1, 0, 0, 0, time.UTC)
+	holdRound := buyRound.Add(15 * time.Minute)
+	stored.WatchedSymbols[0].LastSentSignal = string(vo.SignalBuy)
+	stored.WatchedSymbols[0].LastSentRoundDueAt = &buyRound
+	stored.WatchedSymbols[0].LastOpinion = string(vo.SignalHold)
+	require.NoError(t, repository.UpdateRunState(t.Context(), stored))
+
+	require.NoError(t, repository.ForgetSentSignal(t.Context(), saved.ID, "BTCUSDT", holdRound))
+
+	kept, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "buy", kept.WatchedSymbols[0].LastSentSignal)
 }

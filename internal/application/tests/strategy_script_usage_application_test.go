@@ -63,8 +63,25 @@ func TestStrategyScriptApplicationSwitchesUsage(t *testing.T) {
 
 			require.NoError(t, switchError)
 			assert.Equal(t, testCase.expectedUsage, strategyScriptDto.Usage)
+			if testCase.stored.IsAdoptedFromMarketplace {
+				assert.Empty(t, strategyScriptDto.Script, "a copy's algorithm stays its author's")
+			}
 		})
 	}
+}
+
+func TestStrategyScriptApplicationKeepsASwitchedCopyUnrewritable(t *testing.T) {
+	// No Update is stubbed: the copy's algorithm stays locked whatever its usage.
+	fixture := newStrategyScriptApplicationUnderTest(t)
+	copied := aMarketplaceCopy(4, "均線")
+	copied.Usage = "chart"
+	fixture.expectStoredForRewrite(copied, nil)
+	writeDto := aStrategyScriptWrite()
+	writeDto.ID = 4
+
+	_, rewriteError := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+	require.ErrorIs(t, rewriteError, domains.ErrStrategyScriptFromMarketplace)
 }
 
 func TestStrategyScriptApplicationKeepsAUsageSwitchedToItself(t *testing.T) {

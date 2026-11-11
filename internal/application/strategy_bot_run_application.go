@@ -214,7 +214,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		if roundError != nil {
 			break
 		}
-		runnableStrategyScripts[index], roundError = strategyBotRunApplication.strategyScriptService.ResolveOwnedStrategyScript(
+		runnableStrategyScripts[index], roundError = strategyBotRunApplication.strategyScriptService.ResolveOwnedCalculationScript(
 			executionContext, botDto.OwnerID, signalSource.StrategyScriptID)
 	}
 	if roundError != nil {
