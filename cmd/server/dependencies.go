@@ -336,6 +336,7 @@ func registerRoutes(
 	engine.GET("/strategy-scripts", requiresSignIn, strategyScriptController.ListAvailableStrategyScripts)
 	engine.GET("/strategy-scripts/:id", requiresSignIn, strategyScriptController.GetStrategyScript)
 	engine.PUT("/strategy-scripts/:id", requiresSignIn, strategyScriptController.UpdateStrategyScript)
+	engine.PUT("/strategy-scripts/:id/usage", requiresSignIn, strategyScriptController.SwitchStrategyScriptUsage)
 	engine.DELETE("/strategy-scripts/:id", requiresSignIn, strategyScriptController.DeleteStrategyScript)
 
 	strategyScriptMarketplaceController := controller.NewStrategyScriptMarketplaceController(

@@ -156,6 +156,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"PUT /spot-trade-records/:id/setup-tags",
 		"PUT /strategy-bots/:id",
 		"PUT /strategy-scripts/:id",
+		"PUT /strategy-scripts/:id/usage",
 		"PUT /symbol-screening-profiles/:id",
 		"PUT /trading-strategies/:id",
 		"PUT /users/me/binance-trading-key",
