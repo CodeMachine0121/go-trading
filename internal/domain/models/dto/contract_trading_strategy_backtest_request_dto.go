@@ -35,9 +35,11 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	// decides it.
 	MaintenanceMarginRate decimal.Decimal
 	// TradingMode is longShort (blank), longOnly or shortOnly: the directions this replay faces.
-	TradingMode           string
-	TimeAllowance         time.Duration
-	DefaultWarmupBarCount int
+	TradingMode string
+	// LegacyTradingStrategyTradingMode is the mode a replay queued before trading strategies stopped holding one was stored under; it stands in when TradingMode is blank, so such a run replays as recorded.
+	LegacyTradingStrategyTradingMode string `json:"TradingStrategyTradingMode,omitempty"`
+	TimeAllowance                    time.Duration
+	DefaultWarmupBarCount            int
 }
 
 func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRequestDto(
@@ -58,7 +60,7 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRe
 		FillTiming:            requestDto.FillTiming,
 		ValidationStartTime:   requestDto.ValidationStartTime,
 		Leverage:              requestDto.Leverage,
-		TradingMode:           requestDto.TradingMode,
+		TradingMode:           requestDto.tradingMode(),
 		SlippagePercentage:    requestDto.SlippagePercentage,
 		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
 		TimeAllowance:         requestDto.TimeAllowance,
@@ -73,4 +75,13 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) WarmingUpByDefault(d
 	}
 
 	return requestDto
+}
+
+// tradingMode falls back to the key a replay queued before the upgrade stored its mode under.
+func (requestDto ContractTradingStrategyBacktestRequestDto) tradingMode() string {
+	if requestDto.TradingMode == "" {
+		return requestDto.LegacyTradingStrategyTradingMode
+	}
+
+	return requestDto.TradingMode
 }

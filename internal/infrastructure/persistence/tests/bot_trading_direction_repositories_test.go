@@ -78,7 +78,8 @@ func TestSchemaMigratorMovesEachTradingStrategysModeOntoTheBotsFollowingIt(t *te
 			assert.Equal(t, false, bot.ToDto().Notifications.Hold)
 		})
 	}
-	assert.False(t, database.Migrator().HasColumn(&entities.TradingStrategy{}, "contract_trading_mode"))
+	// Kept for this release, so an instance of the previous one still running during a rolling deploy reads the right mode.
+	assert.True(t, database.Migrator().HasColumn(&entities.TradingStrategy{}, "contract_trading_mode"))
 }
 
 func TestSchemaMigratorLeavesADirectionABotAlreadyHolds(t *testing.T) {

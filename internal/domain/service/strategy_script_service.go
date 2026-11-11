@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // It deliberately cannot reach K candles, and consults the marketplace only for the third access gate: is the script published.
@@ -164,6 +166,12 @@ func (strategyScriptService *StrategyScriptService) SwitchStrategyScriptUsage(
 		executionContext, switchDto.ViewerID, switchDto.StrategyScriptID)
 	if ownershipError != nil {
 		return dto.StrategyScriptDto{}, ownershipError
+	}
+
+	// A switch must say where to: blank means calculation only when a script is created.
+	if strings.TrimSpace(switchDto.Usage) == "" {
+		return dto.StrategyScriptDto{}, fmt.Errorf("%w: 切換用途時必須說要切成 %s 或 %s",
+			domains.ErrStrategyScriptValidation, vo.StrategyScriptUsageChart, vo.StrategyScriptUsageCalculation)
 	}
 
 	usage, usageError := domains.NewStrategyScriptUsageDomain(switchDto.Usage)

@@ -134,10 +134,12 @@ func (pendingMessageDomain PendingMessageDomain) IsBeingSentAgain() bool {
 	return vo.PendingMessageStatusVo(pendingMessageDomain.message.Status) == vo.PendingMessageSending
 }
 
-// ForgetsSignalWhenAbandoned is true only for a round's message: its bot must not go on believing the owner heard a signal that never arrived.
+// ForgetsSignalWhenAbandoned is true only for a round's buy or sell message: its bot must not go on believing the owner heard a signal that never arrived. A return to holding decided no signal, so it has none to forget.
 func (pendingMessageDomain PendingMessageDomain) ForgetsSignalWhenAbandoned() bool {
+	signal := vo.SignalVo(pendingMessageDomain.message.Signal)
+
 	return vo.PendingMessageKindVo(pendingMessageDomain.message.Kind) == vo.PendingMessageRound &&
-		pendingMessageDomain.message.Signal != "" && pendingMessageDomain.message.RoundDueAt != nil
+		(signal == vo.SignalBuy || signal == vo.SignalSell) && pendingMessageDomain.message.RoundDueAt != nil
 }
 
 // AfterAttempt halts only on failures the owner must fix: a token or chat Telegram refused, or a delivery setting the owner removed.

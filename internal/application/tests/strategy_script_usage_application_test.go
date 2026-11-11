@@ -209,3 +209,16 @@ func TestStrategyScriptApplicationReportsAUsageSwitchItCouldNotCarryOut(t *testi
 		})
 	}
 }
+
+func TestStrategyScriptApplicationRefusesASwitchThatSaysNoUsage(t *testing.T) {
+	// No UpdateUsage is stubbed: a blank switch never reaches storage.
+	fixture := newStrategyScriptApplicationUnderTest(t)
+	fixture.expectComputingWith(4, []string{}, []string{})
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(4)).Return(aStoredScriptUsedAs(4, "chart"), nil)
+
+	_, switchError := fixture.strategyScriptApplication.SwitchStrategyScriptUsage(
+		t.Context(), strategyScriptOwnerID, 4, "  ")
+
+	require.ErrorIs(t, switchError, domains.ErrStrategyScriptValidation)
+	assert.Contains(t, switchError.Error(), "切換用途時必須說要切成 chart 或 calculation")
+}

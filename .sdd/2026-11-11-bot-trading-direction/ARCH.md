@@ -69,7 +69,7 @@
 | `ContractTradingStrategyBacktestDomain` | 拒絕 `TradingMode` | 採用 `TradingMode`（經 `NewContractTradingModeDomain`，空白＝多空反手）；`TradingStrategyTradingMode` 欄位移除。 |
 | `ContractTradeLiveComparisonDomain` | 組回測請求 | `BacktestRequest.TradingMode` ＝ `ContractTradingModeDomain.Facing(該組有多單, 該組有空單)`。 |
 | `StrategyBotController` | — | 請求 `tradingDirections`（`*[]string`）、`notifications`（`{buy,sell,hold}` 皆可省略）；拒絕原因對照新增 `tradingDirectionAutoOrderOn`、`watchedSymbolHoldsPosition` 已存在則沿用。 |
-| `SchemaMigrator` | — | AutoMigrate 之後、`dropRetiredColumns` 之前呼叫 `moveTradingModesOntoBots`；`retiredColumns` 加 `{TradingStrategy, "contract_trading_mode"}`。通知與 `LastOpinion` 新欄位靠 AutoMigrate 的預設值補齊既有列（買入開、賣出開、持有關），天然可重做。 |
+| `SchemaMigrator` | — | AutoMigrate 之後呼叫 `moveTradingModesOntoBots`。**PR 審查後的調整**：`TradingStrategies.contract_trading_mode` 這一版**不退休**——滾動部署時仍在跑輪次的舊版實例會讀它，欄位被刪就會讀成多空反手、可能用真錢開錯邊；確定不會再有舊版實例後的下一版再把它加進 `retiredColumns`。通知與 `LastOpinion` 新欄位靠 AutoMigrate 的預設值補齊既有列（買入開、賣出開、持有關），天然可重做。 |
 
 ---
 

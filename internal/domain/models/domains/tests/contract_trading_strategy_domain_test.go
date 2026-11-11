@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -417,4 +418,26 @@ func TestUnrecognisedKindsAndBrokenSourcesAreRefused(t *testing.T) {
 
 		require.ErrorIs(t, retainError, domains.ErrTradingStrategyValidation)
 	})
+}
+
+// A replay queued before the upgrade stored its mode under the old key; it replays as it was recorded.
+func TestAContractStrategyReplayQueuedBeforeTheUpgradeKeepsItsMode(t *testing.T) {
+	testCases := []struct {
+		name         string
+		storedJSON   string
+		expectedMode string
+	}{
+		{name: "queued before the upgrade", storedJSON: `{"TradingStrategyTradingMode":"shortOnly"}`, expectedMode: "shortOnly"},
+		{name: "queued after it", storedJSON: `{"TradingMode":"longOnly"}`, expectedMode: "longOnly"},
+		{name: "the request's own mode wins", storedJSON: `{"TradingMode":"longOnly","TradingStrategyTradingMode":"shortOnly"}`, expectedMode: "longOnly"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestDto := dto.ContractTradingStrategyBacktestRequestDto{}
+			require.NoError(t, json.Unmarshal([]byte(testCase.storedJSON), &requestDto))
+
+			assert.Equal(t, testCase.expectedMode, requestDto.ToContractBacktestRequestDto("1h").TradingMode)
+		})
+	}
 }

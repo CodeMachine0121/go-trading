@@ -37,8 +37,6 @@ var retiredColumns = []retiredColumn{
 	// Spot-only-era leftovers superseded by contract strategy mode and contract bot leverage columns.
 	{entity: &entities.TradingStrategy{}, name: "trading_mode"},
 	{entity: &entities.StrategyBot{}, name: "position_plan_leverage"},
-	// Moved onto the bots following them as their trading direction.
-	{entity: &entities.TradingStrategy{}, name: "contract_trading_mode"},
 }
 
 // retiredIndex names a replaced index, since AutoMigrate never drops indexes and a leftover unique index would refuse valid writes.
@@ -173,7 +171,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, copyError
 	}
 
-	// After the sync, so bots have the column to move into; before dropping, so trading strategies still have theirs to move from.
+	// After the sync, so bots have the column to move into.
 	if moveError := schemaMigrator.moveTradingModesOntoBots(); moveError != nil {
 		return nil, moveError
 	}
@@ -984,7 +982,8 @@ func (retiredTradingStrategyModeRow) TableName() string {
 }
 
 // moveTradingModesOntoBots gives every contract bot not yet holding a trading direction the mode its trading strategy held, so it trades exactly as before; a blank or unreadable mode is long-short, as it always read.
-// Bots already holding one are left alone, and once the strategies' column is dropped there is nothing to move, so running it again writes nothing.
+// Bots already holding one are left alone, so running it again writes nothing.
+// The strategies' column stays for this release: an instance of the previous release still running rounds during a rolling deploy reads it, and a dropped column would read as long-short and could open the wrong side with real money. Retire it once no such instance can be running.
 func (schemaMigrator *SchemaMigrator) moveTradingModesOntoBots() error {
 	if !schemaMigrator.database.Migrator().HasColumn(&entities.TradingStrategy{}, "contract_trading_mode") {
 		return nil
