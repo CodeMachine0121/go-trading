@@ -25,8 +25,10 @@ import (
 )
 
 type strategyScriptRouterUnderTest struct {
-	engine                   *gin.Engine
-	strategyScriptRepository *mocks.MockIStrategyScriptRepository
+	engine                     *gin.Engine
+	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
+	tradingStrategyRepository  *mocks.MockITradingStrategyRepository
+	screeningProfileRepository *mocks.MockISymbolScreeningProfileRepository
 	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
 	botsUsingScript *[]entities.StrategyBot
 }
@@ -40,6 +42,8 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	botsUsingScript := &[]entities.StrategyBot{}
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
+	screeningProfileRepository := mocks.NewMockISymbolScreeningProfileRepository(mockController)
 	strategyScriptController := controller.NewStrategyScriptController(
 		application.NewStrategyScriptApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
@@ -49,7 +53,11 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 				mocks.NewMockIContractTradingSymbolRepository(mockController),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
 				mocks.NewMockIContractFundingRateSettlementRepository(mockController), nil, contractAutoOrderRepositoryNotInvolved(t), nil,
-				mocks.NewMockIClockProxy(mockController))))
+				mocks.NewMockIClockProxy(mockController)),
+			service.NewTradingStrategyService(tradingStrategyRepository),
+			service.NewSymbolScreeningProfileService(
+				screeningProfileRepository,
+				mocks.NewMockISymbolScreeningRunRepository(mockController), nil)))
 
 	engine := gin.New()
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
@@ -58,9 +66,11 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 	engine.GET("/strategy-scripts/:id", requiresSignIn, strategyScriptController.GetStrategyScript)
 	engine.PUT("/strategy-scripts/:id", requiresSignIn, strategyScriptController.UpdateStrategyScript)
 	engine.DELETE("/strategy-scripts/:id", requiresSignIn, strategyScriptController.DeleteStrategyScript)
+	engine.PUT("/strategy-scripts/:id/usage", requiresSignIn, strategyScriptController.SwitchStrategyScriptUsage)
 
 	return strategyScriptRouterUnderTest{
 		engine: engine, strategyScriptRepository: strategyScriptRepository, botsUsingScript: botsUsingScript,
+		tradingStrategyRepository: tradingStrategyRepository, screeningProfileRepository: screeningProfileRepository,
 	}
 }
 

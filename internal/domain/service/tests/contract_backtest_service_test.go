@@ -233,7 +233,7 @@ func TestContractBacktestServiceRefusals(t *testing.T) {
 
 	t.Run("a trading strategy replay refused by its own rules reads nothing", func(t *testing.T) {
 		requestDto := contractTradingStrategyBacktestServiceRequest()
-		requestDto.TradingMode = "shortOnly"
+		requestDto.TradingMode = "sideways"
 
 		_, err := newContractBacktestServiceUnderTest(t, noFailure).RunContractTradingStrategyBacktest(
 			context.Background(), requestDto, nil)

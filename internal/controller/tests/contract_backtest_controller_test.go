@@ -137,11 +137,11 @@ func (fixture contractBacktestRouterUnderTest) expectASpecifiedSymbol() {
 		}, true, nil).AnyTimes()
 }
 
-// aContractRouterStrategy is the signed-in viewer's one-source contract strategy under the given trading mode.
-func aContractRouterStrategy(tradingMode string) entities.TradingStrategy {
+// aContractRouterStrategy is the signed-in viewer's one-source contract strategy.
+func aContractRouterStrategy() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
-		MarketDataKind: "contractKCandle", TradingMode: tradingMode,
+		MarketDataKind: "contractKCandle",
 		SignalSources: []entities.TradingStrategySignalSource{{
 			Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
 		}},
@@ -206,15 +206,15 @@ func TestSubmitContractBacktestEndpoint(t *testing.T) {
 		assert.Nil(t, saved.StrategyScriptID)
 	})
 
-	t.Run("a contract trading strategy is queued under its own trading mode and name", func(t *testing.T) {
+	t.Run("a contract trading strategy is queued under the trading mode it was sent and its name", func(t *testing.T) {
 		fixture := newContractBacktestRouterUnderTest(t)
 		fixture.expectASpecifiedSymbol()
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-			Return(aContractRouterStrategy("longOnly"), nil)
+			Return(aContractRouterStrategy(), nil)
 		fixture.runs.expectQueued()
 
 		response := fixture.post("/trading-strategies/11/contract-backtests",
-			fmt.Sprintf(contractTradingStrategyBacktestBody, ""))
+			fmt.Sprintf(contractTradingStrategyBacktestBody, `,"tradingMode":"longOnly"`))
 
 		require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
 		body := map[string]any{}
@@ -252,9 +252,9 @@ func TestSubmitContractBacktestEndpointRefusesBeforeQueueing(t *testing.T) {
 			expectedStatus: http.StatusBadRequest, expectedField: "fillTiming",
 		},
 		{
-			name:           "a trading mode sent with a trading strategy replay names the field",
+			name:           "a trading mode no replay can face names the field",
 			path:           "/trading-strategies/11/contract-backtests",
-			body:           fmt.Sprintf(contractTradingStrategyBacktestBody, `,"tradingMode":"shortOnly"`),
+			body:           fmt.Sprintf(contractTradingStrategyBacktestBody, `,"tradingMode":"sideways"`),
 			expectedStatus: http.StatusBadRequest, expectedField: "tradingMode",
 		},
 		{name: "a contract replay body that is not JSON", path: "/contract-backtests", body: "not json",
@@ -275,7 +275,7 @@ func TestSubmitContractBacktestEndpointRefusesBeforeQueueing(t *testing.T) {
 			fixture := newContractBacktestRouterUnderTest(t)
 			fixture.expectASpecifiedSymbol()
 			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-				Return(aContractRouterStrategy("longShort"), nil).AnyTimes()
+				Return(aContractRouterStrategy(), nil).AnyTimes()
 			fixture.runs.ownerHasActive(0)
 
 			response := fixture.post(testCase.path, testCase.body)
@@ -308,7 +308,7 @@ func TestSubmitContractBacktestEndpointsAtTheOwnerLimit(t *testing.T) {
 			fixture := newContractBacktestRouterUnderTest(t)
 			fixture.expectASpecifiedSymbol()
 			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
-				Return(aContractRouterStrategy("longShort"), nil).AnyTimes()
+				Return(aContractRouterStrategy(), nil).AnyTimes()
 			fixture.runs.ownerHasActive(routerBacktestRunOwnerActiveLimit)
 
 			body := fmt.Sprintf(contractBacktestBody, 9, "")

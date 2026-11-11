@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -132,11 +131,6 @@ func (tradingStrategyService *TradingStrategyService) preparedRewrite(
 	}
 	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
 
-	// Omitting the trading mode keeps the stored one, so a rename cannot turn a short-only strategy into one that also buys.
-	if strings.TrimSpace(writeDto.TradingMode) == "" {
-		writeDto.TradingMode = storedTradingStrategy.TradingMode
-	}
-
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {
 		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, validationError
@@ -172,4 +166,11 @@ func (tradingStrategyService *TradingStrategyService) findOwnedTradingStrategy(
 	}
 
 	return tradingStrategy, nil
+}
+
+// ReadNamesUsingStrategyScript names the trading strategies with a signal source naming the script.
+func (tradingStrategyService *TradingStrategyService) ReadNamesUsingStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]string, error) {
+	return tradingStrategyService.tradingStrategyRepository.FindNamesByStrategyScript(executionContext, strategyScriptID)
 }

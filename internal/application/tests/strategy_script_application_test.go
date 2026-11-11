@@ -26,6 +26,8 @@ type strategyScriptApplicationUnderTest struct {
 	strategyScriptApplication         *application.StrategyScriptApplication
 	strategyScriptRepository          *mocks.MockIStrategyScriptRepository
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
+	tradingStrategyRepository         *mocks.MockITradingStrategyRepository
+	screeningProfileRepository        *mocks.MockISymbolScreeningProfileRepository
 	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
 	botsUsingScript *[]entities.StrategyBot
 	// botLookupError is what every bot lookup fails with; none unless a test says otherwise.
@@ -39,6 +41,8 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
+	screeningProfileRepository := mocks.NewMockISymbolScreeningProfileRepository(controller)
 	botsUsingScript := &[]entities.StrategyBot{}
 	botLookupError := new(error)
 	strategyBotRepository.EXPECT().FindAllByStrategyScript(gomock.Any(), gomock.Any()).
@@ -55,8 +59,13 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 				mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
 				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, contractAutoOrderRepositoryNotInvolved(t), nil,
-				mocks.NewMockIClockProxy(controller))),
+				mocks.NewMockIClockProxy(controller)),
+			service.NewTradingStrategyService(tradingStrategyRepository),
+			service.NewSymbolScreeningProfileService(
+				screeningProfileRepository, mocks.NewMockISymbolScreeningRunRepository(controller), nil)),
 		strategyScriptRepository:          strategyScriptRepository,
+		tradingStrategyRepository:         tradingStrategyRepository,
+		screeningProfileRepository:        screeningProfileRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
 		botsUsingScript:                   botsUsingScript,
 		botLookupError:                    botLookupError,

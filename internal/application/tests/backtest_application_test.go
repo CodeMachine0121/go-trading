@@ -415,7 +415,7 @@ func TestRunBacktest(t *testing.T) {
 func TestSubmitBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 	// Both use cases share the gates through the same service; this proves it on this path.
 	t.Run("somebody else's published strategy script is queued", func(t *testing.T) {
-		fixture := newBacktestGateUnderTest(t, true)
+		fixture := newBacktestGateUnderTest(t, true, "calculation")
 		saved := fixture.runQueue.acceptsOneRun(0)
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
@@ -427,7 +427,7 @@ func TestSubmitBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 	})
 
 	t.Run("somebody else's unpublished strategy script is not there", func(t *testing.T) {
-		fixture := newBacktestGateUnderTest(t, false)
+		fixture := newBacktestGateUnderTest(t, false, "calculation")
 		fixture.runQueue.queuesNothing()
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
@@ -435,14 +435,35 @@ func TestSubmitBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
 	})
+
+	t.Run("a chart strategy script is not replayed", func(t *testing.T) {
+		fixture := newBacktestGateUnderTest(t, true, "chart")
+		fixture.runQueue.queuesNothing()
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptUsageNotCalculation)
+		assert.Contains(t, err.Error(), "這支策略腳本是圖表用，不能回測")
+	})
+
+	t.Run("a strategy script whose usage cannot be read is not replayed", func(t *testing.T) {
+		fixture := newBacktestGateUnderTest(t, true, "sideways")
+		fixture.runQueue.queuesNothing()
+
+		_, err := fixture.backtestApplication.SubmitBacktest(
+			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptValidation)
+	})
 }
 
 // backtestStrangerID is somebody who does not own the strategy script being replayed.
 const backtestStrangerID = uint(2)
 
 // newBacktestGateUnderTest replays somebody else's strategy script, published to the marketplace or
-// not per the argument.
-func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest {
+// not per the argument, and used as the usage says.
+func newBacktestGateUnderTest(t *testing.T, isPublished bool, usage string) backtestUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
@@ -452,7 +473,7 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), backtestStrategyScriptID).
 		Return(entities.StrategyScript{
-			ID: backtestStrategyScriptID, OwnerID: backtestViewerID, Script: "the script",
+			ID: backtestStrategyScriptID, OwnerID: backtestViewerID, Script: "the script", Usage: usage,
 		}, nil).AnyTimes()
 
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)

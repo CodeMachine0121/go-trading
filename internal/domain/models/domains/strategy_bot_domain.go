@@ -42,6 +42,8 @@ type StrategyBotDomain struct {
 	// leverage is one or more for contract bots and zero for spot bots.
 	leverage                         decimal.Decimal
 	entrySlippageTolerancePercentage decimal.Decimal
+	tradingDirection                 StrategyBotTradingDirectionDomain
+	notifications                    StrategyBotNotificationDomain
 }
 
 func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, error) {
@@ -145,6 +147,12 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			ErrStrategyBotValidation, strategyBotEntrySlippageToleranceMaximumPercentage.String())
 	}
 
+	tradingDirection, tradingDirectionError := NewStrategyBotTradingDirectionDomain(
+		marketDataKind, writeDto.TradingDirections, writeDto.RetainedContractTradingMode)
+	if tradingDirectionError != nil {
+		return StrategyBotDomain{}, tradingDirectionError
+	}
+
 	return StrategyBotDomain{
 		id:                               writeDto.ID,
 		ownerID:                          writeDto.OwnerID,
@@ -157,7 +165,15 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		capitalAllocation:                capitalAllocation,
 		leverage:                         leverage,
 		entrySlippageTolerancePercentage: entrySlippageTolerancePercentage,
+		tradingDirection:                 tradingDirection,
+		notifications: NewStrategyBotNotificationDomainSettling(
+			writeDto.Notifications, writeDto.RetainedNotifications),
 	}, nil
+}
+
+// ChangesTradingDirectionOf tells whether saving this would give the stored bot a different trading direction.
+func (strategyBotDomain StrategyBotDomain) ChangesTradingDirectionOf(storedBot entities.StrategyBot) bool {
+	return strategyBotDomain.tradingDirection.Differs(storedBot.ContractTradingMode)
 }
 
 // RequireFollowing refuses a trading strategy written for a different market data kind than this bot's.
@@ -200,6 +216,7 @@ func (strategyBotDomain StrategyBotDomain) Leverage() decimal.Decimal {
 // ToEntity uses a new bot's default run state; rewrites share it since a bot can only be rewritten while stopped.
 func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 	positionPlanSettings := strategyBotDomain.positionPlan.ToSettingsDto()
+	notifications := strategyBotDomain.notifications.ToDto()
 
 	watchedSymbols := make([]entities.StrategyBotWatchedSymbol, 0, len(strategyBotDomain.symbols))
 	for _, symbol := range strategyBotDomain.symbols {
@@ -224,7 +241,11 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
 		PositionPlanLeverage:             strategyBotDomain.leverage,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBotDomain.entrySlippageTolerancePercentage,
-		RunState:       string(vo.StrategyBotStopped),
-		WatchedSymbols: watchedSymbols,
+		ContractTradingMode:                       strategyBotDomain.tradingDirection.ContractTradingMode(),
+		MutesBuyNotification:                      !notifications.Buy,
+		MutesSellNotification:                     !notifications.Sell,
+		SendsHoldNotification:                     notifications.Hold,
+		RunState:                                  string(vo.StrategyBotStopped),
+		WatchedSymbols:                            watchedSymbols,
 	}
 }

@@ -6,8 +6,8 @@ type TradingStrategyWriteDto struct {
 	ID      uint
 	OwnerID uint
 	Name    string
-	// TradingMode is carried only so a request for an unsupported mode can be refused.
-	TradingMode string
+	// DeclaredTradingMode is carried only to be refused: trading strategies no longer hold one.
+	DeclaredTradingMode string
 	// MarketDataKind blank means kCandle on create and unchanged on rewrite.
 	MarketDataKind string
 
@@ -25,6 +25,8 @@ type TradingStrategySignalSourceWriteDto struct {
 	ParameterValues     []StrategyScriptParameterValueDto
 	DeclaredParameters  []StrategyScriptParameterWriteDto
 	// DeclaredResultType must be the signal kind for a source to be usable in conditions.
-	DeclaredResultType     string
+	DeclaredResultType string
+	// DeclaredUsage must be calculation; a chart script is never a signal source.
+	DeclaredUsage          string
 	DeclaredMarketDataKind string
 }

@@ -89,3 +89,35 @@ func TestContractTradeLiveComparisonDomainWithoutAnySlippage(t *testing.T) {
 	assert.Nil(t, plan.AverageEntrySlippagePercentage)
 	assert.Equal(t, 0, plan.EntrySlippageTradeCount)
 }
+
+func TestContractTradeLiveComparisonDomainReplaysTheDirectionsTraded(t *testing.T) {
+	aTrade := func(direction string) dto.ContractTradeRecordDto {
+		trade := aClosedLiveTrade(1, 2, 3)
+		trade.Direction = direction
+
+		return trade
+	}
+	testCases := []struct {
+		name         string
+		directions   []string
+		expectedMode string
+	}{
+		{name: "only longs", directions: []string{"long", "long"}, expectedMode: "longOnly"},
+		{name: "only shorts", directions: []string{"short"}, expectedMode: "shortOnly"},
+		{name: "both", directions: []string{"long", "short"}, expectedMode: "longShort"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			trades := []dto.ContractTradeRecordDto{}
+			for _, direction := range testCase.directions {
+				trades = append(trades, aTrade(direction))
+			}
+
+			groups := domains.NewContractTradeLiveComparisonDomain(trades, decimal.RequireFromString("0.05")).Plan().Groups
+
+			require.Len(t, groups, 1)
+			assert.Equal(t, testCase.expectedMode, groups[0].BacktestRequest.TradingMode)
+		})
+	}
+}

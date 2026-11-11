@@ -140,13 +140,12 @@ func TestTradingStrategyRepositorySaveLeavesTheOwnerAndCreationAlone(t *testing.
 }
 
 // The market data kind is fixed at creation because every source was validated against it.
-func TestTradingStrategyRepositorySaveRewritesTheTradingModeButNeverTheKind(t *testing.T) {
+func TestTradingStrategyRepositorySaveNeverRewritesTheKind(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)
 
 	contractRules := aTradingStrategyRow("合約黃金交叉")
 	contractRules.MarketDataKind = string(vo.MarketDataKindContractKCandle)
-	contractRules.TradingMode = string(vo.ContractTradingModeLongShort)
 	saved, saveError := repository.Save(t.Context(), contractRules)
 	require.NoError(t, saveError)
 	assert.Equal(t, "contractKCandle", saved.MarketDataKind)
@@ -154,13 +153,11 @@ func TestTradingStrategyRepositorySaveRewritesTheTradingModeButNeverTheKind(t *t
 	rewritten := aTradingStrategyRow("合約黃金交叉")
 	rewritten.ID = saved.ID
 	rewritten.MarketDataKind = string(vo.MarketDataKindKCandle)
-	rewritten.TradingMode = string(vo.ContractTradingModeShortOnly)
 
 	rewrittenRow, rewriteError := repository.Save(t.Context(), rewritten)
 	require.NoError(t, rewriteError)
 
 	assert.Equal(t, "contractKCandle", rewrittenRow.MarketDataKind)
-	assert.Equal(t, "shortOnly", rewrittenRow.TradingMode)
 }
 
 func TestTradingStrategyRepositorySaveRefusesANameThisPersonAlreadyUses(t *testing.T) {

@@ -24,6 +24,7 @@ type StrategyScriptDomain struct {
 	resultType  IndicatorResultTypeDomain
 	// marketDataKind arrives already reconciled on rewrite (see MarketDataKindDomain.Retaining).
 	marketDataKind MarketDataKindDomain
+	usage          StrategyScriptUsageDomain
 	parameters     StrategyScriptParametersDomain
 }
 
@@ -78,6 +79,11 @@ func NewStrategyScriptDomain(writeDto dto.StrategyScriptWriteDto) (StrategyScrip
 		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, marketDataKindError)
 	}
 
+	usage, usageError := NewStrategyScriptUsageDomain(writeDto.Usage)
+	if usageError != nil {
+		return StrategyScriptDomain{}, usageError
+	}
+
 	parameters, parametersError := NewStrategyScriptParametersDomain(writeDto.Parameters)
 	if parametersError != nil {
 		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, parametersError)
@@ -95,6 +101,7 @@ func NewStrategyScriptDomain(writeDto dto.StrategyScriptWriteDto) (StrategyScrip
 		script:         writeDto.Script,
 		resultType:     resultType,
 		marketDataKind: marketDataKind,
+		usage:          usage,
 		parameters:     parameters,
 	}, nil
 }
@@ -114,6 +121,7 @@ func (strategyScriptDomain StrategyScriptDomain) ToEntity() entities.StrategyScr
 		Script:         strategyScriptDomain.script,
 		ResultType:     string(strategyScriptDomain.resultType.Value()),
 		MarketDataKind: string(strategyScriptDomain.marketDataKind.Value()),
+		Usage:          string(strategyScriptDomain.usage.Value()),
 		Parameters:     strategyScriptDomain.parameters.ToEntities(),
 	}
 }

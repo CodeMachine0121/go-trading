@@ -370,18 +370,15 @@ func TestTradingStrategyRouterRefusesAnUnreadableBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
-// Spot is accepted explicitly, and the answer carries no mode.
-func TestTradingStrategyRouterAcceptsSpotAndAnswersWithoutAMode(t *testing.T) {
+// A trading strategy answers without a mode, whatever its kind.
+func TestTradingStrategyRouterAnswersWithoutAMode(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
 
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(aStoredTradingStrategyRow(), nil)
 
-	spotBody := strings.Replace(
-		aTradingStrategyBody, `"name": "黃金交叉",`, `"name": "黃金交叉", "tradingMode": "spot",`, 1)
-
-	response := fixture.send(http.MethodPost, "/trading-strategies", spotBody)
+	response := fixture.send(http.MethodPost, "/trading-strategies", aTradingStrategyBody)
 
 	require.Equal(t, http.StatusCreated, response.Code)
 	answer := map[string]any{}
@@ -389,19 +386,21 @@ func TestTradingStrategyRouterAcceptsSpotAndAnswersWithoutAMode(t *testing.T) {
 	assert.NotContains(t, answer, "tradingMode")
 }
 
-// Any other mode is refused rather than stored as spot.
-func TestTradingStrategyRouterRefusesAnyOtherSetOfRules(t *testing.T) {
-	fixture := newTradingStrategyRouterUnderTest(t)
-	fixture.expectResolvableStrategyScript()
+// Any mode, spot included, is refused: the direction is the bot's or the replay's to say.
+func TestTradingStrategyRouterRefusesATradingMode(t *testing.T) {
+	for _, declaredMode := range []string{"spot", "longShort"} {
+		t.Run(declaredMode, func(t *testing.T) {
+			fixture := newTradingStrategyRouterUnderTest(t)
+			fixture.expectResolvableStrategyScript()
 
-	shortableBody := strings.Replace(
-		aTradingStrategyBody, `"name": "黃金交叉",`,
-		`"name": "黃金交叉", "tradingMode": "longShort",`, 1)
+			body := strings.Replace(aTradingStrategyBody, `"name": "黃金交叉",`,
+				`"name": "黃金交叉", "tradingMode": "`+declaredMode+`",`, 1)
 
-	response := fixture.send(http.MethodPost, "/trading-strategies", shortableBody)
+			response := fixture.send(http.MethodPost, "/trading-strategies", body)
 
-	// Same status as any refused trading strategy, because it carries the same sentinel.
-	require.Equal(t, http.StatusBadRequest, response.Code)
-	// Nothing was stored: gomock has no expectation for Save.
-	assert.Contains(t, response.Body.String(), "只重演現貨")
+			// Nothing was stored: gomock has no expectation for Save.
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Contains(t, response.Body.String(), "交易方向改由機器人在自己身上選")
+		})
+	}
 }

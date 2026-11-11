@@ -114,6 +114,14 @@ func (backtestApplication *BacktestApplication) resolveReplayable(
 		return dto.RunnableStrategyScriptDto{}, mismatchError
 	}
 
+	usage, usageError := domains.NewStrategyScriptUsageDomain(resolved.Usage)
+	if usageError != nil {
+		return dto.RunnableStrategyScriptDto{}, usageError
+	}
+	if calculationError := usage.RequireCalculation("回測"); calculationError != nil {
+		return dto.RunnableStrategyScriptDto{}, calculationError
+	}
+
 	return resolved, nil
 }
 

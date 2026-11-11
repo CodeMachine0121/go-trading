@@ -279,3 +279,11 @@ func TestPendingMessageQueueDomainSendsEachPersonsOldestMessageFirst(t *testing.
 		})
 	}
 }
+
+// A return to holding decided no signal, so giving its message up leaves the bot's last signal alone.
+func TestPendingMessageDomainAReturnToHoldingForgetsNothing(t *testing.T) {
+	holdMessage := aQueuedMessage(vo.PendingMessageReady, 0)
+	holdMessage.Signal = string(vo.SignalHold)
+
+	assert.False(t, domains.NewPendingMessageDomain(holdMessage).ForgetsSignalWhenAbandoned())
+}

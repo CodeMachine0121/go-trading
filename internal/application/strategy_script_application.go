@@ -8,19 +8,51 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyScriptApplication joins the strategy script and bot services, which do not know about each other.
+// StrategyScriptApplication joins the strategy script service with the services of what uses scripts, which do not know about each other.
 type StrategyScriptApplication struct {
-	strategyScriptService *service.StrategyScriptService
-	strategyBotService    *service.StrategyBotService
+	strategyScriptService         *service.StrategyScriptService
+	strategyBotService            *service.StrategyBotService
+	tradingStrategyService        *service.TradingStrategyService
+	symbolScreeningProfileService *service.SymbolScreeningProfileService
 }
 
 func NewStrategyScriptApplication(
 	strategyScriptService *service.StrategyScriptService, strategyBotService *service.StrategyBotService,
+	tradingStrategyService *service.TradingStrategyService,
+	symbolScreeningProfileService *service.SymbolScreeningProfileService,
 ) *StrategyScriptApplication {
 	return &StrategyScriptApplication{
-		strategyScriptService: strategyScriptService,
-		strategyBotService:    strategyBotService,
+		strategyScriptService:         strategyScriptService,
+		strategyBotService:            strategyBotService,
+		tradingStrategyService:        tradingStrategyService,
+		symbolScreeningProfileService: symbolScreeningProfileService,
 	}
+}
+
+// SwitchStrategyScriptUsage hands the service what computes with the script, so a switch to the chart is refused while anything does.
+func (strategyScriptApplication *StrategyScriptApplication) SwitchStrategyScriptUsage(
+	executionContext context.Context, viewerID uint, id uint, usage string,
+) (dto.StrategyScriptDto, error) {
+	tradingStrategyNames, tradingStrategyError := strategyScriptApplication.tradingStrategyService.
+		ReadNamesUsingStrategyScript(executionContext, id)
+	if tradingStrategyError != nil {
+		return dto.StrategyScriptDto{}, tradingStrategyError
+	}
+
+	screeningProfileNames, screeningProfileError := strategyScriptApplication.symbolScreeningProfileService.
+		ReadNamesUsingStrategyScript(executionContext, id)
+	if screeningProfileError != nil {
+		return dto.StrategyScriptDto{}, screeningProfileError
+	}
+
+	return strategyScriptApplication.strategyScriptService.SwitchStrategyScriptUsage(executionContext,
+		dto.StrategyScriptUsageSwitchDto{
+			ViewerID:              viewerID,
+			StrategyScriptID:      id,
+			Usage:                 usage,
+			TradingStrategyNames:  tradingStrategyNames,
+			ScreeningProfileNames: screeningProfileNames,
+		})
 }
 
 func (strategyScriptApplication *StrategyScriptApplication) CreateStrategyScript(

@@ -91,7 +91,7 @@ func NewSubmittedBacktestRunDomain(
 		if request.Leverage.IsZero() {
 			backtestRun.Leverage = decimal.NewNullDecimal(oneWhole)
 		}
-		tradingMode, tradingModeError := NewContractTradingModeDomain(request.TradingStrategyTradingMode)
+		tradingMode, tradingModeError := NewContractTradingModeDomain(request.TradingMode)
 		if tradingModeError != nil {
 			return BacktestRunDomain{}, BacktestValidationFailure(BacktestTradingModeField, tradingModeError.Error())
 		}

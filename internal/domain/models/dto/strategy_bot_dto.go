@@ -34,8 +34,13 @@ type StrategyBotDto struct {
 	AutoOrderEnabled bool `json:"autoOrderEnabled"`
 	// AutoOrderEntrySlippageTolerancePercentage is in percent: 0.1 lets an auto order's entry limit sit up to 0.1% from the reference price.
 	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `json:"autoOrderEntrySlippageTolerancePercentage"`
-	CreatedAt                                 time.Time       `json:"createdAt"`
-	UpdatedAt                                 time.Time       `json:"updatedAt"`
+	// TradingDirections are long and/or short; omitted for spot bots, which only go long.
+	TradingDirections []string `json:"tradingDirections,omitempty"`
+	// ContractTradingMode is what the trading direction comes to, for rounds and auto orders; blank on spot bots.
+	ContractTradingMode string                      `json:"-"`
+	Notifications       StrategyBotNotificationsDto `json:"notifications"`
+	CreatedAt           time.Time                   `json:"createdAt"`
+	UpdatedAt           time.Time                   `json:"updatedAt"`
 }
 
 // Symbols lists the watched symbols in the bot's order.

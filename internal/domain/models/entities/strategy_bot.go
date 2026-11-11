@@ -42,8 +42,14 @@ type StrategyBot struct {
 	AutoOrderEnabled bool `gorm:"not null;default:false"`
 	// AutoOrderEntrySlippageTolerancePercentage is how far, in percent of the reference price, an auto order's entry limit may sit from it; the default reaches existing rows when the column is added.
 	AutoOrderEntrySlippageTolerancePercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0.1"`
-	CreatedAt                                 time.Time       `gorm:"type:timestamptz;not null"`
-	UpdatedAt                                 time.Time       `gorm:"type:timestamptz;not null"`
+	// ContractTradingMode is the contract trading mode the bot's trading direction comes to; blank on spot bots, and on contract bots only until the upgrade copies it from their trading strategy.
+	ContractTradingMode string `gorm:"column:contract_trading_mode;size:32;not null;default:''"`
+	// The notification switches are stored so that false is every one's default, so a create never trades an owner's choice for a column default; a bot with all three false notifies of buy and sell, not of hold.
+	MutesBuyNotification  bool      `gorm:"not null;default:false"`
+	MutesSellNotification bool      `gorm:"not null;default:false"`
+	SendsHoldNotification bool      `gorm:"not null;default:false"`
+	CreatedAt             time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt             time.Time `gorm:"type:timestamptz;not null"`
 
 	// WatchedSymbols are read in the order they were added.
 	WatchedSymbols []StrategyBotWatchedSymbol `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
@@ -133,7 +139,45 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		HaltReason:             strategyBot.HaltReason,
 		AutoOrderEnabled:       strategyBot.AutoOrderEnabled,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBot.AutoOrderEntrySlippageTolerancePercentage,
-		CreatedAt: strategyBot.CreatedAt.UTC(),
-		UpdatedAt: strategyBot.UpdatedAt.UTC(),
+		TradingDirections:                         strategyBot.tradingDirections(marketDataKind),
+		ContractTradingMode:                       strategyBot.contractTradingMode(marketDataKind),
+		Notifications:                             strategyBot.NotificationsDto(),
+		CreatedAt:                                 strategyBot.CreatedAt.UTC(),
+		UpdatedAt:                                 strategyBot.UpdatedAt.UTC(),
 	}
+}
+
+// NotificationsDto turns the stored switches back into which conclusions are announced.
+func (strategyBot StrategyBot) NotificationsDto() dto.StrategyBotNotificationsDto {
+	return dto.StrategyBotNotificationsDto{
+		Buy:  !strategyBot.MutesBuyNotification,
+		Sell: !strategyBot.MutesSellNotification,
+		Hold: strategyBot.SendsHoldNotification,
+	}
+}
+
+// contractTradingMode reads a contract bot not yet upgraded as long-short, the mode nothing said means; spot bots have none.
+func (strategyBot StrategyBot) contractTradingMode(marketDataKind string) string {
+	if marketDataKind != string(vo.MarketDataKindContractKCandle) {
+		return ""
+	}
+	if strategyBot.ContractTradingMode == "" {
+		return string(vo.ContractTradingModeLongShort)
+	}
+
+	return strategyBot.ContractTradingMode
+}
+
+// tradingDirections are shown only for contract bots.
+func (strategyBot StrategyBot) tradingDirections(marketDataKind string) []string {
+	if marketDataKind != string(vo.MarketDataKindContractKCandle) {
+		return nil
+	}
+
+	tradingDirections := []string{}
+	for _, tradingDirection := range vo.ContractTradingModeVo(strategyBot.contractTradingMode(marketDataKind)).TradingDirections() {
+		tradingDirections = append(tradingDirections, string(tradingDirection))
+	}
+
+	return tradingDirections
 }

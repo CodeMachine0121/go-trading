@@ -42,13 +42,34 @@ func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) RequireRemovable(hasUn
 	return nil
 }
 
+// RequireFlatForDirectionChange refuses a new trading direction while this symbol holds what auto orders opened or has an auto order not yet done: the new direction could leave it with nothing that closes it.
+func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) RequireFlatForDirectionChange(hasUnsettledAutoOrder bool) error {
+	direction := vo.TargetPositionVo(watchedSymbolDomain.watchedSymbol.AutoOrderPositionDirection)
+	if direction != "" && direction != vo.TargetPositionFlat {
+		return fmt.Errorf("%w: %s 還有機器人持倉，要先讓它空手才能改交易方向",
+			ErrStrategyBotWatchedSymbolHoldsPosition, watchedSymbolDomain.watchedSymbol.Symbol)
+	}
+
+	if hasUnsettledAutoOrder {
+		return fmt.Errorf("%w: %s 還有沒做完的自動下單，要等它做完才能改交易方向",
+			ErrStrategyBotWatchedSymbolAutoOrderOutstanding, watchedSymbolDomain.watchedSymbol.Symbol)
+	}
+
+	return nil
+}
+
 // Concluded moves the last sent signal, with the round that said it, only when the round queued a message; a symbol that concluded is no longer halted, which only a round pressed by hand on a stopped bot can show, since a running bot passes halted symbols by.
 func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) Concluded(
-	dueAt time.Time, sentSignal vo.SignalVo, conflicting bool,
+	dueAt time.Time, sentSignal vo.SignalVo, opinion vo.SignalVo, conflicting bool,
 ) entities.StrategyBotWatchedSymbol {
 	concludedSymbol := watchedSymbolDomain.watchedSymbol
 	concludedSymbol.Conflicting = conflicting
 	concludedSymbol.HaltReason = string(vo.StrategyBotHaltNone)
+
+	// A conflict has no opinion, so it leaves a run of holds unbroken.
+	if opinion != "" {
+		concludedSymbol.LastOpinion = string(opinion)
+	}
 
 	if sentSignal != "" {
 		dueAtUtc := dueAt.UTC()
@@ -72,6 +93,7 @@ func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) Halted(
 func (watchedSymbolDomain StrategyBotWatchedSymbolDomain) ClearedForStart() entities.StrategyBotWatchedSymbol {
 	clearedSymbol := watchedSymbolDomain.watchedSymbol
 	clearedSymbol.LastSentSignal = ""
+	clearedSymbol.LastOpinion = ""
 	clearedSymbol.LastSentRoundDueAt = nil
 	clearedSymbol.Conflicting = false
 	clearedSymbol.HaltReason = string(vo.StrategyBotHaltNone)

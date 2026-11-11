@@ -2,7 +2,6 @@ package domains
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -30,12 +29,6 @@ func NewContractTradingStrategyBacktestDomain(
 		return ContractTradingStrategyBacktestDomain{}, fmt.Errorf(
 			"%w: 這份交易策略吃的是%s，不能拿來做合約重演——請改用現貨重演",
 			ErrBacktestValidation, tradingStrategyKind.label())
-	}
-
-	// The strategy owns the trading mode, so a second one on the request would be silently ignored.
-	if strings.TrimSpace(requestDto.TradingMode) != "" {
-		return ContractTradingStrategyBacktestDomain{}, BacktestValidationFailure(BacktestTradingModeField,
-			"交易模式由交易策略自己決定，重演時不能另外指定——要換交易模式請修改那份交易策略")
 	}
 
 	sources, sourcesError := NewTradingStrategyReplaySourcesDomain(

@@ -526,3 +526,18 @@ func TestTradingStrategyApplicationRewriteRefusesSomeoneElsesScript(t *testing.T
 	require.ErrorIs(t, updateError, domains.ErrStrategyScriptNotYours)
 	assert.Contains(t, updateError.Error(), "不是你的，請先把它加入你的策略腳本")
 }
+
+func TestTradingStrategyApplicationCreateRefusesAChartScriptAsASource(t *testing.T) {
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	chartScript := aScriptOwnedByTheCaller(9)
+	chartScript.Usage = "chart"
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).Return(chartScript, nil)
+	underTest.expectNoMarketplaceQuestion()
+
+	// No Save is stubbed: the refusal lands before anything is written.
+	_, createError := underTest.tradingStrategyApplication.CreateTradingStrategy(
+		context.Background(), strategyBotOwnerID, aTradingStrategyWrite())
+
+	require.ErrorIs(t, createError, domains.ErrTradingStrategyValidation)
+	assert.ErrorContains(t, createError, "這支策略腳本是圖表用，不能當信號來源")
+}

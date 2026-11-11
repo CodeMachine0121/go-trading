@@ -33,6 +33,8 @@ type StrategyBotRoundDto struct {
 	// JournalLinkUrl is blank unless the round suggests opening a contract position.
 	JournalLinkIdentifier string
 	JournalLinkUrl        string
+	// ReturnsToHold makes this the one-off message saying the symbol is back to holding: no position plan, no journal link.
+	ReturnsToHold bool
 	// RunNumber is the round's place in its bot's history, known only once the round is booked in; zero prints no number.
 	RunNumber int
 }
@@ -46,7 +48,13 @@ type StrategyBotSourceSignalDto struct {
 // StrategyBotRoundDecisionDto decides whether to send here because that depends on the bot's
 // last sent signal.
 type StrategyBotRoundDecisionDto struct {
-	Verdict     string
+	Verdict string
+	// ShouldSend means the round decided a new signal, whether or not its message is sent.
 	ShouldSend  bool
 	Conflicting bool
+	// Opinion is buy, sell or hold, blank for a conflict; the watched symbol keeps it to tell a return to holding.
+	Opinion string
+	// SpeaksSignal sends the decided signal's message; SpeaksReturnToHold sends the one-off return-to-hold message.
+	SpeaksSignal       bool
+	SpeaksReturnToHold bool
 }

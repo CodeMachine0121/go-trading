@@ -18,6 +18,17 @@ type StrategyBotRequest struct {
 	PositionPlan PositionPlanRequest `json:"positionPlan"`
 	// AutoOrderEntrySlippageTolerancePercentage is in percent, 0 to 5; omitted means 0.1 on create and unchanged on rewrite.
 	AutoOrderEntrySlippageTolerancePercentage decimal.NullDecimal `json:"autoOrderEntrySlippageTolerancePercentage"`
+	// TradingDirections are long and/or short, contract bots only; omitted means both on create and unchanged on rewrite, an empty list is refused.
+	TradingDirections *[]string `json:"tradingDirections"`
+	// Notifications switch each conclusion's round message; each left out keeps its default on create and its stored setting on rewrite.
+	Notifications StrategyBotNotificationsRequest `json:"notifications"`
+}
+
+// StrategyBotNotificationsRequest leaves out what the caller did not say.
+type StrategyBotNotificationsRequest struct {
+	Buy  *bool `json:"buy"`
+	Sell *bool `json:"sell"`
+	Hold *bool `json:"hold"`
 }
 
 type PositionPlanRequest struct {
@@ -75,5 +86,11 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		CapitalAllocations:     capitalAllocations,
 		DeclaredLeverage:       strategyBotRequest.PositionPlan.Leverage,
 		AutoOrderEntrySlippageTolerancePercentage: strategyBotRequest.AutoOrderEntrySlippageTolerancePercentage,
+		TradingDirections:                         strategyBotRequest.TradingDirections,
+		Notifications: dto.StrategyBotNotificationsWriteDto{
+			Buy:  strategyBotRequest.Notifications.Buy,
+			Sell: strategyBotRequest.Notifications.Sell,
+			Hold: strategyBotRequest.Notifications.Hold,
+		},
 	}
 }

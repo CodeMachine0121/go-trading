@@ -9,8 +9,10 @@ type StrategyScriptRequest struct {
 	Script      string `json:"script"`
 	ResultType  string `json:"resultType"`
 	// MarketDataKind is kCandle (default on create) or contractKCandle; omitted on rewrite keeps the existing kind.
-	MarketDataKind string                           `json:"marketDataKind"`
-	Parameters     []StrategyScriptParameterRequest `json:"parameters"`
+	MarketDataKind string `json:"marketDataKind"`
+	// Usage is chart or calculation (default on create); a rewrite must leave it out, since usage is switched on its own.
+	Usage      string                           `json:"usage"`
+	Parameters []StrategyScriptParameterRequest `json:"parameters"`
 }
 
 // ToWriteDto takes the ID (zero means new) and the owner from the arguments, since the owner must come from the token, never the body.
@@ -23,6 +25,7 @@ func (strategyScriptRequest StrategyScriptRequest) ToWriteDto(id uint, ownerID u
 		Script:         strategyScriptRequest.Script,
 		ResultType:     strategyScriptRequest.ResultType,
 		MarketDataKind: strategyScriptRequest.MarketDataKind,
+		Usage:          strategyScriptRequest.Usage,
 		Parameters:     strategyScriptRequest.parameterWriteDtos(),
 	}
 }

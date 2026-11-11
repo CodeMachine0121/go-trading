@@ -16,11 +16,9 @@ type TradingStrategy struct {
 	OwnerID uint   `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
 	Name    string `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
 	// MarketDataKind blank means a row stored before the choice existed, i.e. K candle.
-	MarketDataKind string `gorm:"size:32;not null;default:kCandle"`
-	// TradingMode applies only to contract strategies; it uses a new column so stale spot-era values in the retired trading_mode column are never read.
-	TradingMode string    `gorm:"column:contract_trading_mode;size:32;not null;default:''"`
-	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	MarketDataKind string    `gorm:"size:32;not null;default:kCandle"`
+	CreatedAt      time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt      time.Time `gorm:"type:timestamptz;not null"`
 
 	Owner          User                           `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	SignalSources  []TradingStrategySignalSource  `gorm:"foreignKey:TradingStrategyID;constraint:OnDelete:CASCADE"`
@@ -43,7 +41,6 @@ func (tradingStrategy TradingStrategy) ToDto() dto.TradingStrategyDto {
 		OwnerID:        tradingStrategy.OwnerID,
 		Name:           tradingStrategy.Name,
 		MarketDataKind: marketDataKind,
-		TradingMode:    tradingStrategy.TradingMode,
 		SignalSources:  tradingStrategy.signalSourceDtos(),
 		BuyCondition:   tradingStrategy.conditionDto(vo.TradingStrategyConditionSideBuy),
 		SellCondition:  tradingStrategy.conditionDto(vo.TradingStrategyConditionSideSell),

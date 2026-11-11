@@ -10,6 +10,8 @@ type PublishedStrategyScriptDto struct {
 	Description    string `json:"description"`
 	ResultType     string `json:"resultType"`
 	MarketDataKind string `json:"marketDataKind"`
+	// Usage is the script's current usage, chart or calculation.
+	Usage string `json:"usage"`
 	// PublisherEmail is read from the script owner, not stored on the publication.
 	PublisherEmail string                       `json:"publisherEmail"`
 	PublishedAt    time.Time                    `json:"publishedAt"`

@@ -7,7 +7,7 @@ type TradingStrategyRequest struct {
 	Name string `json:"name"`
 	// MarketDataKind is kCandle (default) or contractKCandle, fixed at creation.
 	MarketDataKind string `json:"marketDataKind"`
-	// TradingMode is longShort (default when blank), longOnly or shortOnly for contract strategies; naming one on a K candle strategy is refused.
+	// TradingMode is read only to be refused: the direction is the bot's or the replay's to say.
 	TradingMode   string                               `json:"tradingMode"`
 	SignalSources []TradingStrategySignalSourceRequest `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionRequest      `json:"buyCondition"`
@@ -37,13 +37,13 @@ type TradingStrategyConditionRequest struct {
 // ToWriteDto takes the strategy ID from the argument (zero means new); the owner is set by the application.
 func (tradingStrategyRequest TradingStrategyRequest) ToWriteDto(id uint) dto.TradingStrategyWriteDto {
 	return dto.TradingStrategyWriteDto{
-		ID:             id,
-		Name:           tradingStrategyRequest.Name,
-		TradingMode:    tradingStrategyRequest.TradingMode,
-		MarketDataKind: tradingStrategyRequest.MarketDataKind,
-		SignalSources:  tradingStrategyRequest.signalSourceWriteDtos(),
-		BuyCondition:   tradingStrategyRequest.BuyCondition.ToDto(),
-		SellCondition:  tradingStrategyRequest.SellCondition.ToDto(),
+		ID:                  id,
+		Name:                tradingStrategyRequest.Name,
+		DeclaredTradingMode: tradingStrategyRequest.TradingMode,
+		MarketDataKind:      tradingStrategyRequest.MarketDataKind,
+		SignalSources:       tradingStrategyRequest.signalSourceWriteDtos(),
+		BuyCondition:        tradingStrategyRequest.BuyCondition.ToDto(),
+		SellCondition:       tradingStrategyRequest.SellCondition.ToDto(),
 	}
 }
 

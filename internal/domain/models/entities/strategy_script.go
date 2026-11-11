@@ -18,6 +18,8 @@ type StrategyScript struct {
 	ResultType  string `gorm:"size:32;not null"`
 	// MarketDataKind is fixed at creation; the default matches scripts saved before the choice existed.
 	MarketDataKind string `gorm:"size:32;not null;default:'kCandle'"`
+	// Usage is chart or calculation; the default makes every script stored before the choice existed a calculation script, as the owner decided.
+	Usage string `gorm:"size:16;not null;default:'calculation'"`
 	// IsAdoptedFromMarketplace marks a copy made on adoption; it keeps no link to the original, which may change or vanish.
 	IsAdoptedFromMarketplace bool      `gorm:"not null;default:false"`
 	CreatedAt                time.Time `gorm:"type:timestamptz;not null"`
@@ -48,6 +50,7 @@ func (strategyScript StrategyScript) ToDto() dto.StrategyScriptDto {
 		Script:                   script,
 		ResultType:               strategyScript.ResultType,
 		MarketDataKind:           strategyScript.MarketDataKind,
+		Usage:                    strategyScript.Usage,
 		Published:                strategyScript.Publication != nil,
 		CreatedAt:                strategyScript.CreatedAt.UTC(),
 		UpdatedAt:                strategyScript.UpdatedAt.UTC(),

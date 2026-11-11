@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // It deliberately cannot reach K candles, and consults the marketplace only for the third access gate: is the script published.
@@ -128,6 +131,12 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, rewritableError
 	}
 
+	// Usage is switched on its own; a rewrite keeps the stored one.
+	if strings.TrimSpace(writeDto.Usage) != "" {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, domains.StrategyScriptUsageNotRewritable()
+	}
+	writeDto.Usage = existingStrategyScript.Usage
+
 	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
 	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
 		existingStrategyScript.MarketDataKind)
@@ -147,6 +156,45 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 	}
 
 	return existingStrategyScript, strategyScriptDomain, nil
+}
+
+// SwitchStrategyScriptUsage moves the viewer's script, marketplace copies included, to the other usage; switching to the usage it has changes nothing.
+func (strategyScriptService *StrategyScriptService) SwitchStrategyScriptUsage(
+	executionContext context.Context, switchDto dto.StrategyScriptUsageSwitchDto,
+) (dto.StrategyScriptDto, error) {
+	strategyScript, ownershipError := strategyScriptService.requireOwnership(
+		executionContext, switchDto.ViewerID, switchDto.StrategyScriptID)
+	if ownershipError != nil {
+		return dto.StrategyScriptDto{}, ownershipError
+	}
+
+	// A switch must say where to: blank means calculation only when a script is created.
+	if strings.TrimSpace(switchDto.Usage) == "" {
+		return dto.StrategyScriptDto{}, fmt.Errorf("%w: 切換用途時必須說要切成 %s 或 %s",
+			domains.ErrStrategyScriptValidation, vo.StrategyScriptUsageChart, vo.StrategyScriptUsageCalculation)
+	}
+
+	usage, usageError := domains.NewStrategyScriptUsageDomain(switchDto.Usage)
+	if usageError != nil {
+		return dto.StrategyScriptDto{}, usageError
+	}
+
+	if string(usage.Value()) == strategyScript.Usage {
+		return strategyScript.ToDto(), nil
+	}
+
+	if usage.IsChart() && len(switchDto.TradingStrategyNames)+len(switchDto.ScreeningProfileNames) > 0 {
+		return dto.StrategyScriptDto{}, domains.StrategyScriptUsageInUse(
+			switchDto.TradingStrategyNames, switchDto.ScreeningProfileNames)
+	}
+
+	switchedStrategyScript, updateError := strategyScriptService.strategyScriptRepository.UpdateUsage(
+		executionContext, switchDto.StrategyScriptID, string(usage.Value()))
+	if updateError != nil {
+		return dto.StrategyScriptDto{}, updateError
+	}
+
+	return switchedStrategyScript.ToDto(), nil
 }
 
 // DeleteStrategyScript removes the viewer's script along with its marketplace listing; copies others adopted stay.
@@ -198,6 +246,26 @@ func (strategyScriptService *StrategyScriptService) ResolveOwnedStrategyScript(
 		strategyScript, viewerID, strategyScript.Publication != nil).ToOwnedRunnableDto()
 }
 
+// ResolveOwnedCalculationScript is ResolveOwnedStrategyScript for a signal source: every path reading a trading strategy's rules goes through it, so a script switched to the chart after the strategy was saved is refused there too.
+func (strategyScriptService *StrategyScriptService) ResolveOwnedCalculationScript(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.RunnableStrategyScriptDto, error) {
+	runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedStrategyScript(executionContext, viewerID, id)
+	if resolveError != nil {
+		return dto.RunnableStrategyScriptDto{}, resolveError
+	}
+
+	usage, usageError := domains.NewStrategyScriptUsageDomain(runnableStrategyScript.Usage)
+	if usageError != nil {
+		return dto.RunnableStrategyScriptDto{}, usageError
+	}
+	if calculationError := usage.RequireCalculation("當信號來源"); calculationError != nil {
+		return dto.RunnableStrategyScriptDto{}, calculationError
+	}
+
+	return runnableStrategyScript, nil
+}
+
 // requireOwnership answers a stranger exactly as for a missing script and skips the publication gate, since publishing never grants the right to alter.
 // It returns the script so a rewrite can check the stored market data kind.
 func (strategyScriptService *StrategyScriptService) requireOwnership(
@@ -235,7 +303,7 @@ func (strategyScriptService *StrategyScriptService) ResolveSignalSources(
 	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, 0, len(tradingStrategyDto.SignalSources))
 
 	for _, signalSource := range tradingStrategyDto.SignalSources {
-		runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedStrategyScript(
+		runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedCalculationScript(
 			executionContext, viewerID, signalSource.StrategyScriptID)
 		if resolveError != nil {
 			return nil, domains.StrategyScriptAuthorshipDomain{}, resolveError

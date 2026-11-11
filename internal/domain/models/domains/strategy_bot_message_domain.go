@@ -25,6 +25,10 @@ func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessa
 }
 
 func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
+	if strategyBotMessageDomain.round.ReturnsToHold {
+		return strategyBotMessageDomain.returnToHoldText()
+	}
+
 	verdict := NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict))
 
 	market := strategyBotMessageDomain.market
@@ -59,9 +63,37 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	}
 
 	lines = append(lines, strategyBotMessageDomain.positionPlanLines()...)
+	lines = append(lines, strategyBotMessageDomain.sourceLines()...)
 
-	// Sources are always quoted in the scripts' own words so readers can trace the conclusion.
-	lines = append(lines, "", "📊 各來源怎麼說")
+	if strategyBotMessageDomain.round.JournalLinkUrl != "" {
+		lines = append(lines, "", fmt.Sprintf("📝 記到交易日誌：%s", strategyBotMessageDomain.round.JournalLinkUrl))
+	}
+
+	lines = append(lines, strategyBotMessageDomain.runNumberLines()...)
+
+	return strings.Join(lines, "\n")
+}
+
+// returnToHoldText is the one-off message for a symbol back to holding: same headline shape, no price, plan or journal link, since nothing is to be done.
+func (strategyBotMessageDomain StrategyBotMessageDomain) returnToHoldText() string {
+	lines := []string{
+		fmt.Sprintf("%s【回到持有】%s · %s",
+			strategyBotMessageDomain.market.HeadlineMark(NewSignalDomainOf(vo.SignalHold)),
+			strategyBotMessageDomain.round.BotName,
+			strategyBotMessageDomain.market.SymbolLabel(strategyBotMessageDomain.round.Symbol)),
+		"",
+		"買入條件與賣出條件都不成立，這個標的回到持有；之後連續的持有不再通知。",
+	}
+
+	lines = append(lines, strategyBotMessageDomain.sourceLines()...)
+	lines = append(lines, strategyBotMessageDomain.runNumberLines()...)
+
+	return strings.Join(lines, "\n")
+}
+
+// sourceLines always quote the scripts in their own words so readers can trace the conclusion.
+func (strategyBotMessageDomain StrategyBotMessageDomain) sourceLines() []string {
+	lines := []string{"", "📊 各來源怎麼說"}
 
 	for _, sourceSignal := range strategyBotMessageDomain.round.SourceSignals {
 		lines = append(lines, fmt.Sprintf("　・%s（%s）：%s",
@@ -70,16 +102,16 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 			NewSignalDomainOf(vo.SignalVo(sourceSignal.Signal)).InWords()))
 	}
 
-	if strategyBotMessageDomain.round.JournalLinkUrl != "" {
-		lines = append(lines, "", fmt.Sprintf("📝 記到交易日誌：%s", strategyBotMessageDomain.round.JournalLinkUrl))
+	return lines
+}
+
+// runNumberLines come last, so a message sent twice after a replica died mid-send reads as the same round, not a second signal.
+func (strategyBotMessageDomain StrategyBotMessageDomain) runNumberLines() []string {
+	if strategyBotMessageDomain.round.RunNumber <= 0 {
+		return nil
 	}
 
-	// Last, so a message sent twice after a replica died mid-send reads as the same round, not a second signal.
-	if strategyBotMessageDomain.round.RunNumber > 0 {
-		lines = append(lines, "", fmt.Sprintf("🔖 Run %d", strategyBotMessageDomain.round.RunNumber))
-	}
-
-	return strings.Join(lines, "\n")
+	return []string{"", fmt.Sprintf("🔖 Run %d", strategyBotMessageDomain.round.RunNumber)}
 }
 
 // positionPlanLines returns nothing when no position plan is set (keeping the message unchanged) and only the lines for figures that were asked for.

@@ -97,7 +97,9 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
+	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) ||
+		errors.Is(err, domains.ErrStrategyScriptUsageNotCalculation) ||
+		errors.Is(err, domains.ErrStrategyScriptValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}

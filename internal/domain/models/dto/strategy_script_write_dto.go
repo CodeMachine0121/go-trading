@@ -11,6 +11,8 @@ type StrategyScriptWriteDto struct {
 	ResultType  string
 	// MarketDataKind blank means kCandle on create and unchanged on rewrite.
 	MarketDataKind string
+	// Usage blank means calculation on create; a rewrite must leave it blank, since usage is switched on its own.
+	Usage string
 	// Parameters may be empty for scripts with no knobs.
 	Parameters []StrategyScriptParameterWriteDto
 }

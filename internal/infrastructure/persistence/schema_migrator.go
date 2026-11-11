@@ -171,6 +171,11 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, copyError
 	}
 
+	// After the sync, so bots have the column to move into.
+	if moveError := schemaMigrator.moveTradingModesOntoBots(); moveError != nil {
+		return nil, moveError
+	}
+
 	if dropError := schemaMigrator.dropRetiredColumns(); dropError != nil {
 		return nil, dropError
 	}
@@ -959,6 +964,64 @@ func (schemaMigrator *SchemaMigrator) allocateWatchedSymbolCapital() error {
 					UpdateColumn("allocation_percentage", allocationPercentage).Error; updateError != nil {
 					return fmt.Errorf("share out bot %d capital to %s: %w", botID, watchedSymbol.Symbol, updateError)
 				}
+			}
+		}
+
+		return nil
+	})
+}
+
+// retiredTradingStrategyModeRow reads the contract trading mode a trading strategy held before the mode moved onto the bots following it.
+type retiredTradingStrategyModeRow struct {
+	ID                  uint
+	ContractTradingMode string `gorm:"column:contract_trading_mode"`
+}
+
+func (retiredTradingStrategyModeRow) TableName() string {
+	return entities.TradingStrategy{}.TableName()
+}
+
+// moveTradingModesOntoBots gives every contract bot not yet holding a trading direction the mode its trading strategy held, so it trades exactly as before; a blank or unreadable mode is long-short, as it always read.
+// Bots already holding one are left alone, so running it again writes nothing.
+// The strategies' column stays for this release: an instance of the previous release still running rounds during a rolling deploy reads it, and a dropped column would read as long-short and could open the wrong side with real money. Retire it once no such instance can be running.
+func (schemaMigrator *SchemaMigrator) moveTradingModesOntoBots() error {
+	if !schemaMigrator.database.Migrator().HasColumn(&entities.TradingStrategy{}, "contract_trading_mode") {
+		return nil
+	}
+
+	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
+		bots := []entities.StrategyBot{}
+		if readError := transaction.
+			Select("id", "trading_strategy_id").
+			Where(clause.Eq{Column: "market_data_kind", Value: string(vo.MarketDataKindContractKCandle)}).
+			Where(clause.Eq{Column: "contract_trading_mode", Value: ""}).
+			Find(&bots).Error; readError != nil {
+			return fmt.Errorf("read contract bots without a trading direction: %w", readError)
+		}
+		if len(bots) == 0 {
+			return nil
+		}
+
+		tradingStrategyModes := []retiredTradingStrategyModeRow{}
+		if readError := transaction.Select("id", "contract_trading_mode").
+			Find(&tradingStrategyModes).Error; readError != nil {
+			return fmt.Errorf("read trading strategies' trading modes: %w", readError)
+		}
+		modeByTradingStrategy := map[uint]string{}
+		for _, tradingStrategyMode := range tradingStrategyModes {
+			modeByTradingStrategy[tradingStrategyMode.ID] = tradingStrategyMode.ContractTradingMode
+		}
+
+		for _, bot := range bots {
+			tradingMode, modeError := domains.NewContractTradingModeDomain(modeByTradingStrategy[bot.TradingStrategyID])
+			if modeError != nil {
+				tradingMode = domains.NewContractTradingModeDomainFacing(true, true)
+			}
+
+			if updateError := transaction.Model(&entities.StrategyBot{}).
+				Where(clause.Eq{Column: "id", Value: bot.ID}).
+				UpdateColumn("contract_trading_mode", string(tradingMode.Value())).Error; updateError != nil {
+				return fmt.Errorf("give bot %d its trading direction: %w", bot.ID, updateError)
 			}
 		}
 

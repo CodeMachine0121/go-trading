@@ -530,6 +530,14 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 			},
 			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
+		{
+			// Switched after the strategy was saved: the rules can no longer compute with it.
+			name: "a strategy script switched to the chart",
+			strategyScriptFound: entities.StrategyScript{
+				ID: 9, OwnerID: strategyBotOwnerID, Script: "the script", ResultType: "signal", Usage: "chart",
+			},
+			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
+		},
 	}
 
 	for _, testCase := range testCases {

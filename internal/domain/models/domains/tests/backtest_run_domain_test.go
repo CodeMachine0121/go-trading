@@ -198,7 +198,7 @@ func TestSubmittedBacktestRunDescribesWhatItReplays(t *testing.T) {
 			name: "a contract trading strategy on a day and four hours records four hours",
 			submission: dto.BacktestRunSubmissionDto{Kind: "contractTradingStrategy", TradingStrategyID: &tradingStrategyID,
 				Request: dto.BacktestRunRequestDto{ContractTradingStrategy: &dto.ContractTradingStrategyBacktestRequestDto{
-					Symbol: "BTCUSDT", Leverage: decimal.NewFromInt(2), TradingStrategyTradingMode: "longOnly",
+					Symbol: "BTCUSDT", Leverage: decimal.NewFromInt(2), TradingMode: "longOnly",
 					SignalSources: []dto.ResolvedSignalSourceDto{{AggregationInterval: "1d"}, {AggregationInterval: "4h"}},
 				}}},
 			expectedKind: "contractTradingStrategy", expectedInterval: "4h",
@@ -213,10 +213,10 @@ func TestSubmittedBacktestRunDescribesWhatItReplays(t *testing.T) {
 			expectedKind: "spotTradingStrategy", expectedInterval: "3h",
 		},
 		{
-			name: "a contract trading strategy carries the strategy's own trading mode",
+			name: "a contract trading strategy records the trading mode the replay was sent",
 			submission: dto.BacktestRunSubmissionDto{Kind: "contractTradingStrategy", TradingStrategyID: &tradingStrategyID,
 				Request: dto.BacktestRunRequestDto{ContractTradingStrategy: &dto.ContractTradingStrategyBacktestRequestDto{
-					Symbol: "BTCUSDT", Leverage: decimal.NewFromInt(5), TradingStrategyTradingMode: "shortOnly",
+					Symbol: "BTCUSDT", Leverage: decimal.NewFromInt(5), TradingMode: "shortOnly",
 					SignalSources: []dto.ResolvedSignalSourceDto{{AggregationInterval: "15m"}},
 				}}},
 			expectedKind: "contractTradingStrategy", expectedInterval: "15m",

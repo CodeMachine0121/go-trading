@@ -335,13 +335,14 @@ func (underTest strategyBotRunUnderTest) expectContractSourcesOn(
 
 func TestAMultiSymbolContractBotQueuesOneAutoOrderPerSymbol(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSourcesOn(
 		map[string]string{"BTCUSDT": "85000", "ETHUSDT": "4000"},
 		map[string]vo.SignalVo{"85000": vo.SignalBuy, "4000": vo.SignalBuy})
 	underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "合約突破 · BTCUSDT 永續合約") })
 	underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "合約突破 · ETHUSDT 永續合約") })
 	bot := anAutoOrderingContractBot("")
+	bot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	bot.WatchedSymbols = append(bot.WatchedSymbols,
 		entities.StrategyBotWatchedSymbol{StrategyBotID: strategyBotID, Symbol: "ETHUSDT"})
 
@@ -356,12 +357,13 @@ func TestAMultiSymbolContractBotQueuesOneAutoOrderPerSymbol(t *testing.T) {
 
 func TestAMultiSymbolContractBotSkipsOnlyTheSymbolWhoseMarketStopped(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSourcesOn(
 		map[string]string{"BTCUSDT": "85000", "ETHUSDT": "4000"},
 		map[string]vo.SignalVo{"85000": vo.SignalBuy, "4000": vo.SignalBuy}, "ETHUSDT")
 	underTest.expectQueuedMessage(func(message string) { assert.Contains(t, message, "合約突破 · BTCUSDT 永續合約") })
 	bot := aDueContractBot("")
+	bot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	bot.WatchedSymbols = append(bot.WatchedSymbols,
 		entities.StrategyBotWatchedSymbol{StrategyBotID: strategyBotID, Symbol: "ETHUSDT"})
 

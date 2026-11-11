@@ -42,6 +42,18 @@ func NewContractTradingModeDomain(declared string) (ContractTradingModeDomain, e
 		strings.Join(declarableSpellings, "、"))
 }
 
+// NewContractTradingModeDomainFacing is the one translation from the directions something faces to a trading mode: long alone is long only, short alone is short only, both, or neither said, is long-short.
+func NewContractTradingModeDomainFacing(facesLong bool, facesShort bool) ContractTradingModeDomain {
+	switch {
+	case facesLong && !facesShort:
+		return ContractTradingModeDomain{value: vo.ContractTradingModeLongOnly}
+	case facesShort && !facesLong:
+		return ContractTradingModeDomain{value: vo.ContractTradingModeShortOnly}
+	default:
+		return ContractTradingModeDomain{value: vo.ContractTradingModeLongShort}
+	}
+}
+
 func (contractTradingModeDomain ContractTradingModeDomain) Value() vo.ContractTradingModeVo {
 	return contractTradingModeDomain.value
 }

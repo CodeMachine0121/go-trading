@@ -85,7 +85,6 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Su
 	requestDto.BuyCondition = tradingStrategyDto.BuyCondition
 	requestDto.SellCondition = tradingStrategyDto.SellCondition
 	requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
-	requestDto.TradingStrategyTradingMode = tradingStrategyDto.TradingMode
 	if validationError := tradingStrategyBacktestApplication.contractBacktestService.
 		ValidateContractTradingStrategyBacktest(executionContext, requestDto); validationError != nil {
 		return dto.BacktestRunDto{}, authorship.AttributeFailure(validationError)

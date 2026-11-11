@@ -19,6 +19,8 @@ type StrategyBotWatchedSymbol struct {
 	LastSentSignal string `gorm:"size:16;not null;default:''"`
 	// LastSentRoundDueAt names the round whose message carried LastSentSignal, so a message given up forgets the signal only if no later round has said it since.
 	LastSentRoundDueAt *time.Time `gorm:"type:timestamptz"`
+	// LastOpinion is the latest buy, sell or hold this symbol concluded (a conflict leaves it alone); cleared on start, it decides whether returning to hold is news.
+	LastOpinion string `gorm:"size:16;not null;default:''"`
 	// Conflicting is not a halt; it clears on the next non-conflicting round.
 	Conflicting bool `gorm:"not null;default:false"`
 	// HaltReason is empty unless the system stopped watching this symbol alone; the bot keeps running its other symbols.
@@ -50,6 +52,7 @@ func (strategyBotWatchedSymbol StrategyBotWatchedSymbol) ToDto(marketDataKind st
 		Symbol:               strategyBotWatchedSymbol.Symbol,
 		AllocationPercentage: strategyBotWatchedSymbol.AllocationPercentage,
 		LastSentSignal:       strategyBotWatchedSymbol.LastSentSignal,
+		LastOpinion:          strategyBotWatchedSymbol.LastOpinion,
 		Conflicting:          strategyBotWatchedSymbol.Conflicting,
 		HaltReason:           strategyBotWatchedSymbol.HaltReason,
 	}

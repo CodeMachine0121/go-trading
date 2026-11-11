@@ -178,7 +178,7 @@ func TestStrategyBotWatchedSymbolConcluded(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			concludedSymbol := domains.NewStrategyBotWatchedSymbolDomain(entities.StrategyBotWatchedSymbol{
 				Symbol: "ETHUSDT", LastSentSignal: testCase.lastSentSignal,
-			}).Concluded(roundDueAt, testCase.sentSignal, testCase.conflicting)
+			}).Concluded(roundDueAt, testCase.sentSignal, "", testCase.conflicting)
 
 			assert.Equal(t, testCase.expectedLastSentSignal, concludedSymbol.LastSentSignal)
 			// The round that said the signal is remembered with it, so only that round's message can make the symbol forget it.

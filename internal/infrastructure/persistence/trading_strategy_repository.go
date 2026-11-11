@@ -39,14 +39,11 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 					return createError
 				}
 			} else {
-				// Named columns make empty values write through and keep owner, creation time and market data kind immutable.
+				// Named columns keep owner, creation time and market data kind immutable.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
-					Select("name", "contract_trading_mode").
-					Updates(entities.TradingStrategy{
-						Name:        tradingStrategyRow.Name,
-						TradingMode: tradingStrategyRow.TradingMode,
-					})
+					Select("name").
+					Updates(entities.TradingStrategy{Name: tradingStrategyRow.Name})
 				if updates.Error != nil {
 					return updates.Error
 				}
@@ -197,4 +194,43 @@ func (tradingStrategyRepository *TradingStrategyRepository) Delete(
 	}
 
 	return nil
+}
+
+// FindNamesByStrategyScript reaches the strategies through their signal sources, which is where a script is named.
+func (tradingStrategyRepository *TradingStrategyRepository) FindNamesByStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]string, error) {
+	database := tradingStrategyRepository.database.WithContext(executionContext)
+
+	tradingStrategyIDs := []uint{}
+	pluckResult := database.
+		Model(&entities.TradingStrategySignalSource{}).
+		Where(clause.Eq{Column: "strategy_id", Value: strategyScriptID}).
+		Distinct().
+		Pluck("trading_strategy_id", &tradingStrategyIDs)
+	if pluckResult.Error != nil {
+		return nil, fmt.Errorf("find trading strategies naming strategy script: %w", pluckResult.Error)
+	}
+
+	names := []string{}
+	if len(tradingStrategyIDs) == 0 {
+		return names, nil
+	}
+
+	// The ORM's IN clause only takes untyped values.
+	values := make([]any, 0, len(tradingStrategyIDs))
+	for _, tradingStrategyID := range tradingStrategyIDs {
+		values = append(values, tradingStrategyID)
+	}
+
+	nameResult := database.
+		Model(&entities.TradingStrategy{}).
+		Where(clause.IN{Column: clause.Column{Name: "id"}, Values: values}).
+		Order("name ASC").
+		Pluck("name", &names)
+	if nameResult.Error != nil {
+		return nil, fmt.Errorf("name trading strategies naming strategy script: %w", nameResult.Error)
+	}
+
+	return names, nil
 }

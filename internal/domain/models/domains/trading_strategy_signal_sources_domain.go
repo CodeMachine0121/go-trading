@@ -87,6 +87,17 @@ func NewTradingStrategySignalSourcesDomain(
 				string(declaredResultType.Value()), string(vo.IndicatorResultTypeSignal))
 		}
 
+		declaredUsage, usageError := NewStrategyScriptUsageDomain(source.DeclaredUsage)
+		if usageError != nil {
+			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
+				"%w: 信號來源 %q 指名的那支策略腳本的用途不對：%w", ErrTradingStrategyValidation, label, usageError)
+		}
+
+		if calculationError := declaredUsage.RequireCalculation("當信號來源"); calculationError != nil {
+			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
+				"%w: 信號來源 %q：%w", ErrTradingStrategyValidation, label, calculationError)
+		}
+
 		// Undeclared parameters are refused now rather than failing the bot at run time.
 		for _, parameterValue := range source.ParameterValues {
 			parameterName := strings.TrimSpace(parameterValue.Name)

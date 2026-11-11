@@ -6,6 +6,8 @@ type RunnableStrategyScriptDto struct {
 	Script         string
 	ResultType     string
 	MarketDataKind string
+	// Usage lets every consumer that computes refuse a chart script.
+	Usage string
 	// Parameters are as declared; per-run values are never written back.
 	Parameters []StrategyScriptParameterWriteDto
 	// AuthoredByViewer is false for someone else's published script and for a marketplace copy, whose failure

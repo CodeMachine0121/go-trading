@@ -83,7 +83,6 @@ func (comparisonApplication *ContractTradeLiveComparisonApplication) CompareWith
 		requestDto.BuyCondition = tradingStrategyDto.BuyCondition
 		requestDto.SellCondition = tradingStrategyDto.SellCondition
 		requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
-		requestDto.TradingStrategyTradingMode = tradingStrategyDto.TradingMode
 		requestDto.TimeAllowance = comparisonApplication.onDemandAllowance
 
 		resultDto, replayError := comparisonApplication.contractBacktestService.RunContractTradingStrategyBacktest(

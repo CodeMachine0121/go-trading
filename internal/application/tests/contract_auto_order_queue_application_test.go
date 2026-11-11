@@ -34,7 +34,8 @@ func (underTest strategyBotRunUnderTest) runsAContractRound(
 	t *testing.T, bot entities.StrategyBot, tradingMode vo.ContractTradingModeVo,
 	firstSourceSignal vo.SignalVo, secondSourceSignal vo.SignalVo,
 ) {
-	underTest.makeTheRulesContract(tradingMode)
+	underTest.makeTheRulesContract()
+	bot.ContractTradingMode = string(tradingMode)
 	underTest.expectContractSources(firstSourceSignal, secondSourceSignal)
 	underTest.expectTheContractsLatestCandle("85000")
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -79,10 +80,11 @@ func TestARoundThatChangesItsConclusionQueuesAnAutoOrderFromItsOwnPlan(t *testin
 
 func TestARoundThatRepeatsItsConclusionQueuesNoAutoOrder(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("85000")
 	bot := anAutoOrderingContractBot(string(vo.SignalBuy))
+	bot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{bot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(bot, nil).AnyTimes()
@@ -109,11 +111,12 @@ func TestABotWithAutoOrderOffOnlySpeaks(t *testing.T) {
 
 func TestAStoppedBotRunByHandNeverOrders(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("85000")
 	underTest.expectTheVenue(aContractSpecification(), nil, "")
 	stoppedBot := anAutoOrderingContractBot(string(vo.SignalSell))
+	stoppedBot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	stoppedBot.RunState = string(vo.StrategyBotStopped)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stoppedBot, nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
@@ -128,11 +131,12 @@ func TestAStoppedBotRunByHandNeverOrders(t *testing.T) {
 
 func TestARunningBotRunByHandOrdersLikeAScheduledRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
+	underTest.makeTheRulesContract()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("85000")
 	underTest.expectTheVenue(aContractSpecification(), nil, "")
 	runningBot := anAutoOrderingContractBot(string(vo.SignalSell))
+	runningBot.ContractTradingMode = string(vo.ContractTradingModeLongOnly)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(runningBot, nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 	underTest.expectQueuedMessage(func(string) {})

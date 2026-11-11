@@ -140,6 +140,13 @@ func (profileDomain SymbolScreeningProfileDomain) AcceptScript(runnableScript dt
 	if runnableScript.ResultType != string(vo.IndicatorResultTypeSignal) {
 		return fmt.Errorf("%w: 策略腳本必須產出買賣信號", ErrSymbolScreeningValidation)
 	}
+	usage, usageError := NewStrategyScriptUsageDomain(runnableScript.Usage)
+	if usageError != nil {
+		return fmt.Errorf("%w: %w", ErrSymbolScreeningValidation, usageError)
+	}
+	if calculationError := usage.RequireCalculation("用於篩選"); calculationError != nil {
+		return fmt.Errorf("%w: %w", ErrSymbolScreeningValidation, calculationError)
+	}
 	parameters, parametersError := NewStrategyScriptParametersDomain(runnableScript.Parameters)
 	if parametersError != nil {
 		return fmt.Errorf("%w: %w", ErrSymbolScreeningValidation, parametersError)

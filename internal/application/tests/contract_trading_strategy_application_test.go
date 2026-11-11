@@ -31,21 +31,61 @@ func TestTradingStrategyApplicationCreatesAContractTradingStrategy(t *testing.T)
 			_ context.Context, tradingStrategy entities.TradingStrategy,
 		) (entities.TradingStrategy, error) {
 			assert.Equal(t, "contractKCandle", tradingStrategy.MarketDataKind)
-			assert.Equal(t, "shortOnly", tradingStrategy.TradingMode)
 
 			return tradingStrategy, nil
 		})
 
 	writeDto := aTradingStrategyWrite()
 	writeDto.MarketDataKind = "contractKCandle"
-	writeDto.TradingMode = "shortOnly"
 
 	tradingStrategyDto, createError := underTest.tradingStrategyApplication.CreateTradingStrategy(
 		context.Background(), strategyBotOwnerID, writeDto)
 
 	require.NoError(t, createError)
 	assert.Equal(t, "contractKCandle", tradingStrategyDto.MarketDataKind)
-	assert.Equal(t, "shortOnly", tradingStrategyDto.TradingMode)
+}
+
+func TestTradingStrategyApplicationRefusesATradingModeBeforeAnythingIsWritten(t *testing.T) {
+	testCases := []struct {
+		name    string
+		rewrite bool
+	}{
+		{name: "on creation", rewrite: false},
+		{name: "on a rewrite", rewrite: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No Save is stubbed: the refusal lands before anything is written.
+			underTest := newTradingStrategyApplicationUnderTest(t)
+			storedContractStrategy := storedTradingStrategy()
+			storedContractStrategy.MarketDataKind = "contractKCandle"
+			underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+				Return(storedContractStrategy, nil).AnyTimes()
+			if testCase.rewrite {
+				underTest.expectFollowingBots()
+			}
+			underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+				Return(aContractScriptOwnedByTheCaller(9), nil)
+			underTest.expectNoMarketplaceQuestion()
+			writeDto := aTradingStrategyWrite()
+			writeDto.MarketDataKind = "contractKCandle"
+			writeDto.DeclaredTradingMode = "shortOnly"
+
+			var writeError error
+			if testCase.rewrite {
+				writeDto.ID = tradingStrategyID
+				_, writeError = underTest.tradingStrategyApplication.UpdateTradingStrategy(
+					context.Background(), strategyBotOwnerID, writeDto)
+			} else {
+				_, writeError = underTest.tradingStrategyApplication.CreateTradingStrategy(
+					context.Background(), strategyBotOwnerID, writeDto)
+			}
+
+			require.ErrorIs(t, writeError, domains.ErrTradingStrategyValidation)
+			assert.ErrorContains(t, writeError, "交易方向改由機器人在自己身上選")
+		})
+	}
 }
 
 func TestTradingStrategyApplicationRefusesAKCandleTradingStrategyOfContractScripts(t *testing.T) {
@@ -65,7 +105,6 @@ func TestTradingStrategyApplicationRefusesAKCandleTradingStrategyOfContractScrip
 func TestTradingStrategyApplicationKeepsTheKindOnARewrite(t *testing.T) {
 	storedContractStrategy := storedTradingStrategy()
 	storedContractStrategy.MarketDataKind = "contractKCandle"
-	storedContractStrategy.TradingMode = "longShort"
 
 	t.Run("a rewrite saying nothing about the kind keeps it", func(t *testing.T) {
 		underTest := newTradingStrategyApplicationUnderTest(t)
@@ -80,14 +119,12 @@ func TestTradingStrategyApplicationKeepsTheKindOnARewrite(t *testing.T) {
 				_ context.Context, tradingStrategy entities.TradingStrategy,
 			) (entities.TradingStrategy, error) {
 				assert.Equal(t, "contractKCandle", tradingStrategy.MarketDataKind)
-				assert.Equal(t, "longOnly", tradingStrategy.TradingMode)
 
 				return tradingStrategy, nil
 			})
 
 		writeDto := aTradingStrategyWrite()
 		writeDto.ID = tradingStrategyID
-		writeDto.TradingMode = "longOnly"
 
 		_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
 			context.Background(), strategyBotOwnerID, writeDto)
@@ -123,7 +160,7 @@ func TestStrategyBotApplicationRefusesASpotBotFollowingAContractTradingStrategy(
 		FindOne(gomock.Any(), botsTradingStrategyID).
 		Return(entities.TradingStrategy{
 			ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "合約黃金交叉",
-			MarketDataKind: "contractKCandle", TradingMode: "longShort",
+			MarketDataKind: "contractKCandle",
 		}, nil)
 	underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
@@ -166,35 +203,4 @@ func TestTradingStrategyApplicationRefusesARewriteOfAStoredStrategyOfAnUnreadabl
 		context.Background(), strategyBotOwnerID, writeDto)
 
 	assert.Error(t, updateError)
-}
-
-func TestTradingStrategyApplicationKeepsTheTradingModeOnARewriteThatSaysNothing(t *testing.T) {
-	storedContractStrategy := storedTradingStrategy()
-	storedContractStrategy.MarketDataKind = "contractKCandle"
-	storedContractStrategy.TradingMode = "shortOnly"
-
-	underTest := newTradingStrategyApplicationUnderTest(t)
-	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
-		Return(storedContractStrategy, nil).Times(2)
-	underTest.expectFollowingBots()
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(aContractScriptOwnedByTheCaller(9), nil)
-	underTest.expectNoMarketplaceQuestion()
-	underTest.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, tradingStrategy entities.TradingStrategy,
-		) (entities.TradingStrategy, error) {
-			assert.Equal(t, "shortOnly", tradingStrategy.TradingMode)
-
-			return tradingStrategy, nil
-		})
-
-	writeDto := aTradingStrategyWrite()
-	writeDto.ID = tradingStrategyID
-	writeDto.Name = "改個名字"
-
-	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
-		context.Background(), strategyBotOwnerID, writeDto)
-
-	require.NoError(t, updateError)
 }

@@ -170,6 +170,23 @@ func (strategyScriptRepository *StrategyScriptRepository) FindOne(executionConte
 	return strategyScript, nil
 }
 
+// UpdateUsage writes the usage alone, so switching it never touches a marketplace copy's algorithm.
+func (strategyScriptRepository *StrategyScriptRepository) UpdateUsage(
+	executionContext context.Context, id uint, usage string,
+) (entities.StrategyScript, error) {
+	result := strategyScriptRepository.database.WithContext(executionContext).
+		Model(&entities.StrategyScript{ID: id}).
+		UpdateColumn("usage", usage)
+	if result.Error != nil {
+		return entities.StrategyScript{}, fmt.Errorf("update strategy script usage: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return entities.StrategyScript{}, domains.StrategyScriptNotFound(id)
+	}
+
+	return strategyScriptRepository.FindOne(executionContext, id)
+}
+
 func (strategyScriptRepository *StrategyScriptRepository) FindAllOwnedBy(
 	executionContext context.Context, ownerID uint,
 ) ([]entities.StrategyScript, error) {
