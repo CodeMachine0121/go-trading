@@ -97,6 +97,7 @@ func (strategyScriptAccessDomain StrategyScriptAccessDomain) ToRunnableDto() (dt
 		Script:           strategyScriptAccessDomain.strategyScript.Script,
 		ResultType:       strategyScriptAccessDomain.strategyScript.ResultType,
 		MarketDataKind:   strategyScriptAccessDomain.strategyScript.MarketDataKind,
+		Usage:            strategyScriptAccessDomain.strategyScript.Usage,
 		Parameters:       parameterWriteDtos,
 		AuthoredByViewer: strategyScriptAccessDomain.IsOwnedByViewer() && !strategyScriptAccessDomain.IsAdoptedFromMarketplace(),
 	}, nil

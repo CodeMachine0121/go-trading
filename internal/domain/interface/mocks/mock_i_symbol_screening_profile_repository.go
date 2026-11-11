@@ -85,6 +85,21 @@ func (mr *MockISymbolScreeningProfileRepositoryMockRecorder) FindAllByOwner(exec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllByOwner", reflect.TypeOf((*MockISymbolScreeningProfileRepository)(nil).FindAllByOwner), executionContext, ownerID)
 }
 
+// FindNamesByStrategyScript mocks base method.
+func (m *MockISymbolScreeningProfileRepository) FindNamesByStrategyScript(executionContext context.Context, strategyScriptID uint) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindNamesByStrategyScript", executionContext, strategyScriptID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindNamesByStrategyScript indicates an expected call of FindNamesByStrategyScript.
+func (mr *MockISymbolScreeningProfileRepositoryMockRecorder) FindNamesByStrategyScript(executionContext, strategyScriptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindNamesByStrategyScript", reflect.TypeOf((*MockISymbolScreeningProfileRepository)(nil).FindNamesByStrategyScript), executionContext, strategyScriptID)
+}
+
 // FindOneOwned mocks base method.
 func (m *MockISymbolScreeningProfileRepository) FindOneOwned(executionContext context.Context, ownerID, id uint) (entities.SymbolScreeningProfile, bool, error) {
 	m.ctrl.T.Helper()

@@ -22,6 +22,9 @@ type ITradingStrategyRepository interface {
 		executionContext context.Context, ownerID uint,
 	) ([]entities.TradingStrategy, error)
 
+	// FindNamesByStrategyScript names, in name order, the trading strategies with a signal source naming the script.
+	FindNamesByStrategyScript(executionContext context.Context, strategyScriptID uint) ([]string, error)
+
 	// Delete removes sources and condition nodes by cascade.
 	Delete(executionContext context.Context, id uint) error
 }

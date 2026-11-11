@@ -50,7 +50,11 @@ func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssi
 			mocks.NewMockIContractTradingSymbolRepository(controller),
 			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
 			mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, contractAutoOrderRepositoryNotInvolved(t), nil,
-			mocks.NewMockIClockProxy(controller)))
+			mocks.NewMockIClockProxy(controller)),
+		service.NewTradingStrategyService(mocks.NewMockITradingStrategyRepository(controller)),
+		service.NewSymbolScreeningProfileService(
+			mocks.NewMockISymbolScreeningProfileRepository(controller),
+			mocks.NewMockISymbolScreeningRunRepository(controller), nil))
 
 	revision := newAssistantRevisionUnderTest(controller, strategyScriptApplication, nil)
 
@@ -74,6 +78,7 @@ func aStoredStrategyScriptWithKnobs(id uint, name string) entities.StrategyScrip
 		Name:       name,
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
 		ResultType: "floatList",
+		Usage:      "chart",
 		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 		Parameters: []entities.StrategyScriptParameter{
@@ -93,7 +98,7 @@ func TestStrategyScriptListAssistantQueryNamesEachStrategyScriptWithoutSendingIt
 
 	require.NoError(t, runError)
 	assert.JSONEq(t,
-		`{"strategyScripts":[{"id":1,"name":"二十根均線","resultType":"floatList",`+
+		`{"strategyScripts":[{"id":1,"name":"二十根均線","resultType":"floatList","usage":"chart",`+
 			`"parameterNames":["lookback"],"mine":true}]}`,
 		outcome)
 	assert.NotContains(t, outcome, "func Calculate")
@@ -365,8 +370,8 @@ func TestStrategyScriptAssistantQueriesActAsWhoeverAskedThem(t *testing.T) {
 		outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "{}")
 
 		require.NoError(t, runError)
-		assert.Contains(t, outcome, `"name":"我的","resultType":"floatList","parameterNames":["lookback"],"mine":true`)
-		assert.Contains(t, outcome, `"name":"別人的","resultType":"floatList","parameterNames":["lookback"],"mine":false`)
+		assert.Contains(t, outcome, `"name":"我的","resultType":"floatList","usage":"chart","parameterNames":["lookback"],"mine":true`)
+		assert.Contains(t, outcome, `"name":"別人的","resultType":"floatList","usage":"chart","parameterNames":["lookback"],"mine":false`)
 		assert.NotContains(t, outcome, "func Calculate")
 	})
 }

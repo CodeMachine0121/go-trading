@@ -20,6 +20,8 @@ type IStrategyScriptRepository interface {
 	FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.StrategyScript, error)
 	// FindAllPublished returns published scripts newest publication first, with owner and publication moment.
 	FindAllPublished(executionContext context.Context) ([]entities.PublishedStrategyScript, error)
+	// UpdateUsage writes only the usage; returns ErrStrategyScriptNotFound when absent.
+	UpdateUsage(executionContext context.Context, id uint, usage string) (entities.StrategyScript, error)
 	// Delete also removes its publication; marketplace copies of it are separate scripts and stay. Returns ErrStrategyScriptNotFound when absent.
 	Delete(executionContext context.Context, id uint) error
 }

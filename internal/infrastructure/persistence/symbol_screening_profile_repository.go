@@ -98,3 +98,19 @@ func (profileRepository *SymbolScreeningProfileRepository) DeleteOwned(
 
 	return nil
 }
+
+func (profileRepository *SymbolScreeningProfileRepository) FindNamesByStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]string, error) {
+	names := []string{}
+	listed := profileRepository.database.within(executionContext).
+		Model(&entities.SymbolScreeningProfile{}).
+		Where(clause.Eq{Column: "strategy_script_id", Value: strategyScriptID}).
+		Order("name ASC").
+		Pluck("name", &names)
+	if listed.Error != nil {
+		return nil, fmt.Errorf("name symbol screening profiles using strategy script: %w", listed.Error)
+	}
+
+	return names, nil
+}

@@ -72,3 +72,29 @@ func (foreignFailure *foreignStrategyScriptFailureError) Error() string {
 func (foreignFailure *foreignStrategyScriptFailureError) Unwrap() []error {
 	return []error{foreignFailure.cause, ErrForeignStrategyScriptFailed}
 }
+
+// ErrStrategyScriptUsageNotCalculation refuses a chart script where something has to be computed from it.
+var ErrStrategyScriptUsageNotCalculation = errors.New("strategy script is for the chart")
+
+// ErrStrategyScriptUsageNotRewritable refuses a usage carried by a rewrite; switching usage is its own action because marketplace copies cannot be rewritten.
+var ErrStrategyScriptUsageNotRewritable = errors.New("strategy script usage is switched, not rewritten")
+
+func StrategyScriptUsageNotRewritable() error {
+	return fmt.Errorf("%w: 改寫策略腳本時不能一併改用途，請改用切換用途", ErrStrategyScriptUsageNotRewritable)
+}
+
+// ErrStrategyScriptUsageInUse refuses switching a script to the chart while trading strategies or screening profiles compute with it.
+var ErrStrategyScriptUsageInUse = errors.New("strategy script usage is in use")
+
+func StrategyScriptUsageInUse(tradingStrategyNames []string, screeningProfileNames []string) error {
+	users := make([]string, 0, len(tradingStrategyNames)+len(screeningProfileNames))
+	for _, tradingStrategyName := range tradingStrategyNames {
+		users = append(users, fmt.Sprintf("交易策略「%s」", tradingStrategyName))
+	}
+	for _, screeningProfileName := range screeningProfileNames {
+		users = append(users, fmt.Sprintf("篩選設定「%s」", screeningProfileName))
+	}
+
+	return fmt.Errorf("%w: %s 正在用這支策略腳本計算，不能切成圖表用",
+		ErrStrategyScriptUsageInUse, strings.Join(users, "、"))
+}

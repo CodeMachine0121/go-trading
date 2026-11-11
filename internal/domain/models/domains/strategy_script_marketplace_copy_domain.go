@@ -70,6 +70,7 @@ func (strategyScriptMarketplaceCopyDomain StrategyScriptMarketplaceCopyDomain) T
 		Script:                   original.Script,
 		ResultType:               original.ResultType,
 		MarketDataKind:           original.MarketDataKind,
+		Usage:                    original.Usage,
 		IsAdoptedFromMarketplace: true,
 		CreatedAt:                adoptedAt,
 		UpdatedAt:                adoptedAt,

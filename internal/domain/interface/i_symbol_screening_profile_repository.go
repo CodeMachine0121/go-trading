@@ -16,4 +16,6 @@ type ISymbolScreeningProfileRepository interface {
 	// ExistsName ignores the profile being rewritten, so keeping one's own name is not a clash.
 	ExistsName(executionContext context.Context, ownerID uint, name string, exceptID uint) (bool, error)
 	DeleteOwned(executionContext context.Context, ownerID uint, id uint) error
+	// FindNamesByStrategyScript names, in name order, the profiles screening with the script.
+	FindNamesByStrategyScript(executionContext context.Context, strategyScriptID uint) ([]string, error)
 }

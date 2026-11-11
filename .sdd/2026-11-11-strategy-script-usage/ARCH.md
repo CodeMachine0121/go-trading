@@ -38,7 +38,8 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `vo.StrategyScriptUsageVo` (`chart` / `calculation`) | Value object | 用途的拼法。 | — | US-01 |
 | `StrategyScriptUsageDomain` | Domain | 解析宣告（空白＝計算用、未知拒絕並列出兩種）；`IsChart()`；`RequireCalculation(consumer string) error` 產生「這支腳本是圖表用，不能用於 X」。 | — | US-01、US-03 |
-| `StrategyScriptService.SwitchStrategyScriptUsage` | Service method | 擁有者驗證（陌生人同找不到）→ 切成圖表用時查交易策略與篩選設定的引用並拒絕 → 寫入用途；切成原用途不寫入。 | `StrategyScriptRepository`、`TradingStrategyRepository`、`SymbolScreeningProfileRepository` | US-02 |
+| `StrategyScriptService.SwitchStrategyScriptUsage` | Service method | 擁有者驗證（陌生人同找不到）→ 切成圖表用而有引用者時拒絕 → 寫入用途；切成原用途不寫入。引用者名稱由呼叫端以 `StrategyScriptUsageSwitchDto` 帶入。 | `StrategyScriptRepository` | US-02 |
+| `StrategyScriptApplication.SwitchStrategyScriptUsage` | Application method | 向 `TradingStrategyService`、`SymbolScreeningProfileService` 取得正在用這支腳本的名稱，交給腳本服務。（實作時的調整：腳本服務原本只認識腳本，跨服務的引用查詢放在應用層，與既有「改寫時查機器人引用」的做法一致，也避免改動腳本服務的建構子。） | `TradingStrategyService`、`SymbolScreeningProfileService` | US-02 |
 | `ErrStrategyScriptUsageInUse`、`ErrStrategyScriptUsageNotRewritable`、`ErrStrategyScriptUsageNotCalculation` | Errors | 對應三種拒絕，controller 對照為原因代碼。 | — | US-02、US-03 |
 
 ---

@@ -93,6 +93,30 @@ func (strategyScriptController *StrategyScriptController) UpdateStrategyScript(g
 	ginContext.JSON(http.StatusOK, strategyScriptDto)
 }
 
+// SwitchStrategyScriptUsage handles PUT /strategy-scripts/:id/usage; marketplace copies may switch too.
+func (strategyScriptController *StrategyScriptController) SwitchStrategyScriptUsage(ginContext *gin.Context) {
+	id, idIsReadable := strategyScriptController.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	var usageRequest models.StrategyScriptUsageRequest
+
+	if bindError := ginContext.ShouldBindJSON(&usageRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+		return
+	}
+
+	strategyScriptDto, err := strategyScriptController.strategyScriptApplication.SwitchStrategyScriptUsage(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id, usageRequest.Usage)
+	if err != nil {
+		strategyScriptController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, strategyScriptDto)
+}
+
 // DeleteStrategyScript handles DELETE /strategy-scripts/:id.
 func (strategyScriptController *StrategyScriptController) DeleteStrategyScript(ginContext *gin.Context) {
 	id, idIsReadable := strategyScriptController.readID(ginContext)
@@ -124,6 +148,15 @@ func (strategyScriptController *StrategyScriptController) readID(ginContext *gin
 func (strategyScriptController *StrategyScriptController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrStrategyScriptValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	// A named reason, so a screen or plugin can point at switching usage instead of rewriting.
+	if errors.Is(err, domains.ErrStrategyScriptUsageNotRewritable) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "reason": "strategyScriptUsageNotRewritable"})
+		return
+	}
+	if errors.Is(err, domains.ErrStrategyScriptUsageInUse) {
+		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error(), "reason": "strategyScriptUsageInUse"})
 		return
 	}
 	if errors.Is(err, domains.ErrStrategyScriptNotFound) {

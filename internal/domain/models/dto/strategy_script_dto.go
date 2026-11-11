@@ -14,9 +14,11 @@ type StrategyScriptDto struct {
 	Script      string `json:"script"`
 	ResultType  string `json:"resultType"`
 	// MarketDataKind is kCandle or contractKCandle and decides which calculation may run it.
-	MarketDataKind string    `json:"marketDataKind"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	MarketDataKind string `json:"marketDataKind"`
+	// Usage is chart or calculation and decides where the script is offered and accepted.
+	Usage     string    `json:"usage"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	// Published is only answered to the owner.
 	Published  bool                         `json:"published"`
 	Parameters []StrategyScriptParameterDto `json:"parameters"`

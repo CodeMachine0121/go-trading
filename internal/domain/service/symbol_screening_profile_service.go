@@ -169,3 +169,10 @@ func (profileService *SymbolScreeningProfileService) acceptedProfile(
 
 	return profileDomain, runnableScript, nil
 }
+
+// ReadNamesUsingStrategyScript names the screening profiles screening with the script.
+func (profileService *SymbolScreeningProfileService) ReadNamesUsingStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]string, error) {
+	return profileService.profileRepository.FindNamesByStrategyScript(executionContext, strategyScriptID)
+}

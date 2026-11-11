@@ -320,7 +320,15 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 	)
 
-	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService, strategyBotService)
+	tradingStrategyService := service.NewTradingStrategyService(
+		persistence.NewTradingStrategyRepository(database),
+	)
+	symbolScreeningRunRepository := persistence.NewSymbolScreeningRunRepository(database)
+	symbolScreeningProfileService := service.NewSymbolScreeningProfileService(
+		persistence.NewSymbolScreeningProfileRepository(database), symbolScreeningRunRepository, strategyScriptService)
+
+	strategyScriptApplication := application.NewStrategyScriptApplication(
+		strategyScriptService, strategyBotService, tradingStrategyService, symbolScreeningProfileService)
 
 	strategyScriptController := controller.NewStrategyScriptController(strategyScriptApplication)
 
@@ -484,7 +492,6 @@ func registerRoutes(
 		),
 		clock.NewSystemClockProxy(),
 	)
-	symbolScreeningRunRepository := persistence.NewSymbolScreeningRunRepository(database)
 	symbolScreeningRunService := service.NewSymbolScreeningRunService(
 		symbolScreeningRunRepository,
 		persistence.NewSymbolScreeningCandidateRepository(database),
@@ -498,8 +505,7 @@ func registerRoutes(
 		applicationConfig.BacktestDefaultWarmupBarCount,
 	)
 	symbolScreeningApplication := application.NewSymbolScreeningApplication(
-		service.NewSymbolScreeningProfileService(
-			persistence.NewSymbolScreeningProfileRepository(database), symbolScreeningRunRepository, strategyScriptService),
+		symbolScreeningProfileService,
 		symbolScreeningRunService,
 		symbolScreeningMarketDataService,
 		applicationConfig.SymbolScreening.RunRetention,
@@ -662,10 +668,6 @@ func registerRoutes(
 	engine.GET("/k-candles/live", requiresSignIn, requestGuards.liveStream, kCandleFollowController.WatchKCandles)
 	engine.GET("/contract-k-candles/live", requiresSignIn, requestGuards.liveStream,
 		kCandleFollowController.WatchKCandleContracts)
-
-	tradingStrategyService := service.NewTradingStrategyService(
-		persistence.NewTradingStrategyRepository(database),
-	)
 
 	tradingStrategyApplication := application.NewTradingStrategyApplication(
 		tradingStrategyService,

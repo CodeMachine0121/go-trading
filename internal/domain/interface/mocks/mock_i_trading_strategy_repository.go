@@ -70,6 +70,21 @@ func (mr *MockITradingStrategyRepositoryMockRecorder) FindAllByOwner(executionCo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllByOwner", reflect.TypeOf((*MockITradingStrategyRepository)(nil).FindAllByOwner), executionContext, ownerID)
 }
 
+// FindNamesByStrategyScript mocks base method.
+func (m *MockITradingStrategyRepository) FindNamesByStrategyScript(executionContext context.Context, strategyScriptID uint) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindNamesByStrategyScript", executionContext, strategyScriptID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindNamesByStrategyScript indicates an expected call of FindNamesByStrategyScript.
+func (mr *MockITradingStrategyRepositoryMockRecorder) FindNamesByStrategyScript(executionContext, strategyScriptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindNamesByStrategyScript", reflect.TypeOf((*MockITradingStrategyRepository)(nil).FindNamesByStrategyScript), executionContext, strategyScriptID)
+}
+
 // FindOne mocks base method.
 func (m *MockITradingStrategyRepository) FindOne(executionContext context.Context, id uint) (entities.TradingStrategy, error) {
 	m.ctrl.T.Helper()

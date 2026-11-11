@@ -173,3 +173,10 @@ func (tradingStrategyService *TradingStrategyService) findOwnedTradingStrategy(
 
 	return tradingStrategy, nil
 }
+
+// ReadNamesUsingStrategyScript names the trading strategies with a signal source naming the script.
+func (tradingStrategyService *TradingStrategyService) ReadNamesUsingStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]string, error) {
+	return tradingStrategyService.tradingStrategyRepository.FindNamesByStrategyScript(executionContext, strategyScriptID)
+}

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -128,6 +129,12 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, rewritableError
 	}
 
+	// Usage is switched on its own; a rewrite keeps the stored one.
+	if strings.TrimSpace(writeDto.Usage) != "" {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, domains.StrategyScriptUsageNotRewritable()
+	}
+	writeDto.Usage = existingStrategyScript.Usage
+
 	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
 	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
 		existingStrategyScript.MarketDataKind)
@@ -147,6 +154,39 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 	}
 
 	return existingStrategyScript, strategyScriptDomain, nil
+}
+
+// SwitchStrategyScriptUsage moves the viewer's script, marketplace copies included, to the other usage; switching to the usage it has changes nothing.
+func (strategyScriptService *StrategyScriptService) SwitchStrategyScriptUsage(
+	executionContext context.Context, switchDto dto.StrategyScriptUsageSwitchDto,
+) (dto.StrategyScriptDto, error) {
+	strategyScript, ownershipError := strategyScriptService.requireOwnership(
+		executionContext, switchDto.ViewerID, switchDto.StrategyScriptID)
+	if ownershipError != nil {
+		return dto.StrategyScriptDto{}, ownershipError
+	}
+
+	usage, usageError := domains.NewStrategyScriptUsageDomain(switchDto.Usage)
+	if usageError != nil {
+		return dto.StrategyScriptDto{}, usageError
+	}
+
+	if string(usage.Value()) == strategyScript.Usage {
+		return strategyScript.ToDto(), nil
+	}
+
+	if usage.IsChart() && len(switchDto.TradingStrategyNames)+len(switchDto.ScreeningProfileNames) > 0 {
+		return dto.StrategyScriptDto{}, domains.StrategyScriptUsageInUse(
+			switchDto.TradingStrategyNames, switchDto.ScreeningProfileNames)
+	}
+
+	switchedStrategyScript, updateError := strategyScriptService.strategyScriptRepository.UpdateUsage(
+		executionContext, switchDto.StrategyScriptID, string(usage.Value()))
+	if updateError != nil {
+		return dto.StrategyScriptDto{}, updateError
+	}
+
+	return switchedStrategyScript.ToDto(), nil
 }
 
 // DeleteStrategyScript removes the viewer's script along with its marketplace listing; copies others adopted stay.

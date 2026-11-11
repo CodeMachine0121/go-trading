@@ -33,9 +33,11 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Argume
 }
 
 type strategyScriptDigest struct {
-	ID             uint     `json:"id"`
-	Name           string   `json:"name"`
-	ResultType     string   `json:"resultType"`
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	ResultType string `json:"resultType"`
+	// Usage is chart or calculation; only calculation scripts can be signal sources.
+	Usage          string   `json:"usage"`
 	ParameterNames []string `json:"parameterNames"`
 	// Mine keeps the assistant from offering to rewrite a script the asker does not own.
 	Mine bool `json:"mine"`
@@ -64,6 +66,7 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Run(
 			ID:             strategyScriptDto.ID,
 			Name:           strategyScriptDto.Name,
 			ResultType:     strategyScriptDto.ResultType,
+			Usage:          strategyScriptDto.Usage,
 			ParameterNames: parameterNames,
 			Mine:           true,
 		})
@@ -79,6 +82,7 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Run(
 			ID:             publishedStrategyScriptDto.ID,
 			Name:           publishedStrategyScriptDto.Name,
 			ResultType:     publishedStrategyScriptDto.ResultType,
+			Usage:          publishedStrategyScriptDto.Usage,
 			ParameterNames: parameterNames,
 			Mine:           false,
 		})

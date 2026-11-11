@@ -23,6 +23,7 @@ func (publishedStrategyScript PublishedStrategyScript) ToDto() dto.PublishedStra
 		Description:    publishedStrategyScript.StrategyScript.Description,
 		ResultType:     publishedStrategyScript.StrategyScript.ResultType,
 		MarketDataKind: publishedStrategyScript.StrategyScript.MarketDataKind,
+		Usage:          publishedStrategyScript.StrategyScript.Usage,
 		PublisherEmail: publishedStrategyScript.StrategyScript.Owner.Email,
 		PublishedAt:    publishedStrategyScript.PublishedAt.UTC(),
 		Parameters:     publishedStrategyScript.StrategyScript.parameterDtos(),

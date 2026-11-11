@@ -25,6 +25,8 @@ type TradingStrategySignalSourceWriteDto struct {
 	ParameterValues     []StrategyScriptParameterValueDto
 	DeclaredParameters  []StrategyScriptParameterWriteDto
 	// DeclaredResultType must be the signal kind for a source to be usable in conditions.
-	DeclaredResultType     string
+	DeclaredResultType string
+	// DeclaredUsage must be calculation; a chart script is never a signal source.
+	DeclaredUsage          string
 	DeclaredMarketDataKind string
 }

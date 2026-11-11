@@ -129,3 +129,18 @@ func (mr *MockIStrategyScriptRepositoryMockRecorder) Update(executionContext, st
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockIStrategyScriptRepository)(nil).Update), executionContext, strategyScript)
 }
+
+// UpdateUsage mocks base method.
+func (m *MockIStrategyScriptRepository) UpdateUsage(executionContext context.Context, id uint, usage string) (entities.StrategyScript, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUsage", executionContext, id, usage)
+	ret0, _ := ret[0].(entities.StrategyScript)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateUsage indicates an expected call of UpdateUsage.
+func (mr *MockIStrategyScriptRepositoryMockRecorder) UpdateUsage(executionContext, id, usage any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUsage", reflect.TypeOf((*MockIStrategyScriptRepository)(nil).UpdateUsage), executionContext, id, usage)
+}
