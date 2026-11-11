@@ -55,12 +55,12 @@
 | `TradingStrategyWriteDto.TradingMode` | 合約策略的交易模式 | 改名 `DeclaredTradingMode`，只為拒絕而攜帶：非空白即 `ErrTradingStrategyValidation`「交易方向已改由機器人與回測決定」。 |
 | `TradingStrategyDomain` | 驗證並記交易模式 | 移除交易模式欄位；拒絕宣告。 |
 | `entities.TradingStrategy` | 有 `contract_trading_mode` 欄位 | 移除欄位（由遷移退休）。repository 的 select 清單跟著拿掉。 |
-| `entities.StrategyBot` | — | 新增 `ContractTradingMode`（`column:contract_trading_mode`，size 32，default ''；現貨永遠空白）、`NotifyBuy`（default true）、`NotifySell`（default true）、`NotifyHold`（default false）。**注意 GORM 布林預設陷阱**：寫入必須明確列出欄位，避免 false 被當零值省略而吃到資料庫預設 true。 |
+| `entities.StrategyBot` | — | 新增 `ContractTradingMode`（`column:contract_trading_mode`，size 32，default ''；現貨永遠空白）與三個通知欄位。**實作時的調整**：為避開 GORM 建立時把 false 當零值省略、改吃資料庫預設 true 的陷阱，通知以「預設皆為 false」的形狀儲存——`MutesBuyNotification`、`MutesSellNotification`、`SendsHoldNotification`；`NotificationsDto()` 轉回買入／賣出／持有三個開關。既有列因此天然是買入開、賣出開、持有關。 |
 | `StrategyBotDto` | — | 新增 `TradingDirections []string`（`json:"tradingDirections,omitempty"`，現貨省略）、`Notifications StrategyBotNotificationsDto`（`buy`、`sell`、`hold`）；內部另帶 `ContractTradingMode` 給輪次使用（不輸出 JSON）。 |
 | `StrategyBotWriteDto` | — | 新增 `TradingDirections *[]string`（nil＝沒說）、`Notifications *StrategyBotNotificationsWriteDto`（三個 `*bool`，nil＝沒說）；改寫時由 service 以儲存值補上沒說的部分。 |
 | `StrategyBotDomain` | 驗證機器人 | 持有方向與通知 domain；`ChangesTradingDirectionOf(stored entities.StrategyBot) bool`。 |
 | `StrategyBotWatchedSymbolDomain` | 移除前檢查 | 新增 `RequireFlatForDirectionChange(hasUnsettledAutoOrder bool) error`（與 `RequireRemovable` 同一套判斷，訊息改說「改交易方向」）；`ClearedForStart` 一併清 `LastOpinion`；`Concluded` 接收 opinion 並在非空時寫入。 |
-| `StrategyBotService.UpdateStrategyBot` | 鎖內檢查移除的標的 | 方向改變時：`lockedBot.AutoOrderEnabled` → `ErrStrategyBotTradingDirectionAutoOrderOn`；每個監聽標的跑 `RequireFlatForDirectionChange`。 |
+| `StrategyBotService.UpdateStrategyBot` | 鎖內檢查移除的標的 | 方向改變時：`lockedBot.AutoOrderEnabled` → `ErrStrategyBotTradingDirectionAutoOrderOn`；每個監聽標的跑 `RequireFlatForDirectionChange`。改寫沒說的方向與通知，以 `RetainedContractTradingMode`、`RetainedNotifications` 交給 domain 定案（比照 `RetainedCapitalAllocations`）。 |
 | `StrategyBotVerdictDomain` | buy/sell/none/conflict、ShouldSend | 新增 `lastOpinion` 輸入；`Opinion()`（buy/sell/hold，衝突為空）；`ReturnsToHold()`＝結論 none 且 lastOpinion ≠ hold。 |
 | `DecideRound` / `StrategyBotRoundDecisionDto` | — | 決策多帶 `Opinion`、`ReturnsToHold`、`NotifiesSignal`、`NotifiesHold`（由通知 domain 算出）。 |
 | `StrategyBotRunApplication.playWatchedSymbolRound` | ShouldSend 才組訊息與下單意圖 | ShouldSend：照舊組 round 與下單意圖，`SentSignal` 照舊設定，`HasMessage = NotifiesSignal`。否則若 `ReturnsToHold && NotifiesHold`：組一則「回到持有」round，`HasMessage = true`，無下單意圖。所有 concluded 結果都帶 `Opinion`。round 的 `ContractTradingMode` 改取自機器人。 |

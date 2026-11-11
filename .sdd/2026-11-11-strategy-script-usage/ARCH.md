@@ -28,7 +28,7 @@
 | `StrategyScriptController` + 路由 | **Modify** | `usage` 進出；新增 `PUT /strategy-scripts/:id/usage`（網頁與外掛皆可）。 |
 | 助手查詢（腳本清單） | **Modify** | 清單帶用途。 |
 | 指標計算（單純算一次） | **Not touched** | 兩種用途都可以算；圖表只列圖表用是前端選單規則。 |
-| 機器人輪次 | **Not touched** | 被引用的腳本不能切成圖表用，輪次不會遇到圖表用的信號來源。 |
+| 讀交易策略規則的每一條路（機器人輪次、交易策略回測、實盤比對） | **Modify**（合約稽核後） | 經 `StrategyScriptService.ResolveOwnedCalculationScript` 再檢查一次計算用：機器人遇到圖表用的來源即整台停擺（策略腳本找不到了那一種），回測與比對即拒絕。這是 PRD 業務規則「照舊經過信號來源的檢查」的落實，也兜住下述競態。 |
 
 ---
 
@@ -52,7 +52,7 @@
 | `StrategyScriptDomain` | 驗證腳本 | 建立時以 `StrategyScriptUsageDomain` 定案；`ToEntity` 帶用途。 |
 | `StrategyScriptService.preparedRewrite` | 改寫的規則 | `writeDto.Usage` 非空白 → `ErrStrategyScriptUsageNotRewritable`；改寫保留儲存的用途。 |
 | `StrategyScriptRepository` | 讀寫腳本 | 新增 `UpdateUsage(ctx, id, usage)`；`Update` 的欄位清單不含 `usage`（改寫不會動它）。 |
-| `TradingStrategyRepository` | — | 新增 `FindNamesByOwnerAndStrategyScript(ctx, ownerID, strategyScriptID) ([]string, error)`（經信號來源表）。 |
+| `TradingStrategyRepository` | — | 新增 `FindNamesByStrategyScript(ctx, strategyScriptID) ([]string, error)`（經信號來源表）。不另依擁有者過濾：信號來源只能指名自己的腳本，篩選設定屬於管理員，凡在用就該擋。 |
 | `SymbolScreeningProfileRepository` | — | 新增 `FindNamesByStrategyScript(ctx, strategyScriptID) ([]string, error)`。 |
 | `TradingStrategySignalSourceWriteDto` | 帶 `DeclaredResultType` | 新增 `DeclaredUsage`；`TradingStrategyApplication` 解析來源時一併填入。 |
 | `TradingStrategySignalSourcesDomain` | 檢查信號種類 | 種類檢查之後呼叫 `RequireCalculation("當信號來源")`，包成 `ErrTradingStrategyValidation`。 |
@@ -89,7 +89,7 @@ flowchart TD
 - **How to add it:** 新增 vo 常數、在 declarable 清單加入、加 `RequireX`；切換時的引用檢查若要擴到別處，在 `SwitchStrategyScriptUsage` 加一個 repository 查詢。
 - **Patterns applied & why:** 規則集中於 domain，消費端只表明身分，避免各處各寫一個字串比較。
 - **Do not hardcode:** 預設用途只在 `StrategyScriptUsageDomain` 建構子。
-- **Known debt / deferred:** 圖表選單過濾在前端；後端「算一次指標」刻意不檢查用途。
+- **Known debt / deferred:** 圖表選單過濾在前端；後端「算一次指標」刻意不檢查用途。**切換用途與存交易策略之間沒有共用鎖**：兩者同時發生時，交易策略可能存下指名一支剛切成圖表用的腳本；之後機器人輪次與回測會在讀規則時拒絕它（見上），所以不會拿圖表用腳本計算，只會留下一份需要擁有者處理的交易策略。若要徹底杜絕，下一步是讓兩邊在同一筆交易裡鎖住腳本列。
 
 ---
 
