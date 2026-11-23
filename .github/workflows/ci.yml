@@ -25,7 +25,139 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  # The checks are three jobs rather than one so they run side by side: the run takes
+  # as long as the slowest of them instead of all of them added up. Each restores and
+  # saves its own build cache, because a race-detector build and a plain one share
+  # almost nothing, and one cache key for all three would leave two of them cold.
+
+  # Everything that compiles without the race detector: formatting, build, vet, mocks,
+  # and the one test run that must not have the detector on.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - id: go-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ github.job }}-
+
+      - run: go mod download
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: mocks match the interfaces they are generated from
+        run: |
+          go generate ./...
+          if ! git diff --quiet -- internal/domain/interface/mocks; then
+            echo "::error::the mocks are stale — run 'make mock' and commit the result"
+            git --no-pager diff --stat -- internal/domain/interface/mocks
+            exit 1
+          fi
+
+      # The script compartment's memory cap is enforced by Linux and measured without
+      # the race detector: the detector's shadow memory counts against the cap and
+      # would make every figure a lie, so those cases skip under -race. This run is
+      # the one that proves the cap on the binary the service actually ships, and a
+      # skip here means nothing proved it.
+      - name: the script memory cap was proved rather than skipped
+        run: |
+          set -o pipefail
+          go test ./internal/infrastructure/script/tests/ -count=1 -v | tee script.log
+          if grep -q '^    --- SKIP\|^--- SKIP' script.log; then
+            echo "::error::script memory-cap tests skipped — the cap went unproved"
+            grep -B1 -A2 'SKIP' script.log
+            exit 1
+          fi
+
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # Every package except the storage tests, under the race detector. None of them
+  # needs a database, so this job has none.
+  unit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - id: go-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ github.job }}-
+
+      - name: go test
+        run: |
+          set -euo pipefail
+          # Listed first, so a package that fails to load fails the step instead of
+          # quietly dropping out of the list go test is handed.
+          packages=$(go list ./... | grep -v '/internal/infrastructure/persistence/tests$')
+          if [ -z "$packages" ]; then
+            echo "::error::go list found no packages to test"
+            exit 1
+          fi
+          go test $packages -count=1 -race -timeout 30m
+
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # The point of the whole file. The storage tests run once, under the race detector,
+  # and that same run is what proves they ran: a skip here means the database never
+  # reached the tests, and every storage guarantee went unchecked while the run stayed
+  # green.
+  storage:
     runs-on: ubuntu-latest
 
     services:
@@ -56,75 +188,55 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
-      - run: go mod download
+      - id: go-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ github.job }}-
 
-      - name: gofmt
-        run: |
-          unformatted=$(gofmt -l ./cmd ./internal)
-          if [ -n "$unformatted" ]; then
-            echo "::error::not gofmt'd:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: go build
-        run: go build ./...
-
-      - name: go vet
-        run: go vet ./...
-
-      - name: mocks match the interfaces they are generated from
-        run: |
-          go generate ./...
-          if ! git diff --quiet -- internal/domain/interface/mocks; then
-            echo "::error::the mocks are stale — run 'make mock' and commit the result"
-            git --no-pager diff --stat -- internal/domain/interface/mocks
-            exit 1
-          fi
-
-      # The storage tests alone take close to Go's default ten minutes under -race.
-      - name: go test
-        run: go test ./... -count=1 -race -timeout 30m
-
-      # The script compartment's memory cap is enforced by Linux and measured without
-      # the race detector: the detector's shadow memory counts against the cap and
-      # would make every figure a lie, so those cases skip under -race. This run is
-      # the one that proves the cap on the binary the service actually ships, and a
-      # skip here means nothing proved it.
-      - name: the script memory cap was proved rather than skipped
-        run: |
-          set -o pipefail
-          go test ./internal/infrastructure/script/tests/ -count=1 -v | tee script.log
-          if grep -q '^    --- SKIP\|^--- SKIP' script.log; then
-            echo "::error::script memory-cap tests skipped — the cap went unproved"
-            grep -B1 -A2 'SKIP' script.log
-            exit 1
-          fi
-
-      # The point of the whole file. A skip here means the database never reached
-      # the tests, and every storage guarantee went unchecked while the run stayed
-      # green.
       - name: the storage tests ran rather than skipped
         run: |
           # Without pipefail the exit status here is tee's, so a storage test that
           # actually failed would be piped straight past this step.
           set -o pipefail
-          go test ./internal/infrastructure/persistence/tests/ -count=1 -v -timeout 30m | tee storage.log
-          if grep -q '^--- SKIP' storage.log; then
+          go test ./internal/infrastructure/persistence/tests/ -count=1 -race -v -timeout 30m | tee storage.log
+          if grep -aq '^--- SKIP' storage.log; then
             echo "::error::storage tests skipped — TEST_POSTGRES_DSN never reached them"
-            grep '^--- SKIP' storage.log
+            grep -a '^--- SKIP' storage.log
             exit 1
           fi
-          echo "storage tests that ran: $(grep -c '^--- PASS' storage.log)"
+          ran=$(grep -ac '^--- PASS' storage.log || true)
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::no storage test reported a pass — nothing proved they ran"
+            exit 1
+          fi
+          echo "storage tests that ran: $ran"
 
-  # Publishing is a separate job rather than more steps on the one above, so that the
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # Publishing is a separate job rather than more steps on the ones above, so that the
   # dependency between them is stated rather than implied by ordering: an image is
-  # only built once the storage tests have actually run and passed. An image nothing
-  # verified is worse than no image at all, because it looks deployable.
+  # only built once every check, the storage tests included, has actually run and
+  # passed. An image nothing verified is worse than no image at all, because it looks
+  # deployable.
   publish:
-    needs: verify
+    needs: [lint, unit, storage]
 
     # Pull requests never reach here. This repository is public, so anyone can open
     # one, and a fork's PR must not be able to put an image under this name — even

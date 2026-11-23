@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // testDatabaseNameSuffix is required on the test database name because these tests wipe tables.
@@ -32,6 +33,9 @@ func newTestDatabase(t testing.TB) *gorm.DB {
 
 	database, err := persistence.NewDatabase(dataSourceName)
 	require.NoError(t, err)
+	// The service's slow-query warnings are noise here: seeding thousands of rows under
+	// the race detector is slow on purpose, and every failure is asserted anyway.
+	database.Logger = logger.Discard
 
 	// Close each pool to avoid exhausting server connections; closing an already-closed pool is harmless.
 	t.Cleanup(func() {
@@ -42,8 +46,16 @@ func newTestDatabase(t testing.TB) *gorm.DB {
 
 		_ = connection.Close()
 	})
-	_, err = persistence.NewSchemaMigrator(database).Migrate()
-	require.NoError(t, err)
+	// Migrating costs most of a second; doing it for each of several hundred tests was
+	// most of the storage suite's run time. So it only runs when the schema is not the
+	// one the last migration left behind — which also covers every test that reshapes
+	// the schema on purpose (drops a column, renames a table, recreates an index) and
+	// relies on the next test getting a migrated database back.
+	if schemaFingerprintOf(t, database) != migratedSchemaFingerprint {
+		_, err = persistence.NewSchemaMigrator(database).Migrate()
+		require.NoError(t, err)
+		migratedSchemaFingerprint = schemaFingerprintOf(t, database)
+	}
 	clearedDatabase := database.Session(&gorm.Session{AllowGlobalUpdate: true})
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.KCandle{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.TradingSymbol{}).Error)
@@ -87,6 +99,48 @@ func newTestDatabase(t testing.TB) *gorm.DB {
 	}
 
 	return database
+}
+
+// migratedSchemaFingerprint is the schema the last migration in this test process left
+// behind; empty until the first one. The storage tests never run in parallel, so a
+// plain variable is enough.
+var migratedSchemaFingerprint string
+
+// schemaFingerprintStatement hashes every column (type, nullability, identity, generation,
+// collation, default), index (definition and validity) and constraint in the schema.
+// It is hand-written because GORM has no API that describes a whole schema at once; it
+// only reads the catalog, and it is what lets a test skip a migration safely.
+const schemaFingerprintStatement = `SELECT md5(
+	coalesce((SELECT string_agg(
+		class.relname || '.' || attribute.attname || ':' ||
+		format_type(attribute.atttypid, attribute.atttypmod) || ':' || attribute.attnotnull || ':' ||
+		attribute.attidentity::text || ':' || attribute.attgenerated::text || ':' || attribute.attcollation::text || ':' ||
+		coalesce(pg_get_expr(columnDefault.adbin, columnDefault.adrelid), ''),
+		',' ORDER BY class.relname, attribute.attname)
+	FROM pg_attribute attribute
+	JOIN pg_class class ON class.oid = attribute.attrelid
+	JOIN pg_namespace namespace ON namespace.oid = class.relnamespace
+	LEFT JOIN pg_attrdef columnDefault
+		ON columnDefault.adrelid = attribute.attrelid AND columnDefault.adnum = attribute.attnum
+	WHERE namespace.nspname = current_schema() AND class.relkind = 'r'
+		AND attribute.attnum > 0 AND NOT attribute.attisdropped), '') ||
+	coalesce((SELECT string_agg(pg_get_indexdef(index.indexrelid) || ':' || index.indisvalid,
+		',' ORDER BY pg_get_indexdef(index.indexrelid))
+	FROM pg_index index
+	JOIN pg_class class ON class.oid = index.indrelid
+	JOIN pg_namespace namespace ON namespace.oid = class.relnamespace
+	WHERE namespace.nspname = current_schema()), '') ||
+	coalesce((SELECT string_agg(
+		conrelid::regclass::text || '.' || conname || ':' || pg_get_constraintdef(oid),
+		',' ORDER BY conrelid::regclass::text, conname)
+	FROM pg_constraint WHERE connamespace = current_schema()::regnamespace), ''))`
+
+// schemaFingerprintOf changes whenever any column, index or constraint does.
+func schemaFingerprintOf(t testing.TB, database *gorm.DB) string {
+	fingerprint := ""
+	require.NoError(t, database.WithContext(t.Context()).Raw(schemaFingerprintStatement).Scan(&fingerprint).Error)
+
+	return fingerprint
 }
 
 // databaseNameIn returns an empty name when the DSN has no dbname, which fails the guard.
