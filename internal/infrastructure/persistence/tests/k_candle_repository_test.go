@@ -106,13 +106,15 @@ func newTestDatabase(t testing.TB) *gorm.DB {
 // plain variable is enough.
 var migratedSchemaFingerprint string
 
-// schemaFingerprintStatement hashes every column, index and constraint in the schema.
+// schemaFingerprintStatement hashes every column (type, nullability, identity, generation,
+// collation, default), index (definition and validity) and constraint in the schema.
 // It is hand-written because GORM has no API that describes a whole schema at once; it
 // only reads the catalog, and it is what lets a test skip a migration safely.
 const schemaFingerprintStatement = `SELECT md5(
 	coalesce((SELECT string_agg(
 		class.relname || '.' || attribute.attname || ':' ||
 		format_type(attribute.atttypid, attribute.atttypmod) || ':' || attribute.attnotnull || ':' ||
+		attribute.attidentity::text || ':' || attribute.attgenerated::text || ':' || attribute.attcollation::text || ':' ||
 		coalesce(pg_get_expr(columnDefault.adbin, columnDefault.adrelid), ''),
 		',' ORDER BY class.relname, attribute.attname)
 	FROM pg_attribute attribute
@@ -122,8 +124,12 @@ const schemaFingerprintStatement = `SELECT md5(
 		ON columnDefault.adrelid = attribute.attrelid AND columnDefault.adnum = attribute.attnum
 	WHERE namespace.nspname = current_schema() AND class.relkind = 'r'
 		AND attribute.attnum > 0 AND NOT attribute.attisdropped), '') ||
-	coalesce((SELECT string_agg(indexdef, ',' ORDER BY indexdef)
-	FROM pg_indexes WHERE schemaname = current_schema()), '') ||
+	coalesce((SELECT string_agg(pg_get_indexdef(index.indexrelid) || ':' || index.indisvalid,
+		',' ORDER BY pg_get_indexdef(index.indexrelid))
+	FROM pg_index index
+	JOIN pg_class class ON class.oid = index.indrelid
+	JOIN pg_namespace namespace ON namespace.oid = class.relnamespace
+	WHERE namespace.nspname = current_schema()), '') ||
 	coalesce((SELECT string_agg(
 		conrelid::regclass::text || '.' || conname || ':' || pg_get_constraintdef(oid),
 		',' ORDER BY conrelid::regclass::text, conname)

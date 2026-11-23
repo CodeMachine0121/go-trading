@@ -43,7 +43,8 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - uses: actions/cache@v4
+      - id: go-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -94,6 +95,17 @@ jobs:
             exit 1
           fi
 
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
   # Every package except the storage tests, under the race detector. None of them
   # needs a database, so this job has none.
   unit:
@@ -107,7 +119,8 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - uses: actions/cache@v4
+      - id: go-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -119,8 +132,26 @@ jobs:
 
       - name: go test
         run: |
-          go test $(go list ./... | grep -v '/internal/infrastructure/persistence/tests$') \
-            -count=1 -race -timeout 30m
+          set -euo pipefail
+          # Listed first, so a package that fails to load fails the step instead of
+          # quietly dropping out of the list go test is handed.
+          packages=$(go list ./... | grep -v '/internal/infrastructure/persistence/tests$')
+          if [ -z "$packages" ]; then
+            echo "::error::go list found no packages to test"
+            exit 1
+          fi
+          go test $packages -count=1 -race -timeout 30m
+
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   # The point of the whole file. The storage tests run once, under the race detector,
   # and that same run is what proves they ran: a skip here means the database never
@@ -159,7 +190,8 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - uses: actions/cache@v4
+      - id: go-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -186,6 +218,17 @@ jobs:
             exit 1
           fi
           echo "storage tests that ran: $ran"
+
+      # Only main saves, so every pull request starts from main's latest build cache
+      # and the repository's 10 GB cache allowance, shared with the image build's
+      # layer cache, is not spent on a fresh copy per pull-request push.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   # Publishing is a separate job rather than more steps on the ones above, so that the
   # dependency between them is stated rather than implied by ordering: an image is
